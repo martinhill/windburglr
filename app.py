@@ -40,7 +40,8 @@ def queryWindData(station, start_time, end_time):
     db = get_connection()
     c = db.cursor()
     c.execute("SELECT update_time, direction, speed_kts, gust_kts " \
-              "FROM obs WHERE station = %s AND update_time > %s AND update_time < %s;",
+              "FROM obs WHERE station = %s AND update_time > %s AND update_time < %s " \
+              "ORDER BY update_time;",
               (station, start_time, end_time))
     return c.fetchall() 
 
