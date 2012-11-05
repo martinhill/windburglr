@@ -1,0 +1,161 @@
+<html>
+  <head>
+    <style type="text/css">
+      body {
+        margin: 0px;
+        padding: 0px;
+      }
+      #container {
+        width : 90%;
+        height: 80%;
+        margin: 8px auto;
+      }
+    </style>
+    <title>Martn's Wind</title>
+  </head>
+  <body>
+    <div id="container"></div>
+    <p>
+        <span id=success></span>
+        <span id=station></span>
+    </p>
+    <p>
+        <span id=result></span>
+    </p>
+  </body>
+
+  <script src="//ajax.googleapis.com/ajax/libs/jquery/1.8.1/jquery.js"></script>
+  <script>window.jQuery || document.write('<script src="{{
+  url_for('static', filename='jquery.js') }}">\x3C/script>')</script>
+  <script src="{{url_for('static', filename='flotr2.min.js') }}"></script>
+
+<script type=text/javascript>
+    $SCRIPT_ROOT = {{ request.script_root|tojson|safe }};
+</script>
+
+<script>
+(function basic_time(container) {
+
+  var windspeed = [],
+    windgust = [],
+    winddir_complete = [],
+    winddir = [],
+    winddir_data = [],
+    winddir_y = 5,
+    winddir_mintime = 1800000,
+    pi180 = Math.PI / 180,
+    options,
+    graph,
+    directions_degrees = 45/2,
+    directions = [ "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", 
+                   "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW", "N" ],
+    i, x, o;
+
+  options = {
+    xaxis : {
+      mode : 'time', 
+      labelsAngle : 45,
+      timeMode: 'local',
+      showMinorLabels: true,
+      noTicks: 12
+    },
+    yaxis : {
+        title: "Knots",
+        tickDecimals: 0
+    },
+    y2axis: {
+        title: "Degrees",
+        min: 0,
+        max: 360,
+        ticks : [[ 0, "N"], [45, "NE"], [90, "E"], [135, "SE"], [180, "S"], [225, "SW"], 
+                    [270, "W"], [315, "NW"], [360, "N"] ],
+    },
+    selection : {
+      mode : 'x'
+    },
+    HtmlText : false,
+    title : "Station"
+  };
+
+    // convert start/end time to UTC
+    var start_time = new Date('{{ start_time }}')
+    start_time.setTime(start_time.getTime() + start_time.getTimezoneOffset() * 60000);
+    var end_time = new Date('{{ end_time }}');
+    end_time.setTime(end_time.getTime() + end_time.getTimezoneOffset() * 60000);
+
+    $.getJSON($SCRIPT_ROOT + '/wind', {
+            stn : '{{ station }}',
+            from : start_time.toISOString(),
+            to : end_time.toISOString()
+        }, function(data, textStatus) {
+            options.title = data.station;
+//            $("#success").text(textStatus);
+//            $("#station").text(data.station);
+//            $("#result").text(data.winddata);
+            var winddir_last_time = null;
+            var winddir_last = null;
+
+            for (i = 0; i < data.winddata.length; i++ ) {
+                var dat = data.winddata[i];
+                var x_time = new Date(dat[0] + " GMT").getTime();
+                // filter out a subset of the wind direction data
+                if (dat[1] != null && 
+                    (winddir_last_time == null || winddir_last_time + winddir_mintime < x_time
+                    ) ) { 
+                    winddir.push(dat[1]);
+                    winddir_data.push([x_time, winddir_y]);
+                    winddir_last_time = x_time;
+                    };
+                windspeed.push([x_time, dat[2]]);
+                windgust.push([x_time, dat[3]]);
+                // insert nulls for big discontinuities caused by wind crossing north
+                // to prevent noisy vertical lines
+                if ( winddir_last != null && ((dat[1] > 320 && winddir_last < 50) || 
+                                              (dat[1] < 50 && winddir_last > 320) ) ) {
+                    winddir_complete.push([x_time, null]);
+                }
+                winddir_last = dat[1];
+                winddir_complete.push([x_time, dat[1]]);
+            }
+            graph = drawGraph();
+        });
+
+  // Draw graph with default options, overwriting with passed options
+  function drawGraph (opts) {
+
+    // Clone the options, so the 'options' variable always keeps intact.
+    o = Flotr._.extend(Flotr._.clone(options), opts || {});
+
+    // Return a new graph.
+    return Flotr.draw(
+      container,
+      [ { data: windspeed, lines: { fill : true, fillColor: ['#00A8F0', '#fff'], fillOpacity: 1 } }, 
+        { data: windgust, lines: { color: 'red'} },
+//        { data: winddir_data, markers: { show: true, position: 'ct', labelFormatter: 
+//            function(o) { 
+//                return directions[Math.round((winddir[o.index]/directions_degrees))] 
+//            } 
+//            } },
+        { data: winddir_complete, lines: { color: 'orange' }, yaxis:2 }],
+      o
+    );
+  }
+
+//  graph = drawGraph();      
+        
+  Flotr.EventAdapter.observe(container, 'flotr:select', function(area){
+    // Draw selected area
+    var xtitle = new Date(area.x1).toLocaleDateString();
+    graph = drawGraph({
+      xaxis : { min : area.x1, max : area.x2, mode : 'time', labelsAngle : 45, noTicks: 12, 
+                showMinorLabels: true, timeMode: 'local', title: xtitle },
+      yaxis : { min : area.y1, max : area.y2, tickDecimals: 0, title: "Knots" }
+    });
+  });
+        
+  // When graph is clicked, draw the graph with default area.
+  Flotr.EventAdapter.observe(container, 'flotr:click', function () { graph = drawGraph(); });
+})(document.getElementById("container"));
+    </script>
+</html>
+
