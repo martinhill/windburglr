@@ -84,7 +84,6 @@ def run(c, station, refresh_rate=60):
     "Loop indefinitely scraping the data and writing to the connection c"
     last_obs_time = None
     while True:
-        obs = scrapeIIDSWebView(url_base + station)
         try:
             obs = scrapeIIDSWebView(url_base + station)
         except Exception, ex:
