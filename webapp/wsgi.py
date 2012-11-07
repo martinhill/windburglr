@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import psycopg2
 import urlparse
 
-app = Flask(__name__)
+application = app = Flask(__name__)
 
 urlparse.uses_netloc.append("postgres")
 database = os.getenv('DATABASE_URL') or 'postgres://localhost'
