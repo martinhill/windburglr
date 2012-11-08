@@ -2,12 +2,17 @@
 
 import os
 import sys
-from bs4 import BeautifulSoup
+try:
+    from bs4 import BeautifulSoup
+except ImportError, ie:
+    sys.path.append(os.path.join(os.getcwd(), 'site-packages'))
+    from bs4 import BeautifulSoup
 import urllib2
 import re
 import time
 from datetime import datetime
 import psycopg2
+import json
 import urlparse
 
 url_base = "http://atm.navcanada.ca/atm/iwv/"
@@ -109,18 +114,59 @@ def run(c, station, refresh_rate=60):
                 time.sleep(refresh_rate / 2)
 
 
-if __name__ == '__main__':
-    urlparse.uses_netloc.append("postgres")
-    url = urlparse.urlparse(os.getenv("DATABASE_URL") or default_db)
+def getdb():
+    "Get the database connection. Auto-detects heroku, appfog, or local environment"
 
-    conn = psycopg2.connect(
-        database=url.path[1:],
-        user=url.username,
-        password=url.password,
-        host=url.hostname,
-        port=url.port
+# Try appfog 
+    services = json.loads(os.environ.get("VCAP_SERVICES", "{}"))
+    if services:
+        try:
+            creds = services['postgresql-9.1'][0]['credentials']
+        except KeyError, ke:
+            print >> sys.stderr, "VCAP_SERVICES = %s" % str(services)
+            raise ke
+        database = creds['name']
+        username = creds['username']
+        password = creds['password']
+        hostname = creds['hostname']
+        port     = creds['port']
+
+        uri = "postgres://%s:%s@%s:%d/%s" % (
+            creds['username'],
+            creds['password'],
+            creds['hostname'],
+            creds['port'],
+            creds['name'])
+    else:
+# Try heroku / localhost
+        urlparse.uses_netloc.append("postgres")
+        uri = os.environ.get("DATABASE_URL", default_db)
+        url = urlparse.urlparse(uri)
+        database = url.path[1:]
+        username = url.username
+        password = url.password
+        hostname = url.hostname
+        port     = url.port
+
+    print >> sys.stderr, "Connecting to database: %s" % uri
+
+    return psycopg2.connect(
+        database=database,
+        user=username,
+        password=password,
+        host=hostname,
+        port=port
     )
-    
+
+def init_db(db):
+    "Initialize the database"
+    with open('schema.sql') as f:
+        db.cursor().execute(f.read())
+    db.commit()
+
+if __name__ == '__main__':
+    conn = getdb()
+    init_db(conn)   
     c = conn.cursor()
     run(c, station_default)
     conn.close()
