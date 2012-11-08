@@ -87,12 +87,12 @@
         start_time.setSeconds(0);
         start_time.setMilliseconds(0);
     {% endif %} 
-    start_time.setTime(start_time.getTime() + start_time.getTimezoneOffset() * 60000);
+    //start_time.setTime(start_time.getTime() + start_time.getTimezoneOffset() * 60000);
     console.log(start_time);
     
     {% if end_time %}
         var end_time = new Date({{ end_time|join(',') }});
-        end_time.setTime(end_time.getTime() + end_time.getTimezoneOffset() * 60000);
+        //end_time.setTime(end_time.getTime() + end_time.getTimezoneOffset() * 60000);
         console.log(end_time);
     {% endif %}
 
