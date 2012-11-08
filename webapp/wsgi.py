@@ -95,20 +95,26 @@ def getWindData():
 
 @app.route('/')
 def hello():
-    return render_template('hello.html')
+    station = request.args.get('stn', default_station)
+    start_date = datetime.today() - timedelta(0, 3600*3)
+    return render_template(basic_template, 
+        wind=wind_url,
+        station=default_station,
+        start_time=[start_date.year, start_date.month-1, start_date.day, 
+                    start_date.hour, start_date.minute, start_date.second])
 
 @app.route('/day')
 @app.route('/day/<date>')
 def day(date=None):
     station = request.args.get('stn', default_station)
     start_date = datetime.strptime(date, '%Y-%m-%d') if date is not None \
-        else datetime.today().date()
+        else datetime.today().date() # KLUDGE: assumes client & server in same timezone
     end_date = start_date + timedelta(1)
     return render_template(basic_template, 
         wind=wind_url,
         station=default_station,
-        start_time=start_date.isoformat(),
-        end_time=end_date.isoformat())
+        start_time=[start_date.year, start_date.month-1, start_date.day, 0, 0, 0],
+        end_time=[end_date.year, end_date.month-1, end_date.day, 0, 0, 0])
 
 if __name__ == '__main__':
     # Bind to PORT if defined, otherwise default to 5000.
