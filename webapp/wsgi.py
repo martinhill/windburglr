@@ -1,13 +1,18 @@
 import os
+import sys
 from flask import Flask, jsonify, render_template, request, g
 from datetime import datetime, timedelta
 import psycopg2
-import urlparse
+import json
 
 application = app = Flask(__name__)
 
-urlparse.uses_netloc.append("postgres")
-database = os.getenv('DATABASE_URL') or 'postgres://localhost'
+services = json.loads(os.environ.get("VCAP_SERVICES", "{}"))
+if not services:
+    import urlparse
+    urlparse.uses_netloc.append("postgres")
+    database_uri = os.environ.get('DATABASE_URL', 'postgres://localhost') 
+    database_url = urlparse.urlparse(database_uri)
 
 basic_template = 'basic.html'
 default_station = 'CYTZ'
@@ -15,14 +20,42 @@ wind_url = '/wind'
 iso_format = '%Y-%m-%dT%H:%M:%S.%fZ'
 
 def connect_db():
-    url = urlparse.urlparse(database)
+    if services:
+# Try appfog
+        try:
+            creds = services['postgresql-9.1'][0]['credentials']
+        except KeyError, ke:
+            print >> sys.stderr, "VCAP_SERVICES = %s" % str(services)
+            raise ke
+        database = creds['name']
+        username = creds['username']
+        password = creds['password']
+        hostname = creds['hostname']
+        port     = creds['port']
+
+        uri = "postgres://%s:%s@%s:%d/%s" % (
+            creds['username'],
+            creds['password'],
+            creds['hostname'],
+            creds['port'],
+            creds['name'])
+    else:
+# Try heroku / localhost
+        uri = database_uri
+        database = database_url.path[1:]
+        username = database_url.username
+        password = database_url.password
+        hostname = database_url.hostname
+        port     = database_url.port
+
+    print >> sys.stderr, "Connecting to database: %s" % uri
 
     return psycopg2.connect(
-        database=url.path[1:],
-        user=url.username,
-        password=url.password,
-        host=url.hostname,
-        port=url.port
+        database=database,
+        user=username,
+        password=password,
+        host=hostname,
+        port=port
     )
 
 def get_connection():
