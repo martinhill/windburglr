@@ -27,6 +27,8 @@ wind_gust_re = re.compile('Gusting:')
 updated_re = re.compile('Updated:')
 error_time_fmt = '%m-%d %H:%M:%S'
 
+value_lookup = { '':None, 'CALM':0, '?':None, '--':None }
+coerce_int = lambda x: value_lookup[x] if value_lookup.has_key(x) else int(x)
 
 def scrapeIIDSWebView(url):
     "Returns the wind data as tuple (direction, speed, gust, datetime)"
@@ -40,37 +42,32 @@ def scrapeIIDSWebView(url):
     wind_speed_text = None
     wind_gust = None
     wind_gust_text = None
+    find_iids_text = lambda expr: soup.find_all(text=expr)[0].next_element.next_element.text.strip()
 
     # Wind direction
     try:
-        wind_dir_elmt = soup.find_all(text=wind_dir_re)
-        wind_dir_text = wind_dir_elmt[0].next_element.next_element.text.strip()
-        wind_dir = len(wind_dir_text) > 0 and int(wind_dir_text) or None
+        wind_dir_text = find_iids_text(wind_dir_re)
+        wind_dir = coerce_int(wind_dir_text)
     except ValueError, ex:
         sys.stderr.write('ValueError %s: wind_dir_text="%s"\n' % (str(ex), wind_dir_text))
     
     # Wind speed
     try:
-        wind_speed_elmt = soup.find_all(text=wind_speed_re)
-        wind_speed_text = wind_speed_elmt[0].next_element.next_element.text.strip()
-        wind_speed = len(wind_speed_text) > 0 and wind_speed_text != 'CALM' \
-            and int(wind_speed_text) or None
+        wind_speed_text = find_iids_text(wind_speed_re)
+        wind_speed = coerce_int(wind_speed_text)
     except ValueError, ex:
         sys.stderr.write('ValueError %s: wind_speed_text="%s"\n' % (str(ex), wind_speed_text))
 
     # Wind gust
     try:
-        wind_gust_elmt = soup.find_all(text=wind_gust_re)
-        wind_gust_text = wind_gust_elmt[0].next_element.next_element.text.strip()
-        wind_gust = len(wind_gust_text) > 0 and wind_gust_text != '--' and \
-            int(wind_gust_text.strip('G')) or None
+        wind_gust_text = find_iids_text(wind_gust_re)
+        wind_gust = coerce_int(wind_gust_text)
     except ValueError, ex:
         sys.stderr.write('ValueError %s: wind_gust_text="%s"\n' % (str(ex), wind_gust_text))
     
     # Update date/time
     try:
-        updated_elmt = soup.find_all(text=updated_re)
-        updated_text = updated_elmt[0].next_element.next_element.text
+        updated_text = find_iids_text(updated_re)
         updated = datetime.strptime(updated_text, '%Y-%m-%d %H:%M:%SZ')
     except ValueError, ex:
         sys.stderr.write('ValueError %s: updated_text="%s"\n' % (str(ex), updated_text))
@@ -100,19 +97,24 @@ def run(conn, station, refresh_rate=60):
         else:
             # Ensure the observation is new (check update time)
             if last_obs_time is None or obs[3] > last_obs_time:
-                try:
-                    writeObservation(c, (station,) + obs)
-                except Exception, ex:
-                    sys.stderr.write('%s %s in writeObservation: %s\n' % 
-                        (datetime.now().strftime(error_time_fmt), type(ex).__name__, str(ex)) )
-                    sys.stderr.write('obs = %s\n' % str(obs))
-                    c.close()
-                    c = conn.cursor()
+                if obs[0] is not None or obs[1] is not None:
+                    try:
+                        writeObservation(c, (station,) + obs)
+                    except Exception, ex:
+                        sys.stderr.write('%s %s in writeObservation: %s\n' % 
+                            (datetime.now().strftime(error_time_fmt), 
+                            type(ex).__name__, str(ex)) )
+                        sys.stderr.write('obs = %s\n' % str(obs))
+                        c.close()
+                        conn.rollback()
+                        c = conn.cursor()
+                    else:
+                        conn.commit()
+                        last_obs_time = obs[3]
+                    finally:
+                        time.sleep(refresh_rate)
                 else:
-                    conn.commit()
-                    last_obs_time = obs[3]
-                finally:
-                    time.sleep(refresh_rate)
+                    print 'Skipping observation %s' % str(obs)
             else:
                 # sleep half the refresh time when we get a duplicate
                 time.sleep(refresh_rate / 2)
