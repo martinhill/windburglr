@@ -85,15 +85,17 @@ def writeObservation(c, obs):
         VALUES (%s, %s, %s, %s, %s)""", obs)
 
 
-def run(c, station, refresh_rate=60):
+def run(conn, station, refresh_rate=60):
     "Loop indefinitely scraping the data and writing to the connection c"
     last_obs_time = None
+    c = conn.cursor()
     while True:
         try:
             obs = scrapeIIDSWebView(url_base + station)
         except Exception, ex:
-            sys.stderr.write('%s Error in scrapeIIDSWebView(%s): %s\n' %
-                (datetime.now().strftime(error_time_fmt), url_base+station, str(ex)))
+            sys.stderr.write('%s %s in scrapeIIDSWebView(%s): %s\n' %
+                (datetime.now().strftime(error_time_fmt), type(ex).__name__, 
+                url_base+station, str(ex)))
             time.sleep(refresh_rate)
         else:
             # Ensure the observation is new (check update time)
@@ -101,9 +103,11 @@ def run(c, station, refresh_rate=60):
                 try:
                     writeObservation(c, (station,) + obs)
                 except Exception, ex:
-                    sys.stderr.write('%s Error in writeObservation: %s\n' % 
-                        (datetime.now().strftime(error_time_fmt), str(ex)) )
+                    sys.stderr.write('%s %s in writeObservation: %s\n' % 
+                        (datetime.now().strftime(error_time_fmt), type(ex).__name__, str(ex)) )
                     sys.stderr.write('obs = %s\n' % str(obs))
+                    c.close()
+                    c = conn.cursor()
                 else:
                     conn.commit()
                     last_obs_time = obs[3]
@@ -167,7 +171,6 @@ def init_db(db):
 if __name__ == '__main__':
     conn = getdb()
     init_db(conn)   
-    c = conn.cursor()
-    run(c, station_default)
+    run(conn, station_default)
     conn.close()
 
