@@ -1,0 +1,12 @@
+{% extends "basic.html" %}
+{% block calc_time_range %}
+    var start_time = new Date();
+{% if minutes %}
+    start_time.setTime(start_time.getTime() - ({{ minutes }} * 60000));
+{% endif %}
+{% if hours %}
+    start_time.setTime(start_time.getTime() - ({{ hours }} * 3600000));
+{% endif %}
+    start_time.setMilliseconds(0);
+{% endblock %}
+

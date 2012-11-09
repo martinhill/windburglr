@@ -77,25 +77,12 @@
     title : "Station"
   };
 
-    // convert start/end time to UTC
-    {% if start_time %}
-        var start_time = new Date({{ start_time|join(',') }});
-    {% else %}
-        var start_time = new Date();
-        start_time.setHours(0);
-        start_time.setMinutes(0);
-        start_time.setSeconds(0);
-        start_time.setMilliseconds(0);
-    {% endif %} 
-    //start_time.setTime(start_time.getTime() + start_time.getTimezoneOffset() * 60000);
-    console.log(start_time);
-    
-    {% if end_time %}
-        var end_time = new Date({{ end_time|join(',') }});
-        //end_time.setTime(end_time.getTime() + end_time.getTimezoneOffset() * 60000);
-        console.log(end_time);
-    {% endif %}
-
+    {% block calc_time_range %}
+    // determine the time range to display
+    {# child must declare var start_time, and optionally end_time if
+       end_time parameter is passed 
+    #}
+    {% endblock %}
 
     $.getJSON($SCRIPT_ROOT + '{{ wind }}', {
             stn : '{{ station }}',

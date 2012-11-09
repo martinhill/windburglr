@@ -14,7 +14,8 @@ if not services:
     database_uri = os.environ.get('DATABASE_URL', 'postgres://localhost') 
     database_url = urlparse.urlparse(database_uri)
 
-basic_template = 'basic.html'
+current_template = 'current.html'
+day_template = 'day.html'
 default_station = 'CYTZ'
 wind_url = '/wind'
 iso_format = '%Y-%m-%dT%H:%M:%S.%fZ'
@@ -96,25 +97,30 @@ def getWindData():
 @app.route('/')
 def hello():
     station = request.args.get('stn', default_station)
-    start_date = datetime.today() - timedelta(0, 3600*3)
-    return render_template(basic_template, 
+    minutes = request.args.get('minutes', 0, int)
+    hours = request.args.get('hours', 3 if minutes == 0 else 0, int)
+    return render_template(
+        current_template, 
         wind=wind_url,
         station=default_station,
-        start_time=[start_date.year, start_date.month-1, start_date.day, 
-                    start_date.hour, start_date.minute, start_date.second])
+        hours=hours,
+        minutes=minutes)
 
 @app.route('/day')
 @app.route('/day/<date>')
 def day(date=None):
     station = request.args.get('stn', default_station)
-    start_date = datetime.strptime(date, '%Y-%m-%d') if date is not None \
-        else datetime.today().date() # KLUDGE: assumes client & server in same timezone
-    end_date = start_date + timedelta(1)
-    return render_template(basic_template, 
-        wind=wind_url,
-        station=default_station,
-        start_time=[start_date.year, start_date.month-1, start_date.day, 0, 0, 0],
-        end_time=[end_date.year, end_date.month-1, end_date.day, 0, 0, 0])
+    if date:
+        start_date = datetime.strptime(date, '%Y-%m-%d')
+        end_date = start_date + timedelta(1)
+        return render_template(day_template, 
+            wind=wind_url,
+            station=default_station,
+            start_time=[start_date.year, start_date.month-1, start_date.day],
+            end_time=[end_date.year, end_date.month-1, end_date.day])
+    else:
+        return render_template(day_template, wind=wind_url, station=default_station)
+
 
 if __name__ == '__main__':
     # Bind to PORT if defined, otherwise default to 5000.
