@@ -2,6 +2,6 @@ TODO
 
 1. fix iOS safari plotting
 2. streaming!
-3. data import/export url
-4. external flotr2 url
+3. external flotr2 url
+4. APScheduler, and add deleting of old rows
 
