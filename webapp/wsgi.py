@@ -21,6 +21,11 @@ default_station = 'CYTZ'
 wind_url = '/wind'
 iso_format = '%Y-%m-%dT%H:%M:%S.%fZ'
 
+epoch = datetime.utcfromtimestamp(0)
+def epoch_time(dt):
+    delta = dt - epoch
+    return delta.total_seconds()
+
 def connect_db():
     if services:
 # Try appfog
@@ -91,7 +96,7 @@ def getWindData():
     data = queryWindData(station, start_time, end_time)
     # This is a kludge to make the data jasonifiable, since it contains
     # datetime and Decimal classes
-    serialized = [(time.mktime(x[0].timetuple()), x[1] and int(x[1]), x[2] and int(x[2]), x[3] and int(x[3])) 
+    serialized = [(epoch_time(x[0]), x[1] and int(x[1]), x[2] and int(x[2]), x[3] and int(x[3])) 
         for x in data]
     return jsonify(station=station, winddata=serialized)
 
