@@ -61,7 +61,7 @@ def scrapeIIDSWebView(url):
     # Wind gust
     try:
         wind_gust_text = find_iids_text(wind_gust_re)
-        wind_gust = coerce_int(wind_gust_text)
+        wind_gust = coerce_int(wind_gust_text.strip('G'))
     except ValueError, ex:
         sys.stderr.write('ValueError %s: wind_gust_text="%s"\n' % (str(ex), wind_gust_text))
     
