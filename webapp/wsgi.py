@@ -2,6 +2,7 @@ import os
 import sys
 from flask import Flask, jsonify, render_template, request, g
 from datetime import datetime, timedelta
+import time
 import psycopg2
 import json
 
@@ -90,7 +91,7 @@ def getWindData():
     data = queryWindData(station, start_time, end_time)
     # This is a kludge to make the data jasonifiable, since it contains
     # datetime and Decimal classes
-    serialized = [(str(x[0]), x[1] and int(x[1]), x[2] and int(x[2]), x[3] and int(x[3])) 
+    serialized = [(time.mktime(x[0].timetuple()), x[1] and int(x[1]), x[2] and int(x[2]), x[3] and int(x[3])) 
         for x in data]
     return jsonify(station=station, winddata=serialized)
 

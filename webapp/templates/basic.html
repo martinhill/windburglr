@@ -6,8 +6,8 @@
         padding: 0px;
       }
       #container {
-        width : 100%;
-        height: 100%;
+        width : 90%;
+        height: 90%;
         margin: 8px auto;
       }
     </style>
@@ -95,10 +95,11 @@
 //            $("#result").text(data.winddata);
             var winddir_last_time = null;
             var winddir_last = null;
+            var tz_offset = new Date().getTimezoneOffset() * 60000;
 
             for (i = 0; i < data.winddata.length; i++ ) {
                 var dat = data.winddata[i];
-                var x_time = new Date(dat[0] + " GMT").getTime();
+                var x_time = dat[0] * 1000 - tz_offset; // new Date(dat[0] + " GMT").getTime();
                 // filter out a subset of the wind direction data
                 if (dat[1] != null && 
                     (winddir_last_time == null || winddir_last_time + winddir_mintime < x_time
