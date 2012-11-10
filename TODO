@@ -1,6 +1,8 @@
 TODO
 
-1. fix safari plotting
-2. streaming!
-3. APScheduler, and deleting of old rows to manage db size
+1. current conditions: mean, median, sigma, lull, gust for past n minutes.
+2. nice multi-page UI for mobile.
+    - button to zoom plot
+3. streaming!
+4. APScheduler, and deleting of old rows to manage db size
 
