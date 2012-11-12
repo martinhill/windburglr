@@ -85,6 +85,12 @@ def queryWindData(station, start_time, end_time):
               (station, start_time, end_time))
     return c.fetchall() 
 
+def safe_int(d):
+    try:
+        i = int(d)
+    except TypeError:
+        i = None
+    return i
 
 @app.route(wind_url)
 def getWindData():
@@ -96,8 +102,8 @@ def getWindData():
     data = queryWindData(station, start_time, end_time)
     # This is a kludge to make the data jasonifiable, since it contains
     # datetime and Decimal classes
-    serialized = [(epoch_time(x[0]), x[1] and int(x[1]), x[2] and int(x[2]), x[3] and int(x[3])) 
-        for x in data]
+    serialized = [(epoch_time(x[0]), safe_int(x[1]), safe_int(x[2]), safe_int(x[3])) 
+                    for x in data]
     return jsonify(station=station, winddata=serialized)
 
 @app.route('/')
