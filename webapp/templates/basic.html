@@ -15,30 +15,15 @@
   </head>
   <body>
     <div id="current">
-        <table class="wind-data">
-        <caption>Current Conditions (kts)</caption>
-        <tr>
-        <td class="data-desc"><span>Mean</span></td>
-        <td class="data-value"><span id="mean"></span></td>
-        </tr>
-<!--        <tr>
-        <td class="data-desc"><span>Median</span></td>
-        <td class="data-value"><span id="median"></span></td>
-        </tr>
--->
-        <tr>
-        <td class="data-desc"><span>Sigma</span></td>
-        <td class="data-value"><span id="sigma"></span></td>
-        </tr>
-        <tr>
-        <td class="data-desc"><span>Lull</span></td>
-        <td class="data-value"><span id="lull"></span></td>
-        </tr>
-        <tr>
-        <td class="data-desc"><span>Gust</span></td>
-        <td class="data-value"><span id="gust"></span></td>
-        </tr>
-        </table>
+        <span>Current Conditions: </span>
+        <span id="mean"></span>
+        <span> kts</span>
+        <span> (</span>
+        <span id="lull"></span>
+        <span>-</span>
+        <span id="gust"></span>
+        <span>) &sigma;=</span>
+        <span id="sigma"></span>
     </div>
     <div id="container"></div>
     <div>
@@ -170,7 +155,7 @@
             var winddir_last_time = null;
             var winddir_last = null;
 
-            calcCurrentConditions(data.winddata, (new Date().getTime()/1000) - (30 * 60));
+            calcCurrentConditions(data.winddata, (new Date().getTime()/1000) - (15 * 60));
 
             for (i = 0; i < data.winddata.length; i++ ) {
                 var dat = data.winddata[i];
