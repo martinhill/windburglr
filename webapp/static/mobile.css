@@ -1,0 +1,19 @@
+/* iPhone-specific styles */
+@media only screen and (max-device-width: 480px) { 
+
+	html {
+        font-size: small;
+		-webkit-text-size-adjust: none;
+	}
+    #current {
+        width:100%;
+        padding: 3px;
+     }
+    #container {
+        width : 100%;
+        height: 90%;
+        padding: 0px;
+        margin: 1px auto;
+    }
+}
+

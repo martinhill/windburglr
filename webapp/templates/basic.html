@@ -1,35 +1,18 @@
 <html>
   <head>
-    <style type="text/css">
-      body {
-        margin: 0px;
-        padding: 0px;
-      }
-      #container {
-        width : 90%;
-        height: 90%;
-        margin: 8px auto;
-      }
-    </style>
+   <link rel="stylesheet" href="{{url_for('static', filename='site.css') }}" type="text/css" media="Screen" />
+<link rel="stylesheet" href="{{url_for('static', filename='mobile.css') }}" type="text/css" media="only screen and (max-device-width:480px)" />
     <title>wind burglr</title>
+  <!-- prevent small devices from attempting to render a desktop-sized page -->
+  <meta name="viewport" content="width=device-width" />
   </head>
   <body>
-    <div id="current">
-        <span>Current Conditions: </span>
-        <span id="mean"></span>
-        <span> kts</span>
-        <span> (</span>
-        <span id="lull"></span>
-        <span>-</span>
-        <span id="gust"></span>
-        <span>) &sigma;=</span>
-        <span id="sigma"></span>
-    </div>
-    <div id="container"></div>
+{% block body_part_1 %}
+{% endblock %}
+   <div id="container"></div>
     <div>
     <p>
         <span id=success></span>
-        <span id=station></span>
     </p>
     <p>
         <span id=result></span>
@@ -70,7 +53,7 @@
   options = {
     xaxis : {
       mode : 'time', 
-//      labelsAngle : 45,
+      labelsAngle : 45,
       timeMode: 'local',
       showMinorLabels: true,
       noTicks: 12
@@ -89,54 +72,11 @@
     selection : {
       mode : 'x'
     },
-    title : "Station"
+    HtmlText : false,
+    title: " "
   };
 
-    // Calculate the current conditions stats
-    function calcCurrentConditions(winddata, window_start_time) {
-        var sum = 0;
-        var sumsq = 0;
-        var n = 0;
-        var mean, sigma = 0, lull, gust;
-        for ( var i = winddata.length-1; i >= 0; i-- ) {
-            var dat = winddata[i];
-            if ( dat[0] < window_start_time ) break;
-            if ( dat[wind_speed_idx] != null ) {
-                var wind_speed = dat[wind_speed_idx];
-                sum += wind_speed;
-                n++;
-                if ( lull == null || lull > wind_speed ) {
-                    lull = wind_speed;
-                }
-                if ( gust == null || gust < dat[wind_gust_idx] || gust < wind_speed ) {
-                    gust = dat[wind_gust_idx] || wind_speed;
-                }
-            }
-        }
-        if ( n > 0 ) {
-            mean = sum / n;
-            // calc stddev (sigma)
-            if ( n > 1 ) {
-                for ( i = winddata.length-1; i >= 0; i-- ) {
-                    var dat = winddata[i];
-                    if ( dat[0] < window_start_time ) break;
-                    if ( dat[wind_speed_idx] != null ) {
-                        var wind_speed = dat[wind_speed_idx];
-                        var diff = wind_speed - mean;
-                        sigma += diff * diff;
-                    }
-                }
-                sigma /= n - 1;
-            }
-        }
-        console.log([window_start_time, n, mean, sigma, lull, gust]);
-        $('span[id="mean"]').text(mean.toFixed(1));
-        $('span[id="sigma"]').text(sigma.toPrecision(2));
-        $('span[id="lull"]').text(lull.toFixed(0));
-        $('span[id="gust"]').text(gust.toFixed(0));
-    }
-
-    {% block calc_time_range %}
+    {% block js_code_1 %}
     // determine the time range to display
     {# child must declare var start_time, and optionally end_time if
        end_time parameter is passed 
@@ -148,14 +88,15 @@
             from : start_time.toISOString(){% if end_time %},
             to : end_time.toISOString() {% endif %}
         }, function(data, textStatus) {
-            options.title = data.station;
+//            options.title = data.station;
 //            $("#success").text(textStatus);
 //            $("#station").text(data.station);
 //            $("#result").text(data.winddata);
             var winddir_last_time = null;
             var winddir_last = null;
 
-            calcCurrentConditions(data.winddata, (new Date().getTime()/1000) - (15 * 60));
+{% block js_json_code_1 %}
+{% endblock %}
 
             for (i = 0; i < data.winddata.length; i++ ) {
                 var dat = data.winddata[i];
@@ -207,10 +148,9 @@
         
   Flotr.EventAdapter.observe(container, 'flotr:select', function(area){
     // Draw selected area
-    var xtitle = new Date(area.x1).toLocaleDateString();
     graph = drawGraph({
-      xaxis : { min : area.x1, max : area.x2, mode : 'time', noTicks: 12, 
-                showMinorLabels: true, timeMode: 'local', title: xtitle },
+      xaxis : { min : area.x1, max : area.x2, mode : 'time', labelsAngle : 45, noTicks: 12, 
+                showMinorLabels: true, timeMode: 'local' },
       yaxis : { min : area.y1, max : area.y2, tickDecimals: 0 }
     });
   });
