@@ -2,7 +2,7 @@
 @media only screen and (max-device-width: 480px) { 
 
 	html {
-        font-size: small;
+        font-size: medium;
 		-webkit-text-size-adjust: none;
 	}
     #current {
