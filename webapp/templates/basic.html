@@ -9,7 +9,7 @@
   <body>
 {% block body_part_1 %}
 {% endblock %}
-    <div>
+    <div id="messages" class="hidden">
     <p>
         <span id=fail></span>
     </p>
@@ -120,6 +120,7 @@
         console.log(jqxhr);
         $("#fail").text("Pulled quick-release while loading data (code " + 
             jqxhr.status.toString() + "): " + errorThrown); 
+        $('div[id="messages"]').show();
         })
     .always(function() { });
 
