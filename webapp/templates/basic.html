@@ -115,7 +115,7 @@
             }
             graph = drawGraph();
         })
-    .done(function() { })
+    .done(function() { $('div[id="messages"]').hide(); })
     .fail(function(jqxhr, textStatus, errorThrown) { 
         console.log(jqxhr);
         $("#fail").text("Pulled quick-release while loading data (code " + 
