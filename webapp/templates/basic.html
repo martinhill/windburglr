@@ -9,15 +9,12 @@
   <body>
 {% block body_part_1 %}
 {% endblock %}
-   <div id="container"></div>
     <div>
     <p>
-        <span id=success></span>
-    </p>
-    <p>
-        <span id=result></span>
+        <span id=fail></span>
     </p>
     </div>
+   <div id="container"></div>
   </body>
 
   <script src="//ajax.googleapis.com/ajax/libs/jquery/1.8.1/jquery.js"></script>
@@ -83,15 +80,11 @@
     #}
     {% endblock %}
 
-    $.getJSON($SCRIPT_ROOT + '{{ wind }}', {
+    var jqhxr = $.getJSON($SCRIPT_ROOT + '{{ wind }}', {
             stn : '{{ station }}',
             from : start_time.toISOString(){% if end_time %},
             to : end_time.toISOString() {% endif %}
         }, function(data, textStatus) {
-//            options.title = data.station;
-//            $("#success").text(textStatus);
-//            $("#station").text(data.station);
-//            $("#result").text(data.winddata);
             var winddir_last_time = null;
             var winddir_last = null;
 
@@ -121,7 +114,14 @@
                 winddir_complete.push([x_time, dat[wind_dir_idx]]);
             }
             graph = drawGraph();
-        });
+        })
+    .done(function() { })
+    .fail(function(jqxhr, textStatus, errorThrown) { 
+        console.log(jqxhr);
+        $("#fail").text("Pulled quick-release while loading data (code " + 
+            jqxhr.status.toString() + "): " + errorThrown); 
+        })
+    .always(function() { });
 
   // Draw graph with default options, overwriting with passed options
   function drawGraph (opts) {
