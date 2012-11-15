@@ -65,11 +65,11 @@
         }
         console.log([window_start_time, n, mean, sigma, lull, gust]);
         $('span[id="station"]').text(station);
-        $('span[id="mean"]').text(mean && mean.toFixed(1) || "?");
-        $('span[id="sigma"]').text(sigma && sigma.toPrecision(2) || "?");
-        $('span[id="lull"]').text(lull && lull.toFixed(0) || "?");
-        $('span[id="gust"]').text(gust && gust.toFixed(0) || "?");
-        $('span[id="direction"]').text(dir_mean &&
+        $('span[id="mean"]').text(mean != null && mean.toFixed(1) || "?");
+        $('span[id="sigma"]').text(sigma != null && sigma.toPrecision(2) || "?");
+        $('span[id="lull"]').text(lull != null && lull.toFixed(0) || "?");
+        $('span[id="gust"]').text(gust != null && gust.toFixed(0) || "?");
+        $('span[id="direction"]').text(dir_mean != null &&
             directions[Math.round((dir_mean/directions_degrees))] || "?");
         $('div[id="current"]').show();
     }
