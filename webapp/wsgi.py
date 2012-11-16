@@ -57,13 +57,19 @@ def connect_db():
 
     print >> sys.stderr, "Connecting to database: %s" % uri
 
-    return psycopg2.connect(
-        database=database,
-        user=username,
-        password=password,
-        host=hostname,
-        port=port
-    )
+    try: 
+        conn = psycopg2.connect(
+            database=database,
+            user=username,
+            password=password,
+            host=hostname,
+            port=port)
+    except Exception, ex:
+        print >> sys.stderr, "%s: %s" % (type(ex).__name__, str(ex)) 
+        raise ex
+    else:
+        return conn
+
 
 def get_connection():
     db = getattr(g, '_db', None)
