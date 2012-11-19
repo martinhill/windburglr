@@ -1,27 +1,20 @@
 <html>
   <head>
-    <style type="text/css">
-      body {
-        margin: 0px;
-        padding: 0px;
-      }
-      #container {
-        width : 90%;
-        height: 80%;
-        margin: 8px auto;
-      }
-    </style>
-    <title>Martn's Wind</title>
+   <link rel="stylesheet" href="{{url_for('static', filename='site.css') }}" type="text/css" media="Screen" />
+<link rel="stylesheet" href="{{url_for('static', filename='mobile.css') }}" type="text/css" media="only screen and (max-device-width:480px)" />
+    <title>wind burglr</title>
+  <!-- prevent small devices from attempting to render a desktop-sized page -->
+  <meta name="viewport" content="width=device-width" />
   </head>
   <body>
-    <div id="container"></div>
+{% block body_part_1 %}
+{% endblock %}
+    <div id="messages" class="hidden">
     <p>
-        <span id=success></span>
-        <span id=station></span>
+        <span id=fail></span>
     </p>
-    <p>
-        <span id=result></span>
-    </p>
+    </div>
+   <div id="container"></div>
   </body>
 
   <script src="//ajax.googleapis.com/ajax/libs/jquery/1.8.1/jquery.js"></script>
@@ -43,6 +36,9 @@
     winddir_data = [],
     winddir_y = 5,
     winddir_mintime = 1800000,
+    wind_dir_idx = 1,
+    wind_speed_idx = 2,
+    wind_gust_idx = 3,
     pi180 = Math.PI / 180,
     options,
     graph,
@@ -60,11 +56,11 @@
       noTicks: 12
     },
     yaxis : {
-        title: "Knots",
+//        title: "Knots",
         tickDecimals: 0
     },
     y2axis: {
-        title: "Degrees",
+//        title: "Degrees",
         min: 0,
         max: 360,
         ticks : [[ 0, "N"], [45, "NE"], [90, "E"], [135, "SE"], [180, "S"], [225, "SW"], 
@@ -74,51 +70,59 @@
       mode : 'x'
     },
     HtmlText : false,
-    title : "Station"
+    title: " "
   };
 
-    // convert start/end time to UTC
-    var start_time = new Date('{{ start_time }}')
-    start_time.setTime(start_time.getTime() + start_time.getTimezoneOffset() * 60000);
-    var end_time = new Date('{{ end_time }}');
-    end_time.setTime(end_time.getTime() + end_time.getTimezoneOffset() * 60000);
+    {% block js_code_1 %}
+    // determine the time range to display
+    {# child must declare var start_time, and optionally end_time if
+       end_time parameter is passed 
+    #}
+    {% endblock %}
 
-    $.getJSON($SCRIPT_ROOT + '/wind', {
+    var jqhxr = $.getJSON($SCRIPT_ROOT + '{{ wind }}', {
             stn : '{{ station }}',
-            from : start_time.toISOString(),
-            to : end_time.toISOString()
+            from : start_time.toISOString(){% if end_time %},
+            to : end_time.toISOString() {% endif %}
         }, function(data, textStatus) {
-            options.title = data.station;
-//            $("#success").text(textStatus);
-//            $("#station").text(data.station);
-//            $("#result").text(data.winddata);
             var winddir_last_time = null;
             var winddir_last = null;
 
+{% block js_json_code_1 %}
+{% endblock %}
+
             for (i = 0; i < data.winddata.length; i++ ) {
                 var dat = data.winddata[i];
-                var x_time = new Date(dat[0] + " GMT").getTime();
+                var x_time = dat[0] * 1000; // new Date(dat[0] + " GMT").getTime();
                 // filter out a subset of the wind direction data
                 if (dat[1] != null && 
                     (winddir_last_time == null || winddir_last_time + winddir_mintime < x_time
                     ) ) { 
-                    winddir.push(dat[1]);
+                    winddir.push(dat[wind_dir_idx]);
                     winddir_data.push([x_time, winddir_y]);
                     winddir_last_time = x_time;
                     };
-                windspeed.push([x_time, dat[2]]);
-                windgust.push([x_time, dat[3]]);
+                windspeed.push([x_time, dat[wind_speed_idx]]);
+                windgust.push([x_time, dat[wind_gust_idx]]);
                 // insert nulls for big discontinuities caused by wind crossing north
                 // to prevent noisy vertical lines
-                if ( winddir_last != null && ((dat[1] > 320 && winddir_last < 50) || 
-                                              (dat[1] < 50 && winddir_last > 320) ) ) {
+                if ( winddir_last != null && ((dat[wind_dir_idx] > 320 && winddir_last < 50) || 
+                                              (dat[wind_dir_idx] < 50 && winddir_last > 320) ) ) {
                     winddir_complete.push([x_time, null]);
                 }
-                winddir_last = dat[1];
-                winddir_complete.push([x_time, dat[1]]);
+                winddir_last = dat[wind_dir_idx];
+                winddir_complete.push([x_time, dat[wind_dir_idx]]);
             }
             graph = drawGraph();
-        });
+        })
+    .done(function() { $('div[id="messages"]').hide(); })
+    .fail(function(jqxhr, textStatus, errorThrown) { 
+        console.log(jqxhr);
+        $("#fail").text("Pulled quick-release while loading data (code " + 
+            jqxhr.status.toString() + "): " + errorThrown); 
+        $('div[id="messages"]').show();
+        })
+    .always(function() { });
 
   // Draw graph with default options, overwriting with passed options
   function drawGraph (opts) {
@@ -145,11 +149,10 @@
         
   Flotr.EventAdapter.observe(container, 'flotr:select', function(area){
     // Draw selected area
-    var xtitle = new Date(area.x1).toLocaleDateString();
     graph = drawGraph({
       xaxis : { min : area.x1, max : area.x2, mode : 'time', labelsAngle : 45, noTicks: 12, 
-                showMinorLabels: true, timeMode: 'local', title: xtitle },
-      yaxis : { min : area.y1, max : area.y2, tickDecimals: 0, title: "Knots" }
+                showMinorLabels: true, timeMode: 'local' },
+      yaxis : { min : area.y1, max : area.y2, tickDecimals: 0 }
     });
   });
         

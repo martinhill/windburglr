@@ -1,0 +1,22 @@
+@media screen {
+      body {
+        margin: 0px;
+        padding: 0px;
+        font-family: Arial, Helvetica, sans-serif;
+      }
+      #current {
+        margin:auto;
+        width:90%;
+        padding: 10px;
+        display: none;
+      }
+      .hidden {
+          display: none;
+      }
+      #container {
+        width : 90%;
+        height: 90%;
+        margin: 8px auto;
+      }
+} 
+
