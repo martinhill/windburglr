@@ -2,10 +2,10 @@
 {% block js_code_1 %}
 {% if start_time %}
     {# start_time is a sequence like [yyyy, mm, dd] #}
-    var start_time = new Date({{ start_time|join(',') }}, 0, 0, 0);
+    start_time = new Date({{ start_time|join(',') }}, 0, 0, 0);
 {% else %}
     {# no start_time given, so we determine the start of the current day #}
-    var start_time = new Date();
+    start_time = new Date();
     start_time.setHours(0);
     start_time.setMinutes(0);
     start_time.setSeconds(0);
@@ -14,14 +14,14 @@
     console.log(start_time);
 
 {% if end_time %}
-    var end_time = new Date({{ end_time|join(',') }}, 0, 0, 0);
+    end_time = new Date({{ end_time|join(',') }}, 0, 0, 0);
     console.log(end_time);
 {% endif %}
 
 {% endblock %}
 
-{% block js_json_code_1 %}
-    options.title = data.station + " - " + start_time.toDateString();
+{% block updatePage_entry %}
+    options.title = station_id + " - " + start_time.toDateString();
 {% endblock %}
 
 

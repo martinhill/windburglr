@@ -29,7 +29,9 @@
 <script>
 (function basic_time(container) {
 
-  var windspeed = [],
+  var station_id,
+    winddata = [],
+    windspeed = [],
     windgust = [],
     winddir_complete = [],
     winddir = [],
@@ -42,6 +44,7 @@
     pi180 = Math.PI / 180,
     options,
     graph,
+    zoomed = false,
     directions_degrees = 45/2,
     directions = [ "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", 
                    "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW", "N" ],
@@ -73,56 +76,57 @@
     title: " "
   };
 
+    var start_time, end_time;
     {% block js_code_1 %}
     // determine the time range to display
-    {# child must declare var start_time, and optionally end_time if
+    {# child must set var start_time, and optionally end_time if
        end_time parameter is passed 
     #}
     {% endblock %}
 
-    var jqhxr = $.getJSON($SCRIPT_ROOT + '{{ wind }}', {
-            stn : '{{ station }}',
-            from : start_time.toISOString(){% if end_time %},
-            to : end_time.toISOString() {% endif %}
-        }, function(data, textStatus) {
-            var winddir_last_time = null;
-            var winddir_last = null;
+    function getWindData(station, start_time, end_time, callback) {
+        urlparams = { stn: station, from: start_time.toISOString() };
+        if ( end_time != null ) { urlparams.to = end_time.toISOString(); }
+        var jqhxr = $.getJSON($SCRIPT_ROOT + '{{ wind }}', urlparams,
+            function(data, textStatus) {
+                winddata = winddata.concat(data.winddata);
+                station_id = data.station;
+                var winddir_last_time = null;
+                var winddir_last = null;
 
-{% block js_json_code_1 %}
-{% endblock %}
-
-            for (i = 0; i < data.winddata.length; i++ ) {
-                var dat = data.winddata[i];
-                var x_time = dat[0] * 1000; // new Date(dat[0] + " GMT").getTime();
-                // filter out a subset of the wind direction data
-                if (dat[1] != null && 
-                    (winddir_last_time == null || winddir_last_time + winddir_mintime < x_time
-                    ) ) { 
-                    winddir.push(dat[wind_dir_idx]);
-                    winddir_data.push([x_time, winddir_y]);
-                    winddir_last_time = x_time;
-                    };
-                windspeed.push([x_time, dat[wind_speed_idx]]);
-                windgust.push([x_time, dat[wind_gust_idx]]);
-                // insert nulls for big discontinuities caused by wind crossing north
-                // to prevent noisy vertical lines
-                if ( winddir_last != null && ((dat[wind_dir_idx] > 320 && winddir_last < 50) || 
-                                              (dat[wind_dir_idx] < 50 && winddir_last > 320) ) ) {
-                    winddir_complete.push([x_time, null]);
+                for (i = 0; i < data.winddata.length; i++ ) {
+                    var dat = data.winddata[i];
+                    var x_time = dat[0] * 1000; // new Date(dat[0] + " GMT").getTime();
+                    // filter out a subset of the wind direction data
+                    if (dat[1] != null && 
+                        (winddir_last_time == null || winddir_last_time + winddir_mintime < x_time
+                        ) ) { 
+                        winddir.push(dat[wind_dir_idx]);
+                        winddir_data.push([x_time, winddir_y]);
+                        winddir_last_time = x_time;
+                        };
+                    windspeed.push([x_time, dat[wind_speed_idx]]);
+                    windgust.push([x_time, dat[wind_gust_idx]]);
+                    // insert nulls for big discontinuities caused by wind crossing north
+                    // to prevent noisy vertical lines
+                    if ( winddir_last != null && ((dat[wind_dir_idx] > 320 && winddir_last < 50) || 
+                                                  (dat[wind_dir_idx] < 50 && winddir_last > 320) ) ) {
+                        winddir_complete.push([x_time, null]);
+                    }
+                    winddir_last = dat[wind_dir_idx];
+                    winddir_complete.push([x_time, dat[wind_dir_idx]]);
                 }
-                winddir_last = dat[wind_dir_idx];
-                winddir_complete.push([x_time, dat[wind_dir_idx]]);
-            }
-            graph = drawGraph();
-        })
-    .done(function() { $('div[id="messages"]').hide(); })
-    .fail(function(jqxhr, textStatus, errorThrown) { 
-        console.log(jqxhr);
-        $("#fail").text("Pulled quick-release while loading data (code " + 
-            jqxhr.status.toString() + "): " + errorThrown); 
-        $('div[id="messages"]').show();
-        })
-    .always(function() { });
+                callback();
+            })
+        .done(function() { $('div[id="messages"]').hide(); })
+        .fail(function(jqxhr, textStatus, errorThrown) { 
+            console.log(jqxhr);
+            $("#fail").text("Pulled quick-release while loading data (code " + 
+                jqxhr.status.toString() + "): " + errorThrown); 
+            $('div[id="messages"]').show();
+            })
+        .always(function() { });
+    }
 
   // Draw graph with default options, overwriting with passed options
   function drawGraph (opts) {
@@ -135,18 +139,33 @@
       container,
       [ { data: windspeed, lines: { fill : true, fillColor: ['#00A8F0', '#fff'], fillOpacity: 1 } }, 
         { data: windgust, lines: { color: 'red'} },
-//        { data: winddir_data, markers: { show: true, position: 'ct', labelFormatter: 
-//            function(o) { 
-//                return directions[Math.round((winddir[o.index]/directions_degrees))] 
-//            } 
-//            } },
         { data: winddir_complete, lines: { color: 'orange' }, yaxis:2 }],
       o
     );
   }
 
-//  graph = drawGraph();      
-        
+  // update the whole page
+  function updatePage() {
+{% block updatePage_entry %}
+{% endblock %}
+    drawGraph();
+  }
+
+  // fetch newer data and plot
+  function getNewWindData() {
+    var last_data_time = windspeed.length > 0 ? windspeed[windspeed.length-1][0] : start_time;
+    if ( windspeed.length > 0 ) {
+        // increment start_time by just a second so we don't get duplicate points
+        last_data_time += 1000;
+        current_time = new Date().getTime();
+        // do nothing if it's been less than two minutes since last data point
+        if ( current_time - 120000 < last_data_time ) {
+            return;
+        }
+    }
+    getWindData('{{ station }}', new Date(last_data_time), end_time, updatePage);
+  }
+
   Flotr.EventAdapter.observe(container, 'flotr:select', function(area){
     // Draw selected area
     graph = drawGraph({
@@ -154,11 +173,25 @@
                 showMinorLabels: true, timeMode: 'local' },
       yaxis : { min : area.y1, max : area.y2, tickDecimals: 0 }
     });
+    zoomed = true;
   });
-        
+
+       
   // When graph is clicked, draw the graph with default area.
-  Flotr.EventAdapter.observe(container, 'flotr:click', function () { graph = drawGraph(); });
+  Flotr.EventAdapter.observe(container, 'flotr:click', function () { 
+    if ( zoomed == false && end_time == null ) {
+        // end time not specified, try to load more data
+        getNewWindData();
+   } else {
+        graph = drawGraph(); 
+    }
+    zoomed = false;
+  });
+
+  // get the data for the desired time range and plot the initial graph
+  getWindData('{{ station }}', start_time, end_time, updatePage);
+
 })(document.getElementById("container"));
-    </script>
+</script>
 </html>
 
