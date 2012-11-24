@@ -20,6 +20,7 @@ station_default = 'CYTZ'
 default_db = 'postgres://localhost'
 
 refresh_rate_default = 60
+socket_timeout = 15
 
 wind_dir_re = re.compile('Wind Direction:')
 wind_speed_re = re.compile('Wind Speed:')
@@ -32,7 +33,7 @@ coerce_int = lambda x: value_lookup[x] if value_lookup.has_key(x) else int(x)
 
 def scrapeIIDSWebView(url):
     "Returns the wind data as tuple (direction, speed, gust, datetime)"
-    response = urllib2.urlopen(url)
+    response = urllib2.urlopen(url, None, socket_timeout)
     html = response.read()
     response.close()
     soup = BeautifulSoup(html)
@@ -115,6 +116,7 @@ def run(conn, station, refresh_rate=60):
                         time.sleep(refresh_rate)
                 else:
                     print 'Skipping observation %s' % str(obs)
+                    time.sleep(refresh_rate / 2)
             else:
                 # sleep half the refresh time when we get a duplicate
                 time.sleep(refresh_rate / 2)
