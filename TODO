@@ -1,7 +1,7 @@
 TODO
 
 1. scraper auto-reconnect to db
-2. auto-fetch new data on interval, or manual fetch button
+2. auto-fetch new data on interval
 3. settings popup panel
     - slider for num minutes in current conditions
     - adjust auto-fetch interval
