@@ -83,13 +83,17 @@ def teardown_request(exception):
         g._db.close()
 
 def queryWindData(station, start_time, end_time):
+    "Returns a generator of wind data tuples"
     db = get_connection()
     c = db.cursor()
     c.execute("SELECT update_time, direction, speed_kts, gust_kts " \
               "FROM obs WHERE station = %s AND update_time > %s AND update_time < %s " \
               "ORDER BY update_time;",
               (station, start_time, end_time))
-    return c.fetchall() 
+    row = c.fetchone()
+    while row is not None:
+        yield row
+        row = c.fetchone()
 
 def safe_int(d):
     try:
@@ -105,12 +109,12 @@ def getWindData():
                     type=lambda x : datetime.strptime(x, iso_format))
     end_time = request.args.get('to', datetime.utcnow(),
                     type=lambda x : datetime.strptime(x, iso_format))
-    data = queryWindData(station, start_time, end_time)
+    winddatagen = queryWindData(station, start_time, end_time)
     # This is a kludge to make the data jasonifiable, since it contains
     # datetime and Decimal classes
-    serialized = [(epoch_time(x[0]), safe_int(x[1]), safe_int(x[2]), safe_int(x[3])) 
-                    for x in data]
-    return jsonify(station=station, winddata=serialized)
+    jsonfriendly = [(epoch_time(x[0]), safe_int(x[1]), safe_int(x[2]), safe_int(x[3])) 
+                    for x in winddatagen]
+    return jsonify(station=station, winddata=jsonfriendly)
 
 @app.route('/')
 def hello():

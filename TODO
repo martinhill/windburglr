@@ -6,4 +6,5 @@ TODO
     - slider for num minutes in current conditions
     - adjust auto-fetch interval
 4. APScheduler, and deleting of old rows to manage db size
+5. Unify getdb() and connect_db() functions and place in common code module
 
