@@ -82,7 +82,7 @@ def teardown_request(exception):
     if hasattr(g, '_db'):
         g._db.close()
 
-def queryWindData(station, start_time, end_time):
+def query_wind_data(station, start_time, end_time):
     "Returns a generator of wind data tuples"
     db = get_connection()
     c = db.cursor()
@@ -103,13 +103,13 @@ def safe_int(d):
     return i
 
 @app.route(wind_url)
-def getWindData():
+def wind_data_as_json():
     station = request.args.get('stn', default_station)
     start_time = request.args.get('from', datetime.utcnow()-timedelta(0,3600*24),
                     type=lambda x : datetime.strptime(x, iso_format))
     end_time = request.args.get('to', datetime.utcnow(),
                     type=lambda x : datetime.strptime(x, iso_format))
-    winddatagen = queryWindData(station, start_time, end_time)
+    winddatagen = query_wind_data(station, start_time, end_time)
     # This is a kludge to make the data jasonifiable, since it contains
     # datetime and Decimal classes
     jsonfriendly = [(epoch_time(x[0]), safe_int(x[1]), safe_int(x[2]), safe_int(x[3])) 
