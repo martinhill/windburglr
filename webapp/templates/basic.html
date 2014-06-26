@@ -5,6 +5,8 @@
     <title>wind burglr</title>
   <!-- prevent small devices from attempting to render a desktop-sized page -->
   <meta name="viewport" content="width=device-width" />
+{# Google Analytics snippet in ga.html #}
+{% include "ga.html" ignore missing %} 
   </head>
   <body>
 {% block body_part_1 %}
@@ -15,11 +17,7 @@
     </p>
     </div>
    <div id="container"></div>
-  </body>
 
-  <script src="//ajax.googleapis.com/ajax/libs/jquery/1.8.1/jquery.js"></script>
-  <script>window.jQuery || document.write('<script src="{{
-  url_for('static', filename='jquery.js') }}">\x3C/script>')</script>
   <script src="{{url_for('static', filename='flotr2.min.js') }}"></script>
 
 <script type=text/javascript>
@@ -85,10 +83,16 @@
     {% endblock %}
 
     function getWindData(station, start_time, end_time, callback) {
-        urlparams = { stn: station, from: start_time.toISOString() };
-        if ( end_time != null ) { urlparams.to = end_time.toISOString(); }
-        var jqhxr = $.getJSON($SCRIPT_ROOT + '{{ wind }}', urlparams,
-            function(data, textStatus) {
+        var urlparams = '?stn=' + station + '&from=' + start_time.toISOString();
+        if ( end_time != null ) { urlparams += '&to=' + end_time.toISOString(); }
+        var xhr = new XMLHttpRequest();
+        console.log(urlparams);
+        xhr.open('GET', $SCRIPT_ROOT + '{{ wind }}' + urlparams, true);
+        xhr.onreadystatechange = function() {
+            if ( xhr.readyState == 4 ) {
+                // DONE
+                if ( xhr.status == 200 ) {
+                    var data = JSON.parse(xhr.responseText);
                 winddata = winddata.concat(data.winddata);
                 station_id = data.station;
                 var winddir_last_time = null;
@@ -116,16 +120,17 @@
                     winddir_last = dat[wind_dir_idx];
                     winddir_complete.push([x_time, dat[wind_dir_idx]]);
                 }
+                document.getElementById('messages').style.display = "none";
                 callback();
-            })
-        .done(function() { $('div[id="messages"]').hide(); })
-        .fail(function(jqxhr, textStatus, errorThrown) { 
-            console.log(jqxhr);
-            $("#fail").text("Pulled quick-release while loading data (code " + 
-                jqxhr.status.toString() + "): " + errorThrown); 
-            $('div[id="messages"]').show();
-            })
-        .always(function() { });
+            } else {
+                console.log(xhr);
+                //$(document).ready(function(){
+                document.getElementById("fail").textContent="Pulled quick-release while loading data (code " + 
+                    xhr.status.toString() + "): " + xhr.statusText; 
+                document.getElementById('messages').style.display = "block";
+            }    
+        }};
+        xhr.send();
     }
 
   // Draw graph with default options, overwriting with passed options
@@ -193,5 +198,6 @@
 
 })(document.getElementById("container"));
 </script>
+</body>
 </html>
 
