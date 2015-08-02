@@ -18,5 +18,10 @@
         height: 90%;
         margin: 8px auto;
       }
+      div.heading {
+        width: 90%;
+        margin: auto;
+        padding: 10px;
+      }
 } 
 

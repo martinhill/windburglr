@@ -1,11 +1,11 @@
 TODO
 
-1. scraper auto-reconnect to db
+1. Implement proper (Atom?) feeds with caching
 2. auto-fetch new data on interval
 3. settings popup panel
     - slider for num minutes in current conditions
     - adjust auto-fetch interval
 4. APScheduler, and deleting of old rows to manage db size
 5. Unify getdb() and connect_db() functions and place in common code module
-6. replace urllib2
+6. replace urllib2 with requests
 

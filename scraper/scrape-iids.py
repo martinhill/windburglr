@@ -14,10 +14,12 @@ from datetime import datetime
 import psycopg2
 import json
 import urlparse
+import requests
 
 url_base = "http://atm.navcanada.ca/atm/iwv/"
 station_default = 'CYTZ'
 default_db = 'postgres://localhost'
+endopint_default = 'http://windburglr.aws.af.cm/wind'
 
 refresh_rate_default = 60
 socket_timeout = 15
@@ -83,7 +85,21 @@ def writeObservation(c, obs):
         VALUES (%s, %s, %s, %s, %s)""", obs)
 
 
-def run(conn, station, refresh_rate=60):
+def post_observation(endpoint, obs):
+    "POST the observation to the service endpoint"
+    payload = json.dumps({
+        'station': obs[0],
+        'direction': obs[1],
+        'speed_kts': obs[2],
+        'gust_kts': obs[3],
+        'update_time': obs[4].strftime('%Y-%m-%d %H:%M:%S'),
+        })
+    r = requests.post(endpoint, data=payload, headers={"Content-type": "application/json"})
+    r.raise_for_status()
+    return r
+
+
+def run(conn, station, endpoint, refresh_rate=60):
     "Loop indefinitely scraping the data and writing to the connection c"
     last_obs_time = None
     c = conn.cursor()
@@ -101,6 +117,7 @@ def run(conn, station, refresh_rate=60):
                 if obs[0] is not None or obs[1] is not None:
                     try:
                         writeObservation(c, (station,) + obs)
+                        post_observation(endpoint, (station,) + obs)
                     except Exception, ex:
                         sys.stderr.write('%s %s in writeObservation: %s\n' % 
                             (datetime.now().strftime(error_time_fmt), 
@@ -166,6 +183,7 @@ def getdb():
         port=port
     )
 
+
 def init_db(db):
     "Initialize the database"
     with open('schema.sql') as f:
@@ -174,7 +192,6 @@ def init_db(db):
 
 if __name__ == '__main__':
     conn = getdb()
-    init_db(conn)   
-    run(conn, station_default)
+    init_db(conn)
+    run(conn, station_default, endopint_default)
     conn.close()
-
