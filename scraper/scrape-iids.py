@@ -15,6 +15,7 @@ import json
 import urllib
 import requests
 import argparse
+from porc import Client
 
 url_base = "http://atm.navcanada.ca/atm/iwv/"
 station_default = 'CYTZ'
@@ -109,7 +110,14 @@ def post_observation(endpoint, obs):
     return r
 
 
-def run(conn, station, endpoint, refresh_rate=60):
+def post_orc_event(client, obs):
+    client.post_event('obs', obs[0], 'obs', {
+        'direction': obs[1],
+        'speed_kts': obs[2],
+        'gust_kts': obs[3], }, timestamp=obs[4])
+
+
+def run(conn, station, endpoint, orc_client, refresh_rate=60):
     "Loop indefinitely scraping the data and writing to the connection c"
     last_obs_time = None
     # c = conn.cursor()
@@ -128,6 +136,7 @@ def run(conn, station, endpoint, refresh_rate=60):
                     try:
                         # writeObservation(c, (station,) + obs)
                         post_observation(endpoint, (station,) + obs)
+                        post_orc_event(orc_client, (station,) + obs)
                     except Exception as ex:
                         sys.stderr.write('%s %s in writeObservation: %s\n' %
                                          (datetime.now().strftime(error_time_fmt),
@@ -205,11 +214,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '-t', '--target', type=str, help='target endpoint', default=endopint_default)
+    parser.add_argument(
+        '-k' '--api-key', type=str, help='Orchistrate API key',
+        default=os.environ.get('ORCHESTRATE_API_KEY'))
     args = parser.parse_args()
 
     # conn = getdb()
     # init_db(conn)
-    run(None, station_default, args.target)
+    orc_client = Client(args.k__api_key)
+    run(None, station_default, args.target, orc_client)
     # conn.close()
 
 
