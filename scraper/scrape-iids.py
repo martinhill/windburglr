@@ -135,7 +135,7 @@ def run(conn, station, endpoint, orc_client, refresh_rate=60):
                 if obs[0] is not None or obs[1] is not None:
                     try:
                         # writeObservation(c, (station,) + obs)
-                        post_observation(endpoint, (station,) + obs)
+                        # post_observation(endpoint, (station,) + obs)
                         post_orc_event(orc_client, (station,) + obs)
                     except Exception as ex:
                         sys.stderr.write('%s %s in writeObservation: %s\n' %
