@@ -111,10 +111,13 @@ def post_observation(endpoint, obs):
 
 
 def post_orc_event(client, obs):
-    client.post_event('obs', obs[0], 'obs', {
+    event = {
         'direction': obs[1],
         'speed_kts': obs[2],
-        'gust_kts': obs[3], }, timestamp=obs[4])
+        'gust_kts': obs[3],
+    }
+    print('{}: {}'.format(obs[4], event))
+    client.post_event('obs', obs[0], 'obs', event, timestamp=obs[4])
 
 
 def run(conn, station, endpoint, orc_client, refresh_rate=60):
