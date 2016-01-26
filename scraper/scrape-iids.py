@@ -12,9 +12,9 @@ import time
 from datetime import datetime
 # import psycopg2
 import json
-import urllib
 import requests
 import argparse
+from functools import partial
 from porc import Client
 
 url_base = "http://atm.navcanada.ca/atm/iwv/"
@@ -41,12 +41,13 @@ def coerce_int(x):
         return int(x)
 
 
+def find_iids_text_in_soup(soup, text):
+    return soup.find_all(text=text)[0].next_element.next_element.text.strip()
+
+
 def scrapeIIDSWebView(url):
     "Returns the wind data as tuple (direction, speed, gust, datetime)"
-    # response = urllib2.urlopen(url, None, socket_timeout)
-    response = requests.get(url)
-    # html = response.read()
-    # response.close()
+    response = requests.get(url, timeout=socket_timeout)
     soup = BeautifulSoup(response.text, "html.parser")
     wind_dir = None
     wind_dir_text = None
@@ -54,8 +55,7 @@ def scrapeIIDSWebView(url):
     wind_speed_text = None
     wind_gust = None
     wind_gust_text = None
-    find_iids_text = lambda expr: soup.find_all(
-        text=expr)[0].next_element.next_element.text.strip()
+    find_iids_text = partial(find_iids_text_in_soup, soup)
 
     # Wind direction
     try:
