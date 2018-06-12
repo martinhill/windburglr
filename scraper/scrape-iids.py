@@ -1,21 +1,17 @@
-#!/usr/bin/python
-
 import os
 import sys
-try:
-    from bs4 import BeautifulSoup
-except ImportError:
-    sys.path.append(os.path.join(os.getcwd(), 'site-packages'))
-    from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup
 import re
 import time
 from datetime import datetime
-# import psycopg2
 import json
 import requests
 import argparse
 from functools import partial
 from porc import Client
+from sshtunnel import SSHTunnelForwarder
+import pymysql
+
 
 url_base = "http://atm.navcanada.ca/atm/iwv/"
 station_default = 'CYTZ'
@@ -89,10 +85,10 @@ def scrapeIIDSWebView(url):
     return (wind_dir, wind_speed, wind_gust, updated)
 
 
-def writeObservation(c, obs):
-    "Write an observation to the database"
-    c.execute("""INSERT INTO obs (station, direction, speed_kts, gust_kts, update_time) 
-        VALUES (%s, %s, %s, %s, %s)""", obs)
+def insert_obs(c, obs):
+    "Insert an observation to the database"
+    c.execute("""INSERT INTO wind_obs (station_id, direction, speed_kts, gust_kts, update_time)
+        VALUES ((SELECT id FROM station WHERE name = %s), %s, %s, %s, %s)""", obs)
 
 
 def post_observation(endpoint, obs):
@@ -116,14 +112,13 @@ def post_orc_event(client, obs):
         'speed_kts': obs[2],
         'gust_kts': obs[3],
     }
-    print('{}: {}'.format(obs[4], event))
     client.post_event('obs', obs[0], 'obs', event, timestamp=obs[4])
+    return event
 
 
-def run(conn, station, endpoint, orc_client, refresh_rate=60):
-    "Loop indefinitely scraping the data and writing to the connection c"
+def generate_obs(station, endpoint, refresh_rate=60):
+    "Loop indefinitely scraping the data and writing to the obs_writer"
     last_obs_time = None
-    # c = conn.cursor()
     while True:
         try:
             obs = scrapeIIDSWebView(url_base + station)
@@ -136,23 +131,9 @@ def run(conn, station, endpoint, orc_client, refresh_rate=60):
             # Ensure the observation is new (check update time)
             if last_obs_time is None or obs[3] > last_obs_time:
                 if obs[0] is not None or obs[1] is not None:
-                    try:
-                        # writeObservation(c, (station,) + obs)
-                        # post_observation(endpoint, (station,) + obs)
-                        post_orc_event(orc_client, (station,) + obs)
-                    except Exception as ex:
-                        sys.stderr.write('%s %s in writeObservation: %s\n' %
-                                         (datetime.now().strftime(error_time_fmt),
-                                          type(ex).__name__, str(ex)))
-                        sys.stderr.write('obs = %s\n' % str(obs))
-                        # c.close()
-                        # conn.rollback()
-                        # c = conn.cursor()
-                    else:
-                        # conn.commit()
-                        last_obs_time = obs[3]
-                    finally:
-                        time.sleep(refresh_rate)
+                    yield (station,) + obs
+                    time.sleep(refresh_rate)
+                    last_obs_time = obs[3]
                 else:
                     print('Skipping observation %s' % str(obs))
                     time.sleep(refresh_rate / 2)
@@ -161,54 +142,9 @@ def run(conn, station, endpoint, orc_client, refresh_rate=60):
                 time.sleep(refresh_rate / 2)
 
 
-def getdb():
-    "Get the database connection. Auto-detects heroku, appfog, or local environment"
-
-# Try appfog
-    services = json.loads(os.environ.get("VCAP_SERVICES", "{}"))
-    if services:
-        try:
-            creds = services['postgresql-9.1'][0]['credentials']
-        except KeyError as ke:
-            print("VCAP_SERVICES = %s" % str(services))
-            raise ke
-        database = creds['name']
-        username = creds['username']
-        password = creds['password']
-        hostname = creds['hostname']
-        port = creds['port']
-
-        uri = "postgres://%s:%s@%s:%d/%s" % (
-            creds['username'],
-            creds['password'],
-            creds['hostname'],
-            creds['port'],
-            creds['name'])
-    else:
-# Try heroku / localhost
-        # urlparse.uses_netloc.append("postgres")
-        uri = os.environ.get("DATABASE_URL", default_db)
-        url = urllib.parse.urlparse(uri)
-        database = url.path[1:]
-        username = url.username
-        password = url.password
-        hostname = url.hostname
-        port = url.port
-
-    print("Connecting to database: %s" % uri)
-
-    return psycopg2.connect(
-        database=database,
-        user=username,
-        password=password,
-        host=hostname,
-        port=port
-    )
-
-
-def init_db(db):
+def init_db(db, schema_file='schema_mysql.sql'):
     "Initialize the database"
-    with open('schema.sql') as f:
+    with open(schema_file) as f:
         db.cursor().execute(f.read())
     db.commit()
 
@@ -218,14 +154,77 @@ def main():
     parser.add_argument(
         '-t', '--target', type=str, help='target endpoint', default=endopint_default)
     parser.add_argument(
-        '-k' '--api-key', type=str, help='Orchistrate API key',
+        '-k', '--api-key', type=str, help='Orchistrate API key',
         default=os.environ.get('ORCHESTRATE_API_KEY'))
+    parser.add_argument(
+        '--ssh-host', type=str, help='SSH host',
+        default=os.environ.get('SSH_HOST', 'ssh.pythonanywhere.com'))
+    parser.add_argument(
+        '--ssh-user', type=str, help='SSH user',
+        default=os.environ.get('SSH_USER', 'martinh'))
+    parser.add_argument(
+        '--ssh-pkey', type=str, help='SSH private key file',
+        default=os.environ.get('SSH_PKEY'))
+    parser.add_argument(
+        '--mysql-host', type=str, help='MySQL host',
+        default=os.environ.get('MYSQL_HOST', 'martinh.mysql.pythonanywhere-services.com'))
+    parser.add_argument(
+        '--mysql-user', type=str, help='MySQL user',
+        default=os.environ.get('MYSQL_USER', 'martinh'))
+    parser.add_argument(
+        '--mysql-db', type=str, help='MySQL database',
+        default=os.environ.get('MYSQL_DB', 'martinh$windburglr'))
+    parser.add_argument(
+        '--mysql-password', type=str, help='MySQL password',
+        default=os.environ.get('MYSQL_PASSWORD'))
     args = parser.parse_args()
 
-    # conn = getdb()
-    # init_db(conn)
-    orc_client = Client(args.k__api_key)
-    run(None, station_default, args.target, orc_client)
+    # Connect to databases
+    print('Connecting to Orchestrate')
+    orc_client = Client(args.api_key)
+    with SSHTunnelForwarder(
+        (args.ssh_host),
+        remote_bind_address=(args.mysql_host, 3306),
+        local_bind_address=('localhost', 3306),
+        ssh_username=args.ssh_user,
+        ssh_pkey=args.ssh_pkey,
+        ) as tunnel:
+        time.sleep(1)
+        print('Connecting to PythonAnywhere MySQL')
+        conn = pymysql.connect(
+            host='localhost', user=args.mysql_user, password=args.mysql_password, db=args.mysql_db)
+        cursor = conn.cursor()
+        print('Starting...')
+
+        # MAIN LOOP
+
+        for obs in generate_obs(station_default, args.target):
+            print(obs)
+
+            # Send to PythonAnywhere mysql
+            try:
+                insert_obs(cursor, obs)
+            except Exception as ex:
+                sys.stderr.write('%s %s in insert_obs: %s\n' %
+                                 (datetime.now().strftime(error_time_fmt),
+                                  type(ex).__name__, str(ex)))
+                sys.stderr.write(f'obs = {obs}\n')
+                cursor.close()
+                conn.rollback()
+                cursor = conn.cursor()
+            else:
+                conn.commit()
+
+            # Send to AppFog Orchestrate
+            event = post_orc_event(orc_client, obs)
+            print(f'{obs[4]}: {event}')
+
+            # Check the tunnel
+            tunnel.check_tunnels()
+            if not all(tunnel.tunnel_is_up.values()):
+                print(f'Terminating: tunnel_is_up = {tunnel.tunnel_is_up}')
+                break
+
     # conn.close()
 
 
