@@ -2,8 +2,8 @@ import os
 import sys
 from flask import Flask, jsonify, render_template, request, g
 from datetime import datetime, timedelta
-import psycopg2
 import json
+from porc import Client
 
 application = app = Flask(__name__)
 
@@ -32,45 +32,33 @@ def connect_db():
     if services:
         # Try appfog
         try:
-            creds = services['postgresql-9.1'][0]['credentials']
+            creds = services['orchestrate'][0]['credentials']
         except KeyError, ke:
             print >> sys.stderr, "VCAP_SERVICES = %s" % str(services)
             raise ke
-        database = creds['name']
-        username = creds['username']
-        password = creds['password']
-        hostname = creds['hostname']
-        port = creds['port']
+        # api_url = creds['ORCHESTRATE_API_URL']
+        api_key = creds['ORCHESTRATE_API_KEY']
+        api_host = creds['ORCHESTRATE_API_HOST']
 
-        uri = "postgres://%s:%s@%s:%d/%s" % (
-            creds['username'],
-            creds['password'],
-            creds['hostname'],
-            creds['port'],
-            creds['name'])
     else:
         # Try heroku / localhost
-        uri = database_uri
-        database = database_url.path[1:]
-        username = database_url.username
-        password = database_url.password
-        hostname = database_url.hostname
-        port = database_url.port
+        api_key = os.environ.get('ORCHESTRATE_API_KEY')
+        api_host = os.environ.get('ORCHESTRATE_API_HOST')
+        # uri = database_uri
+        # database = database_url.path[1:]
+        # username = database_url.username
+        # password = database_url.password
+        # hostname = database_url.hostname
+        # port = database_url.port
 
-    print >> sys.stderr, "Connecting to database: %s" % uri
+    print >> sys.stderr, "Connecting to database: %s" % api_host
 
     try:
-        conn = psycopg2.connect(
-            database=database,
-            user=username,
-            password=password,
-            host=hostname,
-            port=port)
+        client = Client(api_key)
+        return client
     except Exception, ex:
         print >> sys.stderr, "%s: %s" % (type(ex).__name__, str(ex))
         raise ex
-    else:
-        return conn
 
 
 def get_connection():
@@ -82,22 +70,26 @@ def get_connection():
 
 @app.teardown_request
 def teardown_request(exception):
-    if hasattr(g, '_db'):
-        g._db.close()
+    pass
+    # if hasattr(g, '_db'):
+    #     g._db.close()
 
 
 def query_wind_data(station, start_time, end_time):
     "Returns a generator of wind data tuples"
-    db = get_connection()
-    c = db.cursor()
-    c.execute("SELECT update_time, direction, speed_kts, gust_kts "
-              "FROM obs WHERE station = %s AND update_time > %s AND update_time < %s "
-              "ORDER BY update_time;",
-              (station, start_time, end_time))
-    row = c.fetchone()
-    while row is not None:
-        yield row
-        row = c.fetchone()
+    client = get_connection()
+    pages = client.list_events(
+        'obs', station, 'obs', startEvent=start_time, endEvent=end_time)
+    return pages
+    # c = db.cursor()
+    # c.execute("SELECT update_time, direction, speed_kts, gust_kts "
+    #           "FROM obs WHERE station = %s AND update_time > %s AND update_time < %s "
+    #           "ORDER BY update_time;",
+    #           (station, start_time, end_time))
+    # row = c.fetchone()
+    # while row is not None:
+    #     yield row
+    #     row = c.fetchone()
 
 
 def store_observation(obs):
@@ -153,8 +145,13 @@ def wind_data_as_json():
     winddatagen = query_wind_data(station, start_time, end_time)
     # This is a kludge to make the data jasonifiable, since it contains
     # datetime and Decimal classes
-    jsonfriendly = [(epoch_time(x[0]), safe_int(x[1]), safe_int(x[2]), safe_int(x[3]))
-                    for x in winddatagen]
+    jsonfriendly = [
+        (x[0]/1000,
+            safe_int(x[1][u'direction']),
+            safe_int(x[1][u'speed_kts']),
+            safe_int(x[1][u'gust_kts']))
+        for x in reversed([
+            (event[u'timestamp'], event[u'value']) for event in winddatagen.all()])]
     return jsonify(station=station, winddata=jsonfriendly)
 
 
