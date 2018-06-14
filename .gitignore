@@ -2,6 +2,7 @@ venv*
 .*.swn
 .*.swo
 .*.swp
+.env
 
 *.py[co]
 

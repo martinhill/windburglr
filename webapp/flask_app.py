@@ -1,18 +1,11 @@
 import os
-import sys
 from flask import Flask, jsonify, render_template, request, g
 from datetime import datetime, timedelta
-import json
-from porc import Client
+import pymysql
+
 
 application = app = Flask(__name__)
 
-services = json.loads(os.environ.get("VCAP_SERVICES", "{}"))
-if not services:
-    import urlparse
-    urlparse.uses_netloc.append("postgres")
-    database_uri = os.environ.get('DATABASE_URL', 'postgres://localhost')
-    database_url = urlparse.urlparse(database_uri)
 
 current_template = 'current.html'
 day_template = 'day.html'
@@ -29,36 +22,12 @@ def epoch_time(dt):
 
 
 def connect_db():
-    if services:
-        # Try appfog
-        try:
-            creds = services['orchestrate'][0]['credentials']
-        except KeyError, ke:
-            print >> sys.stderr, "VCAP_SERVICES = %s" % str(services)
-            raise ke
-        # api_url = creds['ORCHESTRATE_API_URL']
-        api_key = creds['ORCHESTRATE_API_KEY']
-        api_host = creds['ORCHESTRATE_API_HOST']
+    mysql_host = os.environ.get('MYSQL_HOST', 'martinh.mysql.pythonanywhere-services.com')
+    mysql_user = os.environ.get('MYSQL_USER', 'martinh')
+    mysql_db = os.environ.get('MYSQL_DB', 'martinh$windburglr')
+    mysql_password = os.environ.get('MYSQL_PASSWORD')
 
-    else:
-        # Try heroku / localhost
-        api_key = os.environ.get('ORCHESTRATE_API_KEY')
-        api_host = os.environ.get('ORCHESTRATE_API_HOST')
-        # uri = database_uri
-        # database = database_url.path[1:]
-        # username = database_url.username
-        # password = database_url.password
-        # hostname = database_url.hostname
-        # port = database_url.port
-
-    print >> sys.stderr, "Connecting to database: %s" % api_host
-
-    try:
-        client = Client(api_key)
-        return client
-    except Exception, ex:
-        print >> sys.stderr, "%s: %s" % (type(ex).__name__, str(ex))
-        raise ex
+    return pymysql.connect(host=mysql_host, user=mysql_user, db=mysql_db, password=mysql_password)
 
 
 def get_connection():
@@ -77,19 +46,18 @@ def teardown_request(exception):
 
 def query_wind_data(station, start_time, end_time):
     "Returns a generator of wind data tuples"
-    client = get_connection()
-    pages = client.list_events(
-        'obs', station, 'obs', startEvent=start_time, endEvent=end_time)
-    return pages
-    # c = db.cursor()
-    # c.execute("SELECT update_time, direction, speed_kts, gust_kts "
-    #           "FROM obs WHERE station = %s AND update_time > %s AND update_time < %s "
-    #           "ORDER BY update_time;",
-    #           (station, start_time, end_time))
-    # row = c.fetchone()
-    # while row is not None:
-    #     yield row
-    #     row = c.fetchone()
+    db = get_connection()
+    c = db.cursor()
+    c.execute("""SELECT update_time, direction, speed_kts, gust_kts
+        FROM station JOIN wind_obs ON station_id = station.id
+        WHERE station.name = %s AND update_time BETWEEN %s AND %s
+        ORDER BY update_time;
+        """,
+        (station, start_time, end_time))
+    row = c.fetchone()
+    while row is not None:
+        yield row
+        row = c.fetchone()
 
 
 def store_observation(obs):
@@ -145,13 +113,8 @@ def wind_data_as_json():
     winddatagen = query_wind_data(station, start_time, end_time)
     # This is a kludge to make the data jasonifiable, since it contains
     # datetime and Decimal classes
-    jsonfriendly = [
-        (x[0]/1000,
-            safe_int(x[1][u'direction']),
-            safe_int(x[1][u'speed_kts']),
-            safe_int(x[1][u'gust_kts']))
-        for x in reversed([
-            (event[u'timestamp'], event[u'value']) for event in winddatagen.all()])]
+    jsonfriendly = [(epoch_time(x[0]), safe_int(x[1]), safe_int(x[2]), safe_int(x[3]))
+        for x in winddatagen]
     return jsonify(station=station, winddata=jsonfriendly)
 
 
