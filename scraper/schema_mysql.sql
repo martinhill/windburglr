@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS station (
 CREATE TABLE IF NOT EXISTS wind_obs (
 	id INT NOT NULL AUTO_INCREMENT,
 	station_id INT NOT NULL,
-    direction DECIMAL(3,0) NOT NULL, 
+    direction DECIMAL(3,0), 
     speed_kts DECIMAL(3,1) NOT NULL, 
     gust_kts DECIMAL(3,1), 
     update_time timestamp NOT NULL, 
