@@ -36,3 +36,6 @@ tags
 
 scraper/manifest_hp.yml
 ga.html
+
+data.bz2
+*.tar.gz
