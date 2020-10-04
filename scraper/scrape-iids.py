@@ -8,15 +8,11 @@ import json
 import requests
 import argparse
 from functools import partial
-from porc import Client
-from sshtunnel import SSHTunnelForwarder
 import pymysql
-
 
 url_base = "http://atm.navcanada.ca/atm/iwv/"
 station_default = 'CYTZ'
 default_db = 'postgres://localhost'
-endopint_default = 'http://windburglr.aws.af.cm/wind'
 
 refresh_rate_default = 58
 socket_timeout = 15
@@ -42,7 +38,7 @@ def find_iids_text_in_soup(soup, text):
 
 
 def scrapeIIDSWebView(url):
-    "Returns the wind data as tuple (direction, speed, gust, datetime)"
+    """Returns the wind data as tuple (direction, speed, gust, datetime)"""
     response = requests.get(url, timeout=socket_timeout)
     soup = BeautifulSoup(response.text, "html.parser")
     wind_dir = None
@@ -82,17 +78,28 @@ def scrapeIIDSWebView(url):
         sys.stderr.write('ValueError %s: updated_text="%s"\n' % (str(ex), updated_text))
         updated = None
 
-    return (wind_dir, wind_speed, wind_gust, updated)
+    return wind_dir, wind_speed, wind_gust, updated
 
 
-def insert_obs(c, obs):
-    "Insert an observation to the database"
-    c.execute("""INSERT INTO wind_obs (station_id, direction, speed_kts, gust_kts, update_time)
-        VALUES ((SELECT id FROM station WHERE name = %s), %s, %s, %s, %s)""", obs)
+def insert_obs(conn: pymysql.connections.Connection, obs: tuple):
+    """Insert an observation to the database"""
+    try:
+        c: pymysql.cursors.Cursor = conn.cursor()
+        c.execute("""INSERT INTO wind_obs (station_id, direction, speed_kts, gust_kts, update_time)
+            VALUES ((SELECT id FROM station WHERE name = %s), %s, %s, %s, %s)""", obs)
+    except Exception as ex:
+        sys.stderr.write('%s %s in insert_obs: %s\n' %
+                         (datetime.now().strftime(error_time_fmt),
+                          type(ex).__name__, str(ex)))
+        sys.stderr.write(f'obs = {obs}\n')
+        c.close()
+        conn.rollback()
+    else:
+        conn.commit()
 
 
 def post_observation(endpoint, obs):
-    "POST the observation to the service endpoint"
+    """POST the observation to the service endpoint"""
     payload = json.dumps({
         'station': obs[0],
         'direction': obs[1],
@@ -106,18 +113,8 @@ def post_observation(endpoint, obs):
     return r
 
 
-def post_orc_event(client, obs):
-    event = {
-        'direction': obs[1],
-        'speed_kts': obs[2],
-        'gust_kts': obs[3],
-    }
-    client.post_event('obs', obs[0], 'obs', event, timestamp=obs[4])
-    return event
-
-
-def generate_obs(station, endpoint, refresh_rate=60):
-    "Loop indefinitely scraping the data and writing to the obs_writer"
+def generate_obs(station, refresh_rate=60):
+    """Loop indefinitely scraping the data and writing to the obs_writer"""
     last_obs_time = None
     while True:
         try:
@@ -143,7 +140,7 @@ def generate_obs(station, endpoint, refresh_rate=60):
 
 
 def init_db(db, schema_file='schema_mysql.sql'):
-    "Initialize the database"
+    """Initialize the database"""
     with open(schema_file) as f:
         db.cursor().execute(f.read())
     db.commit()
@@ -151,11 +148,6 @@ def init_db(db, schema_file='schema_mysql.sql'):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        '-t', '--target', type=str, help='target endpoint', default=endopint_default)
-    parser.add_argument(
-        '-k', '--api-key', type=str, help='Orchistrate API key',
-        default=os.environ.get('ORCHESTRATE_API_KEY'))
     parser.add_argument(
         '--ssh-host', type=str, help='SSH host',
         default=os.environ.get('SSH_HOST', 'ssh.pythonanywhere.com'))
@@ -179,53 +171,54 @@ def main():
         default=os.environ.get('MYSQL_PASSWORD'))
     args = parser.parse_args()
 
-    # Connect to databases
-    print('Connecting to Orchestrate')
-    orc_client = Client(args.api_key)
-    with SSHTunnelForwarder(
-        (args.ssh_host),
-        remote_bind_address=(args.mysql_host, 3306),
-        local_bind_address=('localhost', 3306),
-        ssh_username=args.ssh_user,
-        ssh_pkey=args.ssh_pkey,
+    print('mysql password =', args.mysql_password)
+
+    # Connect to databases via ssh tunnel, running outside pythonanywhere
+    if args.ssh_user and args.ssh_pkey:
+        from sshtunnel import SSHTunnelForwarder
+        print('pkey =', args.ssh_pkey)
+        with SSHTunnelForwarder(
+                (args.ssh_host),
+                remote_bind_address=(args.mysql_host, 3306),
+                local_bind_address=('localhost', 3306),
+                ssh_username=args.ssh_user,
+                ssh_pkey=args.ssh_pkey,
         ) as tunnel:
-        time.sleep(1)
-        print('Connecting to PythonAnywhere MySQL')
+            time.sleep(1)
+            print('Connecting to PythonAnywhere MySQL')
+            conn = pymysql.connect(
+                host='localhost', user=args.mysql_user, password=args.mysql_password, db=args.mysql_db)
+            cursor = conn.cursor()
+            print('Starting...')
+
+            # MAIN LOOP
+
+            for obs in generate_obs(station_default):
+                print(obs)
+                # Send to PythonAnywhere mysql
+                insert_obs(conn, obs)
+
+                # Check the tunnel
+                tunnel.check_tunnels()
+                if not all(tunnel.tunnel_is_up.values()):
+                    print(f'Terminating: tunnel_is_up = {tunnel.tunnel_is_up}')
+                    break
+            print('Finishing')
+            conn.close()
+    else:
+        # Not using ssh tunnel, executing on pythonanywhere
+        print('Connecting to MySQL:', args.mysql_host)
         conn = pymysql.connect(
-            host='localhost', user=args.mysql_user, password=args.mysql_password, db=args.mysql_db)
+            host=args.mysql_host, user=args.mysql_user, password=args.mysql_password, db=args.mysql_db)
         cursor = conn.cursor()
         print('Starting...')
 
         # MAIN LOOP
 
-        for obs in generate_obs(station_default, args.target):
+        for obs in generate_obs(station_default):
             print(obs)
-
             # Send to PythonAnywhere mysql
-            try:
-                insert_obs(cursor, obs)
-            except Exception as ex:
-                sys.stderr.write('%s %s in insert_obs: %s\n' %
-                                 (datetime.now().strftime(error_time_fmt),
-                                  type(ex).__name__, str(ex)))
-                sys.stderr.write(f'obs = {obs}\n')
-                cursor.close()
-                conn.rollback()
-                cursor = conn.cursor()
-            else:
-                conn.commit()
-
-            # Send to AppFog Orchestrate
-            event = post_orc_event(orc_client, obs)
-            print(f'{obs[4]}: {event}')
-
-            # Check the tunnel
-            tunnel.check_tunnels()
-            if not all(tunnel.tunnel_is_up.values()):
-                print(f'Terminating: tunnel_is_up = {tunnel.tunnel_is_up}')
-                break
-
-    # conn.close()
+            insert_obs(conn, obs)
 
 
 if __name__ == '__main__':
