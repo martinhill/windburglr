@@ -9,7 +9,9 @@ import requests
 import argparse
 from functools import partial
 import pymysql
+from collections import namedtuple
 
+WindObs = namedtuple('WindObs', ['direction', 'speed', 'gust', 'timestamp'])
 url_base = "http://atm.navcanada.ca/atm/iwv/"
 station_default = 'CYTZ'
 default_db = 'postgres://localhost'
@@ -40,6 +42,7 @@ def find_iids_text_in_soup(soup, text):
 def scrapeIIDSWebView(url):
     """Returns the wind data as tuple (direction, speed, gust, datetime)"""
     response = requests.get(url, timeout=socket_timeout)
+    response.raise_for_status()
     soup = BeautifulSoup(response.text, "html.parser")
     wind_dir = None
     wind_dir_text = None
@@ -54,28 +57,28 @@ def scrapeIIDSWebView(url):
         wind_dir_text = find_iids_text(wind_dir_re)
         wind_dir = coerce_int(wind_dir_text)
     except ValueError as ex:
-        sys.stderr.write('ValueError %s: wind_dir_text="%s"\n' % (str(ex), wind_dir_text))
+        sys.stdout.write('ValueError %s: wind_dir_text="%s"\n' % (str(ex), wind_dir_text))
 
     # Wind speed
     try:
         wind_speed_text = find_iids_text(wind_speed_re)
         wind_speed = coerce_int(wind_speed_text)
     except ValueError as ex:
-        sys.stderr.write('ValueError %s: wind_speed_text="%s"\n' % (str(ex), wind_speed_text))
+        sys.stdout.write('ValueError %s: wind_speed_text="%s"\n' % (str(ex), wind_speed_text))
 
     # Wind gust
     try:
         wind_gust_text = find_iids_text(wind_gust_re)
         wind_gust = coerce_int(wind_gust_text.strip('G'))
     except ValueError as ex:
-        sys.stderr.write('ValueError %s: wind_gust_text="%s"\n' % (str(ex), wind_gust_text))
+        sys.stdout.write('ValueError %s: wind_gust_text="%s"\n' % (str(ex), wind_gust_text))
 
     # Update date/time
     try:
         updated_text = find_iids_text(updated_re)
         updated = datetime.strptime(updated_text, '%Y-%m-%d %H:%M:%SZ')
     except ValueError as ex:
-        sys.stderr.write('ValueError %s: updated_text="%s"\n' % (str(ex), updated_text))
+        sys.stdout.write('ValueError %s: updated_text="%s"\n' % (str(ex), updated_text))
         updated = None
 
     return wind_dir, wind_speed, wind_gust, updated
@@ -120,13 +123,17 @@ def generate_obs(station, refresh_rate=60):
         try:
             obs = scrapeIIDSWebView(url_base + station)
         except Exception as ex:
-            sys.stderr.write('%s %s in scrapeIIDSWebView(%s): %s\n' %
+            sys.stdout.write('%s %s in scrapeIIDSWebView(%s): %s\n' %
                              (datetime.now().strftime(error_time_fmt), type(ex).__name__,
                               url_base + station, str(ex)))
             time.sleep(refresh_rate)
         else:
             # Ensure the observation is new (check update time)
-            if last_obs_time is None or obs[3] > last_obs_time:
+            if not obs[3]:
+                print('skipping null obs time', obs)
+                sys.stdout.flush()
+                time.sleep(1)
+            elif last_obs_time is None or obs[3] > last_obs_time:
                 if obs[0] is not None or obs[1] is not None:
                     yield (station,) + obs
                     time.sleep(refresh_rate)
@@ -171,8 +178,6 @@ def main():
         default=os.environ.get('MYSQL_PASSWORD'))
     args = parser.parse_args()
 
-    print('mysql password =', args.mysql_password)
-
     # Connect to databases via ssh tunnel, running outside pythonanywhere
     if args.ssh_user and args.ssh_pkey:
         from sshtunnel import SSHTunnelForwarder
@@ -188,7 +193,6 @@ def main():
             print('Connecting to PythonAnywhere MySQL')
             conn = pymysql.connect(
                 host='localhost', user=args.mysql_user, password=args.mysql_password, db=args.mysql_db)
-            cursor = conn.cursor()
             print('Starting...')
 
             # MAIN LOOP
@@ -210,7 +214,6 @@ def main():
         print('Connecting to MySQL:', args.mysql_host)
         conn = pymysql.connect(
             host=args.mysql_host, user=args.mysql_user, password=args.mysql_password, db=args.mysql_db)
-        cursor = conn.cursor()
         print('Starting...')
 
         # MAIN LOOP
@@ -219,6 +222,7 @@ def main():
             print(obs)
             # Send to PythonAnywhere mysql
             insert_obs(conn, obs)
+            sys.stdout.flush()
 
 
 if __name__ == '__main__':
