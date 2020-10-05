@@ -11,7 +11,7 @@ from functools import partial
 import pymysql
 from collections import namedtuple
 
-WindObs = namedtuple('WindObs', ['direction', 'speed', 'gust', 'timestamp'])
+WindObs = namedtuple('WindObs', ['station', 'direction', 'speed', 'gust', 'timestamp'])
 url_base = "http://atm.navcanada.ca/atm/iwv/"
 station_default = 'CYTZ'
 default_db = 'postgres://localhost'
@@ -84,7 +84,7 @@ def scrapeIIDSWebView(url):
     return wind_dir, wind_speed, wind_gust, updated
 
 
-def insert_obs(conn: pymysql.connections.Connection, obs: tuple):
+def insert_obs(conn: pymysql.connections.Connection, obs: WindObs):
     """Insert an observation to the database"""
     try:
         c: pymysql.cursors.Cursor = conn.cursor()
@@ -104,11 +104,11 @@ def insert_obs(conn: pymysql.connections.Connection, obs: tuple):
 def post_observation(endpoint, obs):
     """POST the observation to the service endpoint"""
     payload = json.dumps({
-        'station': obs[0],
-        'direction': obs[1],
-        'speed_kts': obs[2],
-        'gust_kts': obs[3],
-        'update_time': obs[4].strftime('%Y-%m-%d %H:%M:%S'),
+        'station': obs.station,
+        'direction': obs.direction,
+        'speed_kts': obs.speed,
+        'gust_kts': obs.gust,
+        'update_time': obs.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
     })
     print(str(payload))
     r = requests.post(endpoint, data=payload, headers={"Content-type": "application/json"})
@@ -121,7 +121,7 @@ def generate_obs(station, refresh_rate=60):
     last_obs_time = None
     while True:
         try:
-            obs = scrapeIIDSWebView(url_base + station)
+            obs = WindObs(station, *scrapeIIDSWebView(url_base + station))
         except Exception as ex:
             sys.stdout.write('%s %s in scrapeIIDSWebView(%s): %s\n' %
                              (datetime.now().strftime(error_time_fmt), type(ex).__name__,
@@ -129,15 +129,15 @@ def generate_obs(station, refresh_rate=60):
             time.sleep(refresh_rate)
         else:
             # Ensure the observation is new (check update time)
-            if not obs[3]:
+            if not obs.timestamp:
                 print('skipping null obs time', obs)
                 sys.stdout.flush()
                 time.sleep(1)
-            elif last_obs_time is None or obs[3] > last_obs_time:
-                if obs[0] is not None or obs[1] is not None:
-                    yield (station,) + obs
+            elif last_obs_time is None or obs.timestamp > last_obs_time:
+                if obs.direction is not None or obs.speed is not None:
+                    yield obs
                     time.sleep(refresh_rate)
-                    last_obs_time = obs[3]
+                    last_obs_time = obs.timestamp
                 else:
                     print('Skipping observation %s' % str(obs))
                     time.sleep(refresh_rate / 2)
