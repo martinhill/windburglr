@@ -39,7 +39,7 @@ def find_iids_text_in_soup(soup, text):
     return soup.find_all(text=text)[0].next_element.next_element.text.strip()
 
 
-def scrapeIIDSWebView(url):
+def scrape_iids_web_view(url):
     """Returns the wind data as tuple (direction, speed, gust, datetime)"""
     response = requests.get(url, timeout=socket_timeout)
     response.raise_for_status()
@@ -79,7 +79,7 @@ def scrapeIIDSWebView(url):
         updated = datetime.strptime(updated_text, '%Y-%m-%d %H:%M:%SZ')
     except ValueError as ex:
         sys.stdout.write('ValueError %s: updated_text="%s"\n' % (str(ex), updated_text))
-        updated = None
+        raise
 
     return wind_dir, wind_speed, wind_gust, updated
 
@@ -121,19 +121,19 @@ def generate_obs(station, refresh_rate=60):
     last_obs_time = None
     while True:
         try:
-            obs = WindObs(station, *scrapeIIDSWebView(url_base + station))
+            obs = WindObs(station, *scrape_iids_web_view(url_base + station))
+        except ValueError:
+            # Invalid data in page, probably temporary
+            print('data invalid (skipping)')
+            time.sleep(5)
         except Exception as ex:
-            sys.stdout.write('%s %s in scrapeIIDSWebView(%s): %s\n' %
+            sys.stdout.write('%s %s in scrape_iids_web_view(%s): %s\n' %
                              (datetime.now().strftime(error_time_fmt), type(ex).__name__,
                               url_base + station, str(ex)))
             time.sleep(refresh_rate)
         else:
-            # Ensure the observation is new (check update time)
-            if not obs.timestamp:
-                print('skipping null obs time', obs)
-                sys.stdout.flush()
-                time.sleep(1)
-            elif last_obs_time is None or obs.timestamp > last_obs_time:
+            if last_obs_time is None or obs.timestamp > last_obs_time:
+                # Ensure the observation is new (check update time)
                 if obs.direction is not None or obs.speed is not None:
                     yield obs
                     time.sleep(refresh_rate)
