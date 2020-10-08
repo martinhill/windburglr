@@ -166,7 +166,7 @@ def main():
         default=os.environ.get('SSH_PKEY'))
     parser.add_argument(
         '--mysql-host', type=str, help='MySQL host',
-        default=os.environ.get('MYSQL_HOST'))
+        default=os.environ.get('MYSQL_HOST', 'martinh.mysql.pythonanywhere-services.com'))
     parser.add_argument(
         '--mysql-user', type=str, help='MySQL user',
         default=os.environ.get('MYSQL_USER', 'martinh'))
@@ -210,7 +210,7 @@ def main():
             print('Finishing')
             conn.close()
 
-    elif args.mysql_host:
+    elif args.mysql_password:
         # Not using ssh tunnel, executing on pythonanywhere
         print('Connecting to MySQL:', args.mysql_host)
         conn = pymysql.connect(
