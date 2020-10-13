@@ -5,18 +5,18 @@ import re
 import time
 from datetime import datetime
 import json
-import requests
+import asyncio
+import aiohttp
 import argparse
 from functools import partial
-import pymysql
+import aiomysql
 from collections import namedtuple
 
 WindObs = namedtuple('WindObs', ['station', 'direction', 'speed', 'gust', 'timestamp'])
 url_base = "http://atm.navcanada.ca/atm/iwv/"
 station_default = 'CYTZ'
-default_db = 'postgres://localhost'
 
-refresh_rate_default = 58
+refresh_rate_default = 60
 socket_timeout = 15
 
 wind_dir_re = re.compile('Wind Direction:')
@@ -26,6 +26,14 @@ updated_re = re.compile('Updated:')
 error_time_fmt = '%m-%d %H:%M:%S'
 
 value_lookup = {'': None, 'CALM': 0, '?': None, '--': None}
+
+
+class MaxRetriesExceeded(Exception):
+    pass
+
+
+class StaleWindObservation(Exception):
+    pass
 
 
 def coerce_int(x):
@@ -39,11 +47,11 @@ def find_iids_text_in_soup(soup, text):
     return soup.find_all(text=text)[0].next_element.next_element.text.strip()
 
 
-def scrape_iids_web_view(url):
+async def scrape_iids_web_view(url, session: aiohttp.ClientSession):
     """Returns the wind data as tuple (direction, speed, gust, datetime)"""
-    response = requests.get(url, timeout=socket_timeout)
+    response = await session.get(url, timeout=socket_timeout)
     response.raise_for_status()
-    soup = BeautifulSoup(response.text, "html.parser")
+    soup = BeautifulSoup(await response.text(), "html.parser")
     wind_dir = None
     wind_dir_text = None
     wind_speed = None
@@ -74,8 +82,8 @@ def scrape_iids_web_view(url):
         sys.stdout.write('ValueError %s: wind_gust_text="%s"\n' % (str(ex), wind_gust_text))
 
     # Update date/time
+    updated_text = find_iids_text(updated_re)
     try:
-        updated_text = find_iids_text(updated_re)
         updated = datetime.strptime(updated_text, '%Y-%m-%d %H:%M:%SZ')
     except ValueError as ex:
         sys.stdout.write('ValueError %s: updated_text="%s"\n' % (str(ex), updated_text))
@@ -84,66 +92,68 @@ def scrape_iids_web_view(url):
     return wind_dir, wind_speed, wind_gust, updated
 
 
-def insert_obs(conn: pymysql.connections.Connection, obs: WindObs):
+async def insert_obs(conn: aiomysql.Connection, obs: WindObs):
     """Insert an observation to the database"""
+    c: aiomysql.cursors.Cursor = await conn.cursor()
     try:
-        c: pymysql.cursors.Cursor = conn.cursor()
-        c.execute("""INSERT INTO wind_obs (station_id, direction, speed_kts, gust_kts, update_time)
+        await c.execute("""INSERT INTO wind_obs (station_id, direction, speed_kts, gust_kts, update_time)
             VALUES ((SELECT id FROM station WHERE name = %s), %s, %s, %s, %s)""", obs)
     except Exception as ex:
         sys.stderr.write('%s %s in insert_obs: %s\n' %
                          (datetime.now().strftime(error_time_fmt),
                           type(ex).__name__, str(ex)))
-        sys.stderr.write(f'obs = {obs}\n')
-        c.close()
-        conn.rollback()
-    else:
-        conn.commit()
 
 
-def post_observation(endpoint, obs):
-    """POST the observation to the service endpoint"""
-    payload = json.dumps({
-        'station': obs.station,
-        'direction': obs.direction,
-        'speed_kts': obs.speed,
-        'gust_kts': obs.gust,
-        'update_time': obs.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
-    })
-    print(str(payload))
-    r = requests.post(endpoint, data=payload, headers={"Content-type": "application/json"})
-    r.raise_for_status()
-    return r
+last_obs_time = dict()
 
 
-def generate_obs(station, refresh_rate=60):
-    """Loop indefinitely scraping the data and writing to the obs_writer"""
-    last_obs_time = None
+def is_new_obs(obs: WindObs) -> bool:
+    station_last_obs_time = last_obs_time.get(obs.station)
+    return not station_last_obs_time or station_last_obs_time < obs.timestamp
+
+
+def set_obs_last_timestamp(obs: WindObs):
+    last_obs_time[obs.station] = obs.timestamp
+
+
+async def fetch_obs(station: str, session: aiohttp.ClientSession, max_retries=10) -> WindObs:
+    """Fetch the current observation for a station, retrying """
+    retry_count = 0
     while True:
         try:
-            obs = WindObs(station, *scrape_iids_web_view(url_base + station))
+            obs = WindObs(station, *await scrape_iids_web_view(url_base + station, session))
+            if is_new_obs(obs):
+                set_obs_last_timestamp(obs)
+                return obs
+            else:
+                raise StaleWindObservation(f'stale data: station={station} timestamp={obs.timestamp}')
         except ValueError:
             # Invalid data in page, probably temporary
-            print('data invalid (skipping)')
-            time.sleep(5)
-        except Exception as ex:
-            sys.stdout.write('%s %s in scrape_iids_web_view(%s): %s\n' %
-                             (datetime.now().strftime(error_time_fmt), type(ex).__name__,
-                              url_base + station, str(ex)))
-            time.sleep(refresh_rate)
-        else:
-            if last_obs_time is None or obs.timestamp > last_obs_time:
-                # Ensure the observation is new (check update time)
-                if obs.direction is not None or obs.speed is not None:
-                    yield obs
-                    time.sleep(refresh_rate)
-                    last_obs_time = obs.timestamp
-                else:
-                    print('Skipping observation %s' % str(obs))
-                    time.sleep(refresh_rate / 2)
+            if retry_count < max_retries:
+                print(f'data invalid, retrying for {station}')
+                await asyncio.sleep(5)
+                retry_count += 1
             else:
-                # sleep half the refresh time when we get a duplicate
-                time.sleep(refresh_rate / 2)
+                raise MaxRetriesExceeded(f'max retries exceeded fetching {station}')
+
+
+def pretty_obs(obs: WindObs) -> str:
+    return ', '.join(f'{field}={getattr(obs, field)}' for field in ['station', 'direction', 'speed', 'gust', 'timestamp'])
+
+
+async def fetch_and_save(
+        station: str,
+        session: aiohttp.ClientSession,
+        conn: aiomysql.Connection):
+    obs = await fetch_obs(station, session)
+    print(pretty_obs(obs))
+    await insert_obs(conn, obs)
+
+
+async def fetch_and_print(station: str, session: aiohttp.ClientSession):
+    obs = await fetch_obs(station, session)
+    # Ensure the observation is new (check update time)
+    print(pretty_obs(obs))
 
 
 def init_db(db, schema_file='schema_mysql.sql'):
@@ -153,7 +163,7 @@ def init_db(db, schema_file='schema_mysql.sql'):
     db.commit()
 
 
-def main():
+async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--ssh-host', type=str, help='SSH host',
@@ -178,60 +188,74 @@ def main():
         default=os.environ.get('MYSQL_PASSWORD'))
     args = parser.parse_args()
 
-    # Connect to databases via ssh tunnel, running outside pythonanywhere
-    if args.ssh_user and args.ssh_pkey:
-        from sshtunnel import SSHTunnelForwarder
-        print('pkey =', args.ssh_pkey)
-        with SSHTunnelForwarder(
-                (args.ssh_host),
-                remote_bind_address=(args.mysql_host, 3306),
-                local_bind_address=('localhost', 3306),
-                ssh_username=args.ssh_user,
-                ssh_pkey=args.ssh_pkey,
-        ) as tunnel:
-            time.sleep(1)
-            print('Connecting to PythonAnywhere MySQL')
-            conn = pymysql.connect(
-                host='localhost', user=args.mysql_user, password=args.mysql_password, db=args.mysql_db)
+    async with aiohttp.ClientSession() as session:
+
+        # Connect to databases via ssh tunnel, running outside pythonanywhere
+        if args.ssh_user and args.ssh_pkey:
+            from sshtunnel import SSHTunnelForwarder
+            print('pkey =', args.ssh_pkey)
+            with SSHTunnelForwarder(
+                    (args.ssh_host),
+                    remote_bind_address=(args.mysql_host, 3306),
+                    local_bind_address=('localhost', 3306),
+                    ssh_username=args.ssh_user,
+                    ssh_pkey=args.ssh_pkey,
+            ) as tunnel:
+                print('Starting...')
+                time.sleep(1)
+                print('Connecting to PythonAnywhere MySQL')
+                conn : aiomysql.Connection = await aiomysql.connect(
+                    host='localhost', user=args.mysql_user, password=args.mysql_password, db=args.mysql_db,
+                    autocommit=True)
+
+                # MAIN LOOP
+
+                while not conn.closed:
+                    tasks = [fetch_and_save(station, session, conn) for station in [station_default]]
+                    results = await asyncio.gather(*tasks, asyncio.sleep(refresh_rate_default), return_exceptions=True)
+                    for result in results:
+                        if isinstance(result, Exception):
+                            print('caught exception:', result)
+                    sys.stdout.flush()
+
+                    # Check the tunnel
+                    tunnel.check_tunnels()
+                    if not all(tunnel.tunnel_is_up.values()):
+                        print(f'Terminating: tunnel_is_up = {tunnel.tunnel_is_up}')
+                        break
+                print('Finishing')
+                conn.close()
+
+        elif args.mysql_password:
+            # Not using ssh tunnel, executing on pythonanywhere
+            print('Connecting to MySQL:', args.mysql_host)
+            conn = await aiomysql.connect(
+                host=args.mysql_host, user=args.mysql_user, password=args.mysql_password, db=args.mysql_db,
+                autocommit=True)
             print('Starting...')
 
             # MAIN LOOP
 
-            for obs in generate_obs(station_default):
-                print(obs)
-                # Send to PythonAnywhere mysql
-                insert_obs(conn, obs)
+            while not conn.closed:
+                tasks = [fetch_and_save(station, session, conn) for station in [station_default]]
+                results = await asyncio.gather(*tasks, asyncio.sleep(refresh_rate_default), return_exceptions=True)
+                for result in results:
+                    if isinstance(result, Exception):
+                        print('caught exception:', result)
+                sys.stdout.flush()
 
-                # Check the tunnel
-                tunnel.check_tunnels()
-                if not all(tunnel.tunnel_is_up.values()):
-                    print(f'Terminating: tunnel_is_up = {tunnel.tunnel_is_up}')
-                    break
-            print('Finishing')
             conn.close()
 
-    elif args.mysql_password:
-        # Not using ssh tunnel, executing on pythonanywhere
-        print('Connecting to MySQL:', args.mysql_host)
-        conn = pymysql.connect(
-            host=args.mysql_host, user=args.mysql_user, password=args.mysql_password, db=args.mysql_db)
-        print('Starting...')
-
-        # MAIN LOOP
-
-        for obs in generate_obs(station_default):
-            print(obs)
-            # Send to PythonAnywhere mysql
-            insert_obs(conn, obs)
-            sys.stdout.flush()
-
-        conn.close()
-
-    else:
-        # No DB, just console output
-        for obs in generate_obs(station_default):
-            print(obs)
+        else:
+            # No DB, just console output
+            while True:
+                tasks = [fetch_and_print(station, session) for station in [station_default, 'CYYZ', 'CYUL']]
+                results = await asyncio.gather(*tasks, asyncio.sleep(refresh_rate_default), return_exceptions=True)
+                for result in results:
+                    if isinstance(result, Exception):
+                        print('caught exception:', result)
+                sys.stdout.flush()
 
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
