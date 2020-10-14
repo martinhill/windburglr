@@ -4,7 +4,6 @@ from bs4 import BeautifulSoup
 import re
 import time
 from datetime import datetime
-import json
 import asyncio
 import aiohttp
 import argparse
@@ -28,11 +27,15 @@ error_time_fmt = '%m-%d %H:%M:%S'
 value_lookup = {'': None, 'CALM': 0, '?': None, '--': None}
 
 
-class MaxRetriesExceeded(Exception):
+class WindburglrException(Exception):
     pass
 
 
-class StaleWindObservation(Exception):
+class MaxRetriesExceeded(WindburglrException):
+    pass
+
+
+class StaleWindObservation(WindburglrException):
     pass
 
 
@@ -95,13 +98,8 @@ async def scrape_iids_web_view(url, session: aiohttp.ClientSession):
 async def insert_obs(conn: aiomysql.Connection, obs: WindObs):
     """Insert an observation to the database"""
     c: aiomysql.cursors.Cursor = await conn.cursor()
-    try:
-        await c.execute("""INSERT INTO wind_obs (station_id, direction, speed_kts, gust_kts, update_time)
-            VALUES ((SELECT id FROM station WHERE name = %s), %s, %s, %s, %s)""", obs)
-    except Exception as ex:
-        sys.stderr.write('%s %s in insert_obs: %s\n' %
-                         (datetime.now().strftime(error_time_fmt),
-                          type(ex).__name__, str(ex)))
+    await c.execute("""INSERT INTO wind_obs (station_id, direction, speed_kts, gust_kts, update_time)
+        VALUES ((SELECT id FROM station WHERE name = %s), %s, %s, %s, %s)""", obs)
 
 
 last_obs_time = dict()
@@ -214,8 +212,10 @@ async def main():
                     tasks = [fetch_and_save(station, session, conn) for station in [station_default]]
                     results = await asyncio.gather(*tasks, asyncio.sleep(refresh_rate_default), return_exceptions=True)
                     for result in results:
-                        if isinstance(result, Exception):
+                        if isinstance(result, WindburglrException):
                             print('caught exception:', result)
+                        elif isinstance(result, Exception):
+                            raise result
                     sys.stdout.flush()
 
                     # Check the tunnel
@@ -240,8 +240,10 @@ async def main():
                 tasks = [fetch_and_save(station, session, conn) for station in [station_default]]
                 results = await asyncio.gather(*tasks, asyncio.sleep(refresh_rate_default), return_exceptions=True)
                 for result in results:
-                    if isinstance(result, Exception):
+                    if isinstance(result, WindburglrException):
                         print('caught exception:', result)
+                    elif isinstance(result, Exception):
+                        raise result
                 sys.stdout.flush()
 
             conn.close()
@@ -252,8 +254,10 @@ async def main():
                 tasks = [fetch_and_print(station, session) for station in [station_default, 'CYYZ', 'CYUL']]
                 results = await asyncio.gather(*tasks, asyncio.sleep(refresh_rate_default), return_exceptions=True)
                 for result in results:
-                    if isinstance(result, Exception):
+                    if isinstance(result, WindburglrException):
                         print('caught exception:', result)
+                    elif isinstance(result, Exception):
+                        raise result
                 sys.stdout.flush()
 
 
