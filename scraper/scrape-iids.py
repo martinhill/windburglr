@@ -1,6 +1,6 @@
 import os
 import sys
-from bs4 import BeautifulSoup
+import json
 import re
 import time
 from datetime import datetime
@@ -12,7 +12,7 @@ import aiomysql
 from collections import namedtuple
 
 WindObs = namedtuple('WindObs', ['station', 'direction', 'speed', 'gust', 'timestamp'])
-url_base = "http://atm.navcanada.ca/atm/iwv/"
+url_base = "https://atm.navcanada.ca/data/iwv/api/collator/v1/"
 station_default = 'CYTZ'
 
 refresh_rate_default = 60
@@ -46,48 +46,28 @@ def coerce_int(x):
         return int(x)
 
 
-def find_iids_text_in_soup(soup, text):
-    return soup.find_all(text=text)[0].next_element.next_element.text.strip()
-
-
 async def scrape_iids_web_view(url, session: aiohttp.ClientSession):
     """Returns the wind data as tuple (direction, speed, gust, datetime)"""
     response = await session.get(url, timeout=socket_timeout)
     response.raise_for_status()
-    soup = BeautifulSoup(await response.text(), "html.parser")
+    resp_data = json.loads(await response.text())
     wind_dir = None
-    wind_dir_text = None
     wind_speed = None
-    wind_speed_text = None
     wind_gust = None
-    wind_gust_text = None
-    find_iids_text = partial(find_iids_text_in_soup, soup)
 
     # Wind direction
-    try:
-        wind_dir_text = find_iids_text(wind_dir_re)
-        wind_dir = coerce_int(wind_dir_text)
-    except ValueError as ex:
-        sys.stdout.write('ValueError %s: wind_dir_text="%s"\n' % (str(ex), wind_dir_text))
+    wind_dir = resp_data.get('wind_direction')
 
     # Wind speed
-    try:
-        wind_speed_text = find_iids_text(wind_speed_re)
-        wind_speed = coerce_int(wind_speed_text)
-    except ValueError as ex:
-        sys.stdout.write('ValueError %s: wind_speed_text="%s"\n' % (str(ex), wind_speed_text))
+    wind_speed = resp_data.get('wind_speed')
 
     # Wind gust
-    try:
-        wind_gust_text = find_iids_text(wind_gust_re)
-        wind_gust = coerce_int(wind_gust_text.strip('G'))
-    except ValueError as ex:
-        sys.stdout.write('ValueError %s: wind_gust_text="%s"\n' % (str(ex), wind_gust_text))
+    wind_gust = resp_data.get('wind_gust')
 
     # Update date/time
-    updated_text = find_iids_text(updated_re)
+    updated_text = resp_data.get('updated')
     try:
-        updated = datetime.strptime(updated_text, '%Y-%m-%d %H:%M:%SZ')
+        updated = datetime.strptime(updated_text, '%Y-%m-%d %H:%M:%S')
     except ValueError as ex:
         sys.stdout.write('ValueError %s: updated_text="%s"\n' % (str(ex), updated_text))
         raise
