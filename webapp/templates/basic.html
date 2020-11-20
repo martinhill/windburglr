@@ -5,6 +5,19 @@
     <title>wind burglr</title>
   <!-- prevent small devices from attempting to render a desktop-sized page -->
   <meta name="viewport" content="width=device-width" />
+    <style>
+        .jason {
+            background-image: url("{{ url_for('static', filename='IMG_20131025_153200.jpg') }}");
+            background-color: white;
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-origin: content-box;
+            padding: 20px;
+          }
+        .jason canvas {
+            opacity: 60%;
+        }
+    </style>
 {# Google Analytics snippet in ga.html #}
 {% include "ga.html" ignore missing %} 
   </head>
@@ -16,7 +29,9 @@
         <span id=fail></span>
     </p>
     </div>
+{% block plot_container %}
    <div id="container"></div>
+{% endblock %}
 
   <script src="{{url_for('static', filename='flotr2.min.js') }}"></script>
 

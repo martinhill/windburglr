@@ -8,6 +8,7 @@
         <span id="direction">
         </span><span> (</span><span id="lull"></span><span>-</span><span id="gust"></span><span>)</span>
         <span>&sigma;=</span><span id="sigma"></span>
+        RIP Ghostrider
     </div>
 {% endblock %}
 {% block js_code_1 %}
@@ -88,4 +89,6 @@
     calcCurrentConditions(station_id, winddata, (new Date().getTime()/1000) - (15 * 60));
 {% endblock %}
 
-
+{% block plot_container %}
+  <div id="container" class="jason"></div>
+{% endblock %}
