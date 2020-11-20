@@ -1,13 +1,11 @@
 import os
 import sys
 import json
-import re
 import time
 from datetime import datetime
 import asyncio
 import aiohttp
 import argparse
-from functools import partial
 import aiomysql
 from collections import namedtuple
 
@@ -18,10 +16,6 @@ station_default = 'CYTZ'
 refresh_rate_default = 60
 socket_timeout = 15
 
-wind_dir_re = re.compile('Wind Direction:')
-wind_speed_re = re.compile('Wind Speed:')
-wind_gust_re = re.compile('Gusting:')
-updated_re = re.compile('Updated:')
 error_time_fmt = '%m-%d %H:%M:%S'
 
 value_lookup = {'': None, 'CALM': 0, '?': None, '--': None}
@@ -51,15 +45,12 @@ async def scrape_iids_web_view(url, session: aiohttp.ClientSession):
     response = await session.get(url, timeout=socket_timeout)
     response.raise_for_status()
     resp_data = json.loads(await response.text())
-    wind_dir = None
-    wind_speed = None
-    wind_gust = None
 
     # Wind direction
     wind_dir = resp_data.get('wind_direction')
 
     # Wind speed
-    wind_speed = resp_data.get('wind_speed')
+    wind_speed = resp_data.get('wind_speed') or 0
 
     # Wind gust
     wind_gust = resp_data.get('wind_gust')
