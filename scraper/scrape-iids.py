@@ -58,7 +58,7 @@ async def scrape_iids_web_view(url, session: aiohttp.ClientSession):
     # Update date/time
     updated_text = resp_data.get('updated')
     try:
-        updated = datetime.strptime(updated_text, '%Y-%m-%d %H:%M:%S')
+        updated = datetime.strptime(updated_text, '%Y-%m-%d %H:%M')
     except ValueError as ex:
         sys.stdout.write('ValueError %s: updated_text="%s"\n' % (str(ex), updated_text))
         raise
