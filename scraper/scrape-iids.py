@@ -10,7 +10,7 @@ import aiomysql
 from collections import namedtuple
 
 WindObs = namedtuple('WindObs', ['station', 'direction', 'speed', 'gust', 'timestamp'])
-url_base = "https://atm.navcanada.ca/data/iwv/api/collator/v1/"
+url_base = "https://spaces.navcanada.ca/service/iwv/api/collator/v2/"
 station_default = 'CYTZ'
 
 refresh_rate_default = 60
