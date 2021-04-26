@@ -40,23 +40,22 @@ def coerce_int(x):
         return int(x)
 
 
-async def scrape_iids_web_view(url, session: aiohttp.ClientSession):
+def scrape_aeroview_json(resp_data: dict, station: str):
     """Returns the wind data as tuple (direction, speed, gust, datetime)"""
-    response = await session.get(url, timeout=socket_timeout)
-    response.raise_for_status()
-    resp_data = json.loads(await response.text())
+
+    sensor_data = resp_data['v2']['sensor_data'][station]
 
     # Wind direction
-    wind_dir = resp_data.get('wind_direction')
+    wind_dir = sensor_data.get('wind_magnetic_dir_2_mean')
 
     # Wind speed
-    wind_speed = resp_data.get('wind_speed') or 0
+    wind_speed = sensor_data.get('wind_speed_2_mean') or 0
 
     # Wind gust
-    wind_gust = resp_data.get('wind_gust')
+    wind_gust = sensor_data.get('gust_squall_speed')
 
     # Update date/time
-    updated_text = resp_data.get('updated')
+    updated_text = sensor_data.get('observation_time')
     try:
         updated = datetime.strptime(updated_text, '%Y-%m-%d %H:%M')
     except ValueError as ex:
@@ -90,13 +89,16 @@ async def fetch_obs(station: str, session: aiohttp.ClientSession, max_retries=10
     retry_count = 0
     while True:
         try:
-            obs = WindObs(station, *await scrape_iids_web_view(url_base + station, session))
+            response = await session.get(url_base + station, timeout=socket_timeout)
+            response.raise_for_status()
+            resp_data = json.loads(await response.text())
+            obs = WindObs(station, *scrape_aeroview_json(resp_data, station))
             if is_new_obs(obs):
                 set_obs_last_timestamp(obs)
                 return obs
             else:
                 raise StaleWindObservation(f'stale data: station={station} timestamp={obs.timestamp}')
-        except ValueError:
+        except (ValueError, asyncio.exceptions.TimeoutError):
             # Invalid data in page, probably temporary
             if retry_count < max_retries:
                 print(f'data invalid, retrying for {station}')
@@ -107,7 +109,8 @@ async def fetch_obs(station: str, session: aiohttp.ClientSession, max_retries=10
 
 
 def pretty_obs(obs: WindObs) -> str:
-    return ', '.join(f'{field}={getattr(obs, field)}' for field in ['station', 'direction', 'speed', 'gust', 'timestamp'])
+    return ', '.join(f'{field}={getattr(obs, field)}' for field in
+                     ['station', 'direction', 'speed', 'gust', 'timestamp'])
 
 
 async def fetch_and_save(
