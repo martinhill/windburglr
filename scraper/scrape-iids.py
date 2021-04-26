@@ -98,10 +98,10 @@ async def fetch_obs(station: str, session: aiohttp.ClientSession, max_retries=10
                 return obs
             else:
                 raise StaleWindObservation(f'stale data: station={station} timestamp={obs.timestamp}')
-        except (ValueError, asyncio.exceptions.TimeoutError):
+        except (ValueError, asyncio.exceptions.TimeoutError) as e:
             # Invalid data in page, probably temporary
             if retry_count < max_retries:
-                print(f'data invalid, retrying for {station}')
+                print(f'{repr(e)}, retrying for {station}')
                 await asyncio.sleep(5)
                 retry_count += 1
             else:
