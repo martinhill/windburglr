@@ -89,7 +89,12 @@ async def fetch_obs(station: str, session: aiohttp.ClientSession, max_retries=10
     retry_count = 0
     while True:
         try:
-            response = await session.get(url_base + station, timeout=socket_timeout)
+            response = await session.get(
+                url_base + station,
+                timeout=socket_timeout,
+                headers={
+                    "Referer": f"https://spaces.navcanada.ca/workspace/aeroview/{station}/"
+                })
             response.raise_for_status()
             resp_data = json.loads(await response.text())
             obs = WindObs(station, *scrape_aeroview_json(resp_data, station))
