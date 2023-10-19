@@ -129,13 +129,12 @@ async def fetch_obs(station: str,
         await asyncio.sleep(5)
         retry_count += 1
       else:
-        raise MaxRetriesExceeded(f'max retries exceeded fetching {station}')
+        raise MaxRetriesExceeded(f'max retries exceeded fetching {station}') from None
 
 
 def pretty_obs(obs: WindObs) -> str:
-  return ', '.join(
-      f'{field}={getattr(obs, field)}'
-      for field in ['station', 'direction', 'speed', 'gust', 'timestamp'])
+  speed_str = f'{obs.speed}-{obs.gust}' if obs.gust else f'{obs.speed}'
+  return f'{obs.station}: {obs.direction} deg, {speed_str} kts, {obs.timestamp}'
 
 
 async def fetch_and_save(station: str, session: aiohttp.ClientSession,
@@ -159,6 +158,8 @@ async def run_tasks_and_handle_exceptions(tasks: list):
   for result in results:
     if isinstance(result, WindburglrException):
       print('caught exception:', result)
+    elif isinstance(result, asyncpg.exceptions.UniqueViolationError):
+      print(f'duplicate observation: {result}')
     elif isinstance(result, Exception):
       raise result
 
