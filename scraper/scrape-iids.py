@@ -3,14 +3,12 @@ import asyncio
 import json
 import os
 import sys
-from collections import namedtuple
+from dataclasses import dataclass
 from datetime import datetime
 
 import aiohttp
 import asyncpg
 
-WindObs = namedtuple('WindObs',
-                     ['station', 'direction', 'speed', 'gust', 'timestamp'])
 url_base = "https://spaces.navcanada.ca/service/iwv/api/collator/v2/"
 station_default = 'CYTZ'
 
@@ -32,6 +30,15 @@ class MaxRetriesExceeded(WindburglrException):
 
 class StaleWindObservation(WindburglrException):
   pass
+
+
+@dataclass
+class WindObs:
+  station: str
+  direction: float
+  speed: float
+  gust: float
+  timestamp: datetime
 
 
 def coerce_int(x):
