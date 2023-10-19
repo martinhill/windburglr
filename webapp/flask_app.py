@@ -1,8 +1,8 @@
 import os
-from flask import Flask, jsonify, render_template, request, g
 from datetime import datetime, timedelta
-import pymysql
 
+import pymysql
+from flask import Flask, g, jsonify, render_template, request
 
 application = app = Flask(__name__)
 
@@ -150,4 +150,4 @@ def day(date=None):
 if __name__ == '__main__':
     # Bind to PORT if defined, otherwise default to 5000.
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=not services)
+    app.run(host='0.0.0.0', port=port, debug=True)
