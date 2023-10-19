@@ -132,7 +132,7 @@ def pretty_obs(obs: WindObs) -> str:
 
 
 async def fetch_and_save(station: str, session: aiohttp.ClientSession,
-                         conn: asyncpg.Connection):
+                         conn: asyncpg.connection.Connection):
   obs = await fetch_obs(station, session)
   print(pretty_obs(obs))
   await insert_obs(conn, obs)
@@ -142,6 +142,18 @@ async def fetch_and_print(station: str, session: aiohttp.ClientSession):
   obs = await fetch_obs(station, session)
   # Ensure the observation is new (check update time)
   print(pretty_obs(obs))
+
+
+async def run_tasks_and_handle_exceptions(tasks: list):
+  results = await asyncio.gather(
+    *tasks,
+    asyncio.sleep(refresh_rate_default),
+    return_exceptions=True)
+  for result in results:
+    if isinstance(result, WindburglrException):
+      print('caught exception:', result)
+    elif isinstance(result, Exception):
+      raise result
 
 
 async def main():
@@ -180,36 +192,24 @@ async def main():
 
       # MAIN LOOP
 
+      station_list = [station_default]
       while not conn.is_closed():
         tasks = [
-            fetch_and_save(station, session, conn)
-            for station in [station_default]
+          fetch_and_save(station, session, conn)
+          for station in station_list
         ]
-        results = await asyncio.gather(*tasks,
-                                       asyncio.sleep(refresh_rate_default),
-                                       return_exceptions=True)
-        for result in results:
-          if isinstance(result, WindburglrException):
-            print('caught exception:', result)
-          elif isinstance(result, Exception):
-            raise result
+        await run_tasks_and_handle_exceptions(tasks)
         sys.stdout.flush()
 
     else:
       # No DB, just console output
+      station_list = [station_default, 'CYYZ', 'CYUL']
       while True:
         tasks = [
-            fetch_and_print(station, session)
-            for station in [station_default, 'CYYZ', 'CYUL']
+          fetch_and_print(station, session)
+          for station in station_list
         ]
-        results = await asyncio.gather(*tasks,
-                                       asyncio.sleep(refresh_rate_default),
-                                       return_exceptions=True)
-        for result in results:
-          if isinstance(result, WindburglrException):
-            print('caught exception:', result)
-          elif isinstance(result, Exception):
-            raise result
+        await run_tasks_and_handle_exceptions(tasks)
         sys.stdout.flush()
 
 
