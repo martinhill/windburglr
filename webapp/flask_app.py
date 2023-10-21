@@ -1,11 +1,10 @@
 import os
 from datetime import datetime, timedelta
 
-import pymysql
+import psycopg2
 from flask import Flask, g, jsonify, render_template, request
 
 application = app = Flask(__name__)
-
 
 current_template = 'current.html'
 day_template = 'day.html'
@@ -22,12 +21,9 @@ def epoch_time(dt):
 
 
 def connect_db():
-    mysql_host = os.environ.get('MYSQL_HOST', 'martinh.mysql.pythonanywhere-services.com')
-    mysql_user = os.environ.get('MYSQL_USER', 'martinh')
-    mysql_db = os.environ.get('MYSQL_DB', 'martinh$windburglr')
-    mysql_password = os.environ.get('MYSQL_PASSWORD')
-
-    return pymysql.connect(host=mysql_host, user=mysql_user, db=mysql_db, password=mysql_password)
+    database_url = os.environ.get('DATABASE_URL', '')
+    if database_url:
+        return psycopg2.connect(database_url, sslmode='require')
 
 
 def get_connection():
@@ -48,12 +44,12 @@ def query_wind_data(station, start_time, end_time):
     "Returns a generator of wind data tuples"
     db = get_connection()
     c = db.cursor()
-    c.execute("""SELECT update_time, direction, speed_kts, gust_kts
+    c.execute(
+        """SELECT update_time, direction, speed_kts, gust_kts
         FROM station JOIN wind_obs ON station_id = station.id
         WHERE station.name = %s AND update_time BETWEEN %s AND %s
         ORDER BY update_time;
-        """,
-        (station, start_time, end_time))
+        """, (station, start_time, end_time))
     row = c.fetchone()
     while row is not None:
         yield row
@@ -64,10 +60,11 @@ def store_observation(obs):
     "Write an observation to the database"
     db = get_connection()
     c = db.cursor()
-    c.execute("""INSERT INTO obs (station, direction, speed_kts, gust_kts, update_time)
+    c.execute(
+        """INSERT INTO obs (station, direction, speed_kts, gust_kts, update_time)
         VALUES (%s, %s, %s, %s, %s)
-        """, (obs['station'], obs['direction'], obs['speed_kts'], obs['gust_kts'],
-              obs['update_time']))
+        """, (obs['station'], obs['direction'], obs['speed_kts'],
+              obs['gust_kts'], obs['update_time']))
     db.commit()
     return c.rowcount
 
@@ -97,7 +94,8 @@ def create_wind_observation():
             else:
                 return jsonify(message="Invalid request"), 403
         except KeyError as ke:
-            return jsonify(message="Invalid request: missing key: {}".format(ke)), 403
+            return jsonify(
+                message="Invalid request: missing key: {}".format(ke)), 403
         except Exception as ex:
             return jsonify(message=str(ex)), 403
     else:
@@ -106,15 +104,19 @@ def create_wind_observation():
 
 def wind_data_as_json():
     station = request.args.get('stn', default_station)
-    start_time = request.args.get('from', datetime.utcnow() - timedelta(0, 3600 * 24),
-                                  type=lambda x: datetime.strptime(x, iso_format))
-    end_time = request.args.get('to', datetime.utcnow(),
-                                type=lambda x: datetime.strptime(x, iso_format))
+    start_time = request.args.get(
+        'from',
+        datetime.utcnow() - timedelta(0, 3600 * 24),
+        type=lambda x: datetime.strptime(x, iso_format))
+    end_time = request.args.get(
+        'to',
+        datetime.utcnow(),
+        type=lambda x: datetime.strptime(x, iso_format))
     winddatagen = query_wind_data(station, start_time, end_time)
     # This is a kludge to make the data jasonifiable, since it contains
     # datetime and Decimal classes
-    jsonfriendly = [(epoch_time(x[0]), safe_int(x[1]), safe_int(x[2]), safe_int(x[3]))
-        for x in winddatagen]
+    jsonfriendly = [(epoch_time(x[0]), safe_int(x[1]), safe_int(x[2]),
+                     safe_int(x[3])) for x in winddatagen]
     return jsonify(station=station, winddata=jsonfriendly)
 
 
@@ -123,12 +125,11 @@ def hello():
     station = request.args.get('stn', default_station)
     minutes = request.args.get('minutes', 0, int)
     hours = request.args.get('hours', 3 if minutes == 0 else 0, int)
-    return render_template(
-        current_template,
-        wind=wind_url,
-        station=station,
-        hours=hours,
-        minutes=minutes)
+    return render_template(current_template,
+                           wind=wind_url,
+                           station=station,
+                           hours=hours,
+                           minutes=minutes)
 
 
 @app.route('/day')
@@ -138,11 +139,12 @@ def day(date=None):
     if date:
         start_date = datetime.strptime(date, '%Y-%m-%d')
         end_date = start_date + timedelta(1)
-        return render_template(day_template,
-                               wind=wind_url,
-                               station=station,
-                               start_time=[start_date.year, start_date.month - 1, start_date.day],
-                               end_time=[end_date.year, end_date.month - 1, end_date.day])
+        return render_template(
+            day_template,
+            wind=wind_url,
+            station=station,
+            start_time=[start_date.year, start_date.month - 1, start_date.day],
+            end_time=[end_date.year, end_date.month - 1, end_date.day])
     else:
         return render_template(day_template, wind=wind_url, station=station)
 
