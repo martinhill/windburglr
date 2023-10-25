@@ -1,15 +1,14 @@
+import argparse
+import asyncio
+import json
 import os
 import sys
-import json
-import time
+from dataclasses import dataclass
 from datetime import datetime
-import asyncio
-import aiohttp
-import argparse
-import aiomysql
-from collections import namedtuple
 
-WindObs = namedtuple('WindObs', ['station', 'direction', 'speed', 'gust', 'timestamp'])
+import aiohttp
+import asyncpg
+
 url_base = "https://spaces.navcanada.ca/service/iwv/api/collator/v2/"
 station_default = 'CYTZ'
 
@@ -22,223 +21,205 @@ value_lookup = {'': None, 'CALM': 0, '?': None, '--': None}
 
 
 class WindburglrException(Exception):
-    pass
+  pass
 
 
 class MaxRetriesExceeded(WindburglrException):
-    pass
+  pass
 
 
 class StaleWindObservation(WindburglrException):
-    pass
+  pass
+
+
+@dataclass
+class WindObs:
+  station: str
+  direction: float
+  speed: float
+  gust: float
+  timestamp: datetime
 
 
 def coerce_int(x):
-    try:
-        return value_lookup[x]
-    except KeyError:
-        return int(x)
+  try:
+    return value_lookup[x]
+  except KeyError:
+    return int(x)
 
 
 def scrape_aeroview_json(resp_data: dict, station: str):
-    """Returns the wind data as tuple (direction, speed, gust, datetime)"""
+  """Returns the wind data as tuple (direction, speed, gust, datetime)"""
 
-    sensor_data = resp_data['v2']['sensor_data'][station]
+  sensor_data = resp_data['v2']['sensor_data'][station]
 
-    # Wind direction
-    wind_dir = sensor_data.get('wind_magnetic_dir_2_mean')
+  # Wind direction
+  wind_dir = sensor_data.get('wind_magnetic_dir_2_mean')
 
-    # Wind speed
-    wind_speed = sensor_data.get('wind_speed_2_mean') or 0
+  # Wind speed
+  wind_speed = sensor_data.get('wind_speed_2_mean') or 0
 
-    # Wind gust
-    wind_gust = sensor_data.get('gust_squall_speed')
+  # Wind gust
+  wind_gust = sensor_data.get('gust_squall_speed')
 
-    # Update date/time
-    updated_text = sensor_data.get('observation_time')
-    try:
-        updated = datetime.strptime(updated_text, '%Y-%m-%d %H:%M')
-    except ValueError as ex:
-        sys.stdout.write('ValueError %s: updated_text="%s"\n' % (str(ex), updated_text))
-        raise
+  # Update date/time
+  updated_text = sensor_data.get('observation_time')
+  try:
+    updated = datetime.strptime(updated_text, '%Y-%m-%d %H:%M')
+  except ValueError as ex:
+    sys.stdout.write('ValueError %s: updated_text="%s"\n' %
+                     (str(ex), updated_text))
+    raise
 
-    return wind_dir, wind_speed, wind_gust, updated
-
-
-async def insert_obs(conn: aiomysql.Connection, obs: WindObs):
-    """Insert an observation to the database"""
-    c: aiomysql.cursors.Cursor = await conn.cursor()
-    await c.execute("""INSERT INTO wind_obs (station_id, direction, speed_kts, gust_kts, update_time)
-        VALUES ((SELECT id FROM station WHERE name = %s), %s, %s, %s, %s)""", obs)
+  return wind_dir, wind_speed, wind_gust, updated
 
 
-last_obs_time = dict()
+async def insert_obs(conn: asyncpg.Connection, obs: WindObs):
+  """Insert an observation to the database"""
+  async with conn.transaction():
+    await conn.execute(
+        """
+            INSERT INTO wind_obs (station_id, direction, speed_kts, gust_kts, update_time)
+            VALUES (
+                (SELECT id FROM station WHERE name = $1),
+                $2, $3, $4, $5
+            )
+        """, obs.station, obs.direction, obs.speed, obs.gust, obs.timestamp)
+
+
+last_obs_time = {}
 
 
 def is_new_obs(obs: WindObs) -> bool:
-    station_last_obs_time = last_obs_time.get(obs.station)
-    return not station_last_obs_time or station_last_obs_time < obs.timestamp
+  station_last_obs_time = last_obs_time.get(obs.station)
+  return not station_last_obs_time or station_last_obs_time < obs.timestamp
 
 
 def set_obs_last_timestamp(obs: WindObs):
-    last_obs_time[obs.station] = obs.timestamp
+  last_obs_time[obs.station] = obs.timestamp
 
 
-async def fetch_obs(station: str, session: aiohttp.ClientSession, max_retries=10) -> WindObs:
-    """Fetch the current observation for a station, retrying """
-    retry_count = 0
-    while True:
-        try:
-            response = await session.get(
-                url_base + station,
-                timeout=socket_timeout,
-                headers={
-                    "Referer": f"https://spaces.navcanada.ca/workspace/aeroview/{station}/"
-                })
-            response.raise_for_status()
-            resp_data = json.loads(await response.text())
-            obs = WindObs(station, *scrape_aeroview_json(resp_data, station))
-            if is_new_obs(obs):
-                set_obs_last_timestamp(obs)
-                return obs
-            else:
-                raise StaleWindObservation(f'stale data: station={station} timestamp={obs.timestamp}')
-        except (ValueError, asyncio.exceptions.TimeoutError) as e:
-            # Invalid data in page, probably temporary
-            if retry_count < max_retries:
-                print(f'{repr(e)}, retrying for {station}')
-                await asyncio.sleep(5)
-                retry_count += 1
-            else:
-                raise MaxRetriesExceeded(f'max retries exceeded fetching {station}')
+async def fetch_obs(station: str,
+                    session: aiohttp.ClientSession,
+                    max_retries=10) -> WindObs:
+  """Fetch the current observation for a station, retrying """
+  retry_count = 0
+  while True:
+    try:
+      response = await session.get(
+          url_base + station,
+          timeout=socket_timeout,
+          headers={
+              "Referer":
+              f"https://spaces.navcanada.ca/workspace/aeroview/{station}/"
+          })
+      response.raise_for_status()
+      resp_data = json.loads(await response.text())
+      obs = WindObs(station, *scrape_aeroview_json(resp_data, station))
+      if is_new_obs(obs):
+        set_obs_last_timestamp(obs)
+        return obs
+      else:
+        raise StaleWindObservation(
+            f'stale data: station={station} timestamp={obs.timestamp}')
+    except (ValueError, asyncio.exceptions.TimeoutError) as e:
+      # Invalid data in page, probably temporary
+      if retry_count < max_retries:
+        print(f'{repr(e)}, retrying for {station}')
+        await asyncio.sleep(5)
+        retry_count += 1
+      else:
+        raise MaxRetriesExceeded(f'max retries exceeded fetching {station}') from None
 
 
 def pretty_obs(obs: WindObs) -> str:
-    return ', '.join(f'{field}={getattr(obs, field)}' for field in
-                     ['station', 'direction', 'speed', 'gust', 'timestamp'])
+  speed_str = f'{obs.speed}-{obs.gust}' if obs.gust else f'{obs.speed}'
+  return f'{obs.station}: {obs.direction} deg, {speed_str} kts, {obs.timestamp}'
 
 
-async def fetch_and_save(
-        station: str,
-        session: aiohttp.ClientSession,
-        conn: aiomysql.Connection):
-    obs = await fetch_obs(station, session)
-    print(pretty_obs(obs))
-    await insert_obs(conn, obs)
+async def fetch_and_save(station: str, session: aiohttp.ClientSession,
+                         conn: asyncpg.connection.Connection):
+  obs = await fetch_obs(station, session)
+  print(pretty_obs(obs))
+  await insert_obs(conn, obs)
 
 
 async def fetch_and_print(station: str, session: aiohttp.ClientSession):
-    obs = await fetch_obs(station, session)
-    # Ensure the observation is new (check update time)
-    print(pretty_obs(obs))
+  obs = await fetch_obs(station, session)
+  # Ensure the observation is new (check update time)
+  print(pretty_obs(obs))
 
 
-def init_db(db, schema_file='schema_mysql.sql'):
-    """Initialize the database"""
-    with open(schema_file) as f:
-        db.cursor().execute(f.read())
-    db.commit()
+async def run_tasks_and_handle_exceptions(tasks: list):
+  results = await asyncio.gather(
+    *tasks,
+    asyncio.sleep(refresh_rate_default),
+    return_exceptions=True)
+  for result in results:
+    if isinstance(result, WindburglrException):
+      print('caught exception:', result)
+    elif isinstance(result, asyncpg.exceptions.UniqueViolationError):
+      print(f'duplicate observation: {result}')
+    elif isinstance(result, Exception):
+      raise result
 
 
 async def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        '--ssh-host', type=str, help='SSH host',
-        default=os.environ.get('SSH_HOST', 'ssh.pythonanywhere.com'))
-    parser.add_argument(
-        '--ssh-user', type=str, help='SSH user',
-        default=os.environ.get('SSH_USER', 'martinh'))
-    parser.add_argument(
-        '--ssh-pkey', type=str, help='SSH private key file',
-        default=os.environ.get('SSH_PKEY'))
-    parser.add_argument(
-        '--mysql-host', type=str, help='MySQL host',
-        default=os.environ.get('MYSQL_HOST', 'martinh.mysql.pythonanywhere-services.com'))
-    parser.add_argument(
-        '--mysql-user', type=str, help='MySQL user',
-        default=os.environ.get('MYSQL_USER', 'martinh'))
-    parser.add_argument(
-        '--mysql-db', type=str, help='MySQL database',
-        default=os.environ.get('MYSQL_DB', 'martinh$windburglr'))
-    parser.add_argument(
-        '--mysql-password', type=str, help='MySQL password',
-        default=os.environ.get('MYSQL_PASSWORD'))
-    args = parser.parse_args()
+  parser = argparse.ArgumentParser()
+  parser.add_argument('--database_url',
+                      type=str,
+                      help='Database URL',
+                      default=os.environ.get(
+                          'DATABASE_URL',
+                          'postgres://postgres:postgres@localhost/wind'))
+  parser.add_argument('--postgres-host',
+                      type=str,
+                      help='PostgreSQL host',
+                      default=os.environ.get('POSTGRES_HOST', 'localhost'))
+  parser.add_argument('--postgres-user',
+                      type=str,
+                      help='PostgreSQL user',
+                      default=os.environ.get('POSTGRES_USER', 'martinh'))
+  parser.add_argument('--postgres-db',
+                      type=str,
+                      help='PostgreSQL database',
+                      default=os.environ.get('POSTGRES_DB', 'windburglr'))
+  parser.add_argument('--postgres-password',
+                      type=str,
+                      help='PostgreSQL password',
+                      default=os.environ.get('POSTGRES_PASSWORD'))
+  args = parser.parse_args()
 
-    async with aiohttp.ClientSession() as session:
+  async with aiohttp.ClientSession() as session:
 
-        # Connect to databases via ssh tunnel, running outside pythonanywhere
-        if args.ssh_user and args.ssh_pkey:
-            from sshtunnel import SSHTunnelForwarder
-            print('pkey =', args.ssh_pkey)
-            with SSHTunnelForwarder(
-                    (args.ssh_host),
-                    remote_bind_address=(args.mysql_host, 3306),
-                    local_bind_address=('localhost', 3306),
-                    ssh_username=args.ssh_user,
-                    ssh_pkey=args.ssh_pkey,
-            ) as tunnel:
-                print('Starting...')
-                time.sleep(1)
-                print('Connecting to PythonAnywhere MySQL')
-                conn : aiomysql.Connection = await aiomysql.connect(
-                    host='localhost', user=args.mysql_user, password=args.mysql_password, db=args.mysql_db,
-                    autocommit=True)
+    if args.database_url:
+      # Connecting to PostgreSQL
+      print('Connecting to PostgreSQL')
+      conn = await asyncpg.connect(args.database_url)
+      print('Starting...')
 
-                # MAIN LOOP
+      # MAIN LOOP
 
-                while not conn.closed:
-                    tasks = [fetch_and_save(station, session, conn) for station in [station_default]]
-                    results = await asyncio.gather(*tasks, asyncio.sleep(refresh_rate_default), return_exceptions=True)
-                    for result in results:
-                        if isinstance(result, WindburglrException):
-                            print('caught exception:', result)
-                        elif isinstance(result, Exception):
-                            raise result
-                    sys.stdout.flush()
+      station_list = [station_default]
+      while not conn.is_closed():
+        tasks = [
+          fetch_and_save(station, session, conn)
+          for station in station_list
+        ]
+        await run_tasks_and_handle_exceptions(tasks)
+        sys.stdout.flush()
 
-                    # Check the tunnel
-                    tunnel.check_tunnels()
-                    if not all(tunnel.tunnel_is_up.values()):
-                        print(f'Terminating: tunnel_is_up = {tunnel.tunnel_is_up}')
-                        break
-                print('Finishing')
-                conn.close()
-
-        elif args.mysql_password:
-            # Not using ssh tunnel, executing on pythonanywhere
-            print('Connecting to MySQL:', args.mysql_host)
-            conn = await aiomysql.connect(
-                host=args.mysql_host, user=args.mysql_user, password=args.mysql_password, db=args.mysql_db,
-                autocommit=True)
-            print('Starting...')
-
-            # MAIN LOOP
-
-            while not conn.closed:
-                tasks = [fetch_and_save(station, session, conn) for station in [station_default]]
-                results = await asyncio.gather(*tasks, asyncio.sleep(refresh_rate_default), return_exceptions=True)
-                for result in results:
-                    if isinstance(result, WindburglrException):
-                        print('caught exception:', result)
-                    elif isinstance(result, Exception):
-                        raise result
-                sys.stdout.flush()
-
-            conn.close()
-
-        else:
-            # No DB, just console output
-            while True:
-                tasks = [fetch_and_print(station, session) for station in [station_default, 'CYYZ', 'CYUL']]
-                results = await asyncio.gather(*tasks, asyncio.sleep(refresh_rate_default), return_exceptions=True)
-                for result in results:
-                    if isinstance(result, WindburglrException):
-                        print('caught exception:', result)
-                    elif isinstance(result, Exception):
-                        raise result
-                sys.stdout.flush()
+    else:
+      # No DB, just console output
+      station_list = [station_default, 'CYYZ', 'CYUL']
+      while True:
+        tasks = [
+          fetch_and_print(station, session)
+          for station in station_list
+        ]
+        await run_tasks_and_handle_exceptions(tasks)
+        sys.stdout.flush()
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+  asyncio.run(main())
