@@ -40,8 +40,12 @@ ga.html
 
 data.bz2
 *.tar.gz
+
+# Replit
 .pythonlibs
 .replit
 replit.nix
 pyproject.toml
+logs
+cache
 
