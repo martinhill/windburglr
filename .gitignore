@@ -43,9 +43,6 @@ data.bz2
 
 # Replit
 .pythonlibs
-.replit
-replit.nix
-pyproject.toml
 logs
 cache
 
