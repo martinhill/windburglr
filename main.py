@@ -9,4 +9,4 @@ if project_home not in sys.path:
 
 #app.run(host='127.0.0.1', port=8181) # dev server
 from flask_app import app # noqa
-serve(app, host='127.0.0.1', port=8181, url_scheme='https') # production server
+serve(app, host='0.0.0.0', port=5000, url_scheme='https') # production server

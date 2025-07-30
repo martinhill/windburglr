@@ -13,9 +13,9 @@ let
 in {
     deps = [
         nginxModified
-        pkgs.python310
-        pkgs.python310Packages.flask
-        pkgs.python310Packages.waitress
-        pkgs.python310Packages.psycopg2
+        pkgs.python313
+        pkgs.python313Packages.flask
+        pkgs.python313Packages.waitress
+        pkgs.python313Packages.psycopg2
     ];
 }
