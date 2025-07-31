@@ -17,5 +17,9 @@ in {
         pkgs.python313Packages.flask
         pkgs.python313Packages.waitress
         pkgs.python313Packages.psycopg2
+        pkgs.python313Packages.fastapi
+        pkgs.python313Packages.uvicorn
+        pkgs.python313Packages.websockets
+        pkgs.python313Packages.jinja2
     ];
 }
