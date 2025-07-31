@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>WindBurglr - {{ station }}</title>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+        <link rel="stylesheet" href="/static/style.css" />
+    </head>
+    <body>
+        <div class="container">
+            <header>
+                <div class="header-content-outer">
+                    <div class="header-content">
+                        <div class="title-section">
+                            <span class="station"
+                                >{{ station }} currently:</span
+                            >
+                        </div>
+                        <div class="current-conditions-compact">
+                            <div class="condition-compact">
+                                <span class="value" id="current-speed">--</span>
+                                <span class="label">kts</span>
+                            </div>
+                            <div class="condition-compact">
+                                <span class="value" id="current-direction"
+                                    >--</span
+                                >
+                            </div>
+                            <div class="condition-compact">
+                                <span class="value" id="current-gust">--</span>
+                                <span class="label">gust</span>
+                            </div>
+                            <div class="condition-compact">
+                                <span class="value" id="last-update">--</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div
+                        class="connection-indicator"
+                        id="connection-status"
+                        title="Connecting..."
+                    ></div>
+                </div>
+            </header>
+
+            <div class="charts-container">
+                <div class="chart-section">
+                    <!-- <h3>Wind Speed & Direction (Last {{ hours }} hours)</h3> -->
+                    <canvas id="windChart"></canvas>
+                </div>
+            </div>
+
+            <div class="controls">
+                <button id="toggle-realtime" class="btn">
+                    Pause Real-time Updates
+                </button>
+                <select id="time-range">
+                    <option value="1">Last 1 hour</option>
+                    <option value="3" selected>Last 3 hours</option>
+                    <option value="6">Last 6 hours</option>
+                    <option value="12">Last 12 hours</option>
+                    <option value="24">Last 24 hours</option>
+                </select>
+            </div>
+        </div>
+
+        <script>
+                const STATION = '{{ station }}';
+                const DIRECTIONS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+
+                let windChart;
+                let websocket;
+                let realtimeEnabled = true;
+                let windData = [];
+
+                function getDirectionText(degrees) {
+                    if (degrees === null || degrees === undefined) return '--';
+                    const index = Math.round(degrees / 22.5) % 16;
+                    return DIRECTIONS[index];
+                }
+
+                function formatTime(timestamp) {
+                    return new Date(timestamp * 1000).toLocaleTimeString();
+                }
+
+                function formatDateTime(timestamp) {
+                    return new Date(timestamp * 1000).toLocaleString();
+                }
+
+                function updateCurrentConditions(data) {
+                    document.getElementById('current-speed').textContent = data.speed_kts || '--';
+                    document.getElementById('current-direction').textContent = getDirectionText(data.direction);
+                    document.getElementById('current-gust').textContent = data.gust_kts || '--';
+                    document.getElementById('last-update').textContent = formatTime(data.timestamp);
+                }
+
+                function initCharts() {
+                    const ctx = document.getElementById('windChart').getContext('2d');
+
+                    windChart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: [],
+                            datasets: [{
+                                label: 'Wind Speed (kts)',
+                                data: [],
+                                borderColor: 'rgb(75, 192, 192)',
+                                backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                                tension: 0.3,
+                                fill: true,
+                                yAxisID: 'y'
+                            }, {
+                                label: 'Gust (kts)',
+                                data: [],
+                                borderColor: 'rgb(255, 99, 132)',
+                                backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                                tension: 0.1,
+                                fill: false,
+                                yAxisID: 'y'
+                            }, {
+                                label: 'Wind Direction',
+                                data: [],
+                                borderColor: 'rgb(54, 162, 235)',
+                                backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                                pointBackgroundColor: 'rgba(54, 162, 235, 0.8)',
+                                fill: false,
+                                yAxisID: 'y1',
+                                showLine: false,
+                                pointStyle: 'circle'
+                            }]
+                        },
+                        options: {
+                            pointStyle: false,
+                            responsive: true,
+                            interaction: {
+                                mode: 'index',
+                                intersect: false,
+                            },
+                            scales: {
+                                x: {
+                                    type: 'time',
+                                    time: {
+                                        unit: 'minute',
+                                        stepSize: 15,
+                                        displayFormats: {
+                                            minute: 'HH:mm'
+                                        },
+                                        tooltipFormat: 'MMM dd, HH:mm'
+                                    },
+                                    ticks: {
+                                        maxTicksLimit: 20,
+                                        autoSkip: true,
+                                        source: 'data'
+                                    }
+                                    //     unit: 'hour',
+                                    //     displayFormats: {
+                                    //       hour: 'HH:mm'
+                                    //     }
+                                    // },
+                                    // ticks: {
+                                    //   stepSize: 0.25,
+                                    //
+                                    // }
+                                },
+                                y: {
+                                    type: 'linear',
+                                    display: true,
+                                    position: 'left',
+                                    beginAtZero: true,
+                                    title: {
+                                        display: true,
+                                        text: 'Speed (knots)'
+                                    }
+                                },
+                                y1: {
+                                    type: 'linear',
+                                    display: true,
+                                    position: 'right',
+                                    min: 0,
+                                    max: 360,
+                                    title: {
+                                        display: true,
+                                        text: 'Direction'
+                                    },
+                                    ticks: {
+                                        stepSize: 45,
+                                        callback: function(value) {
+                                            return getDirectionText(value);
+                                        }
+                                    },
+                                    grid: {
+                                        drawOnChartArea: false,
+                                    },
+                                }
+                            },
+                            plugins: {
+                                legend: {
+                                    // display: true,
+                                    position: 'bottom'
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        afterLabel: function(context) {
+                                            if (context.datasetIndex === 2) { // Direction dataset
+                                                return `(${getDirectionText(context.parsed.y)})`;
+                                            }
+                                            return '';
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+
+            function updateCharts(data) {
+                const timeData = data.map(d => new Date(d[0] * 1000));
+                const speeds = data.map(d => d[2]);
+                const gusts = data.map(d => d[3]);
+                const directions = data.map(d => d[1]).map(d => d === null ? null : d);
+
+                windChart.data.labels = timeData;
+                windChart.data.datasets[0].data = speeds;
+                windChart.data.datasets[1].data = gusts;
+                windChart.data.datasets[2].data = directions;
+                windChart.update();
+            }
+                async function loadHistoricalData(hours = 3) {
+                    try {
+                        const response = await fetch(`/api/wind?stn=${STATION}&hours=${hours}`);
+                        const data = await response.json();
+                        windData = data.winddata;
+                        updateCharts(windData);
+                    } catch (error) {
+                        console.error('Error loading historical data:', error);
+                    }
+                }
+
+                function updateConnectionStatus(status, text) {
+                    const statusElement = document.getElementById('connection-status');
+                    statusElement.title = text;
+                    statusElement.className = `connection-indicator ${status}`;
+                    console.log(`WebSocket status: ${text}`);
+                }
+
+                function connectWebSocket() {
+                    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    const wsUrl = `${protocol}//${window.location.host}/ws/${STATION}`;
+
+                    updateConnectionStatus('connecting', 'Connecting...');
+
+                    websocket = new WebSocket(wsUrl);
+
+                    websocket.onopen = function(event) {
+                        console.log('WebSocket connected successfully');
+                        updateConnectionStatus('connected', 'Connected');
+                    };
+
+                    websocket.onmessage = function(event) {
+                        console.log('WebSocket message received:', event.data);
+
+                        // Update status to show we're receiving data
+                        updateConnectionStatus('connected', 'Connected (Live)');
+
+                        if (!realtimeEnabled) return;
+
+                        try {
+                            const data = JSON.parse(event.data);
+                            updateCurrentConditions(data);
+
+                            // Add new data point to charts
+                            const newPoint = [data.timestamp, data.direction, data.speed_kts, data.gust_kts];
+                            windData.push(newPoint);
+
+                            // Keep only recent data (last 1000 points)
+                            if (windData.length > 1000) {
+                                windData = windData.slice(-1000);
+                            }
+
+                            updateCharts(windData);
+                        } catch (error) {
+                            console.error('Error parsing WebSocket message:', error);
+                        }
+                    };
+
+                    websocket.onclose = function(event) {
+                        console.log('WebSocket closed:', event.code, event.reason);
+                        updateConnectionStatus('disconnected', 'Disconnected');
+
+                        // Attempt to reconnect after 5 seconds
+                        setTimeout(() => {
+                            console.log('Attempting to reconnect...');
+                            connectWebSocket();
+                        }, 5000);
+                    };
+
+                    websocket.onerror = function(error) {
+                        console.error('WebSocket error:', error);
+                        updateConnectionStatus('error', 'Connection Error');
+                    };
+                }
+
+                // Event listeners
+                document.getElementById('toggle-realtime').addEventListener('click', function() {
+                    realtimeEnabled = !realtimeEnabled;
+                    this.textContent = realtimeEnabled ? 'Pause Real-time Updates' : 'Resume Real-time Updates';
+                    this.className = realtimeEnabled ? 'btn' : 'btn paused';
+                });
+
+                document.getElementById('time-range').addEventListener('change', function() {
+                    const hours = parseInt(this.value);
+                    loadHistoricalData(hours);
+                });
+
+                // Initialize the application
+                document.addEventListener('DOMContentLoaded', function() {
+                    initCharts();
+                    loadHistoricalData({{ hours }});
+                    connectWebSocket();
+                });
+        </script>
+    </body>
+</html>

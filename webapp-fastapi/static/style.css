@@ -1,0 +1,251 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+        Ubuntu, Cantarell, sans-serif;
+    background-color: #f5f7fa;
+    color: #333;
+    line-height: 1.6;
+}
+
+.container {
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 0.75rem 1rem;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    flex-shrink: 0;
+}
+
+.header-content-outer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+}
+
+.header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.title-section {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+}
+
+header h1 {
+    font-size: 1.5rem;
+    margin: 0;
+    font-weight: 500;
+}
+
+.station {
+    font-size: 1rem;
+    font-weight: 300;
+    opacity: 0.9;
+}
+
+.current-conditions-compact {
+    display: flex;
+    gap: 1.5rem;
+    align-items: center;
+}
+
+.condition-compact {
+    display: flex;
+    align-items: baseline;
+    gap: 0.25rem;
+    text-align: center;
+}
+
+.condition-compact .value {
+    font-size: 1.1rem;
+    font-weight: 700;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.condition-compact .label {
+    font-size: 0.7rem;
+    opacity: 0.8;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.connection-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background-color: rgba(255, 255, 255, 0.3);
+    transition: all 0.3s ease;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.connection-indicator.connecting {
+    background-color: #3b82f6;
+    animation: pulse 2s infinite;
+}
+
+.connection-indicator.connected {
+    background-color: #10b981;
+}
+
+.connection-indicator.disconnected {
+    background-color: #ef4444;
+}
+
+.connection-indicator.error {
+    background-color: #f59e0b;
+}
+
+@keyframes pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
+    }
+}
+
+.charts-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.chart-section {
+    background: white;
+    padding: 1rem;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.chart-section h3 {
+    margin: 0 0 0.5rem 0;
+    color: #374151;
+    font-weight: 500;
+    font-size: 1rem;
+    flex-shrink: 0;
+}
+
+.chart-section canvas {
+    flex: 1;
+    min-height: 0;
+}
+
+.controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    background: white;
+    padding: 0.75rem;
+    border-top: 1px solid #e2e8f0;
+    flex-shrink: 0;
+}
+
+.btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.btn.paused {
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+}
+
+select {
+    padding: 0.75rem 1rem;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: white;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+select:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+@media (max-width: 480px) {
+    header h1 {
+        font-size: 1.2rem;
+    }
+
+    .station {
+        font-size: 0.9rem;
+    }
+
+    .header-content {
+        flex-direction: column;
+        gap: 0.5rem;
+        align-items: flex-start;
+    }
+
+    .current-conditions-compact {
+        gap: 1rem;
+    }
+
+    .condition-compact .value {
+        font-size: 0.9rem;
+        white-space: nowrap;
+    }
+
+    .condition-compact .label {
+        font-size: 0.6rem;
+    }
+
+    .controls {
+        flex-direction: column;
+        gap: 0.5rem;
+        padding: 0.5rem;
+    }
+
+    .chart-section {
+        padding: 0.5rem;
+    }
+}
+
+@media (max-width: 320px) {
+    .current-conditions-compact {
+        flex-wrap: wrap;
+        flex-direction: row;
+        align-items: flex-start;
+    }
+}
