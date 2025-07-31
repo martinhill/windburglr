@@ -1,7 +1,7 @@
 import os
 import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 import psycopg2
@@ -19,7 +19,7 @@ templates = Jinja2Templates(directory="templates")
 
 DEFAULT_STATION = 'CYTZ'
 ISO_FORMAT = '%Y-%m-%dT%H:%M:%S.%fZ'
-EPOCH = datetime.utcfromtimestamp(0)
+EPOCH = datetime.fromtimestamp(0, tz=timezone.utc)
 
 class WindObservation(BaseModel):
     station: str
@@ -58,6 +58,8 @@ def get_db_connection():
     return None
 
 def epoch_time(dt):
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
     delta = dt - EPOCH
     return delta.total_seconds()
 
@@ -135,14 +137,14 @@ async def get_wind_data(
     if from_time:
         start_time = datetime.strptime(from_time, ISO_FORMAT)
     elif hours:
-        start_time = datetime.utcnow() - timedelta(hours=hours)
+        start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
     else:
-        start_time = datetime.utcnow() - timedelta(hours=24)
+        start_time = datetime.now(timezone.utc) - timedelta(hours=24)
     
     if to_time:
         end_time = datetime.strptime(to_time, ISO_FORMAT)
     else:
-        end_time = datetime.utcnow()
+        end_time = datetime.now(timezone.utc)
     
     winddata = await query_wind_data(stn, start_time, end_time)
     return {"station": stn, "winddata": winddata}

@@ -39,7 +39,7 @@ header {
 .header-content {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: baseline;
     gap: 1rem;
     flex-wrap: wrap;
 }
@@ -65,7 +65,7 @@ header h1 {
 .current-conditions-compact {
     display: flex;
     gap: 1.5rem;
-    align-items: center;
+    align-items: baseline;
 }
 
 .condition-compact {
