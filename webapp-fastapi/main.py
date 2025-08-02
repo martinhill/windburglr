@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
-import psycopg2
+from sqlmodel import SQLModel, Field, create_engine, Session, select
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -33,6 +33,20 @@ templates = Jinja2Templates(directory="templates")
 DEFAULT_STATION = 'CYTZ'
 ISO_FORMAT = '%Y-%m-%dT%H:%M:%S.%fZ'
 EPOCH = datetime.fromtimestamp(0, tz=timezone.utc)
+
+class Station(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(index=True)
+
+class WindObs(SQLModel, table=True):
+    __tablename__ = "wind_obs"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    station_id: int = Field(foreign_key="station.id")
+    direction: Optional[float]
+    speed_kts: Optional[float]
+    gust_kts: Optional[float]
+    update_time: datetime
 
 class WindObservation(BaseModel):
     station: str
@@ -64,10 +78,13 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-def get_db_connection():
-    database_url = os.environ.get('DATABASE_URL', '')
+def get_database_url():
+    return os.environ.get('DATABASE_URL', '')
+
+def get_engine():
+    database_url = get_database_url()
     if database_url:
-        return psycopg2.connect(database_url, sslmode='require')
+        return create_engine(database_url)
     return None
 
 def epoch_time(dt):
@@ -83,53 +100,49 @@ def safe_int(d):
         return None
 
 async def query_wind_data(station: str, start_time: datetime, end_time: datetime):
-    db = get_db_connection()
-    if not db:
+    engine = get_engine()
+    if not engine:
         return []
 
-    try:
-        c = db.cursor()
-        c.execute(
-            """SELECT update_time, direction, speed_kts, gust_kts
-            FROM station JOIN wind_obs ON station_id = station.id
-            WHERE station.name = %s AND update_time BETWEEN %s AND %s
-            ORDER BY update_time;
-            """, (station, start_time, end_time))
-
+    with Session(engine) as session:
+        statement = (
+            select(WindObs.update_time, WindObs.direction, WindObs.speed_kts, WindObs.gust_kts)
+            .join(Station, WindObs.station_id == Station.id)
+            .where(Station.name == station)
+            .where(WindObs.update_time >= start_time)
+            .where(WindObs.update_time <= end_time)
+            .order_by(WindObs.update_time)
+        )
+        
         results = []
-        for row in c.fetchall():
-            results.append((epoch_time(row[0]), safe_int(row[1]), safe_int(row[2]), safe_int(row[3])))
-
+        for row in session.exec(statement):
+            results.append((epoch_time(row.update_time), safe_int(row.direction), safe_int(row.speed_kts), safe_int(row.gust_kts)))
+        
         return results
-    finally:
-        db.close()
 
 async def get_latest_wind_data(station: str = DEFAULT_STATION):
-    db = get_db_connection()
-    if not db:
+    engine = get_engine()
+    if not engine:
         return None
 
-    try:
-        c = db.cursor()
-        c.execute(
-            """SELECT update_time, direction, speed_kts, gust_kts
-            FROM station JOIN wind_obs ON station_id = station.id
-            WHERE station.name = %s
-            ORDER BY update_time DESC
-            LIMIT 1;
-            """, (station,))
-
-        row = c.fetchone()
+    with Session(engine) as session:
+        statement = (
+            select(WindObs.update_time, WindObs.direction, WindObs.speed_kts, WindObs.gust_kts)
+            .join(Station, WindObs.station_id == Station.id)
+            .where(Station.name == station)
+            .order_by(WindObs.update_time.desc())
+            .limit(1)
+        )
+        
+        row = session.exec(statement).first()
         if row:
             return {
-                "timestamp": epoch_time(row[0]),
-                "direction": safe_int(row[1]),
-                "speed_kts": safe_int(row[2]),
-                "gust_kts": safe_int(row[3])
+                "timestamp": epoch_time(row.update_time),
+                "direction": safe_int(row.direction),
+                "speed_kts": safe_int(row.speed_kts),
+                "gust_kts": safe_int(row.gust_kts)
             }
         return None
-    finally:
-        db.close()
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request, stn: str = DEFAULT_STATION, hours: int = 3, minutes: int = 0):
@@ -164,36 +177,42 @@ async def get_wind_data(
 
 @app.post("/api/wind")
 async def create_wind_observation(observation: WindObservation):
-    db = get_db_connection()
-    if not db:
+    engine = get_engine()
+    if not engine:
         raise HTTPException(status_code=500, detail="Database connection failed")
 
     try:
-        c = db.cursor()
-        c.execute(
-            """INSERT INTO wind_obs (station_id, direction, speed_kts, gust_kts, update_time)
-            SELECT station.id, %s, %s, %s, %s
-            FROM station WHERE station.name = %s
-            """, (observation.direction, observation.speed_kts,
-                  observation.gust_kts, observation.update_time, observation.station))
-        db.commit()
+        with Session(engine) as session:
+            # Get station by name
+            station = session.exec(select(Station).where(Station.name == observation.station)).first()
+            if not station:
+                raise HTTPException(status_code=404, detail=f"Station {observation.station} not found")
+            
+            # Create wind observation
+            wind_obs = WindObs(
+                station_id=station.id,
+                direction=observation.direction,
+                speed_kts=observation.speed_kts,
+                gust_kts=observation.gust_kts,
+                update_time=observation.update_time
+            )
+            
+            session.add(wind_obs)
+            session.commit()
 
-        # Broadcast new data to all connected WebSocket clients
-        wind_data = {
-            "station": observation.station,
-            "timestamp": epoch_time(observation.update_time),
-            "direction": observation.direction,
-            "speed_kts": observation.speed_kts,
-            "gust_kts": observation.gust_kts
-        }
-        await manager.broadcast(json.dumps(wind_data))
+            # Broadcast new data to all connected WebSocket clients
+            wind_data = {
+                "station": observation.station,
+                "timestamp": epoch_time(observation.update_time),
+                "direction": observation.direction,
+                "speed_kts": observation.speed_kts,
+                "gust_kts": observation.gust_kts
+            }
+            await manager.broadcast(json.dumps(wind_data))
 
-        return observation
+            return observation
     except Exception as e:
-        db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
-    finally:
-        db.close()
 
 @app.websocket("/ws/{station}")
 async def websocket_endpoint(websocket: WebSocket, station: str):
