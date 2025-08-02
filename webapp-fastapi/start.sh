@@ -6,4 +6,5 @@ if [ -f .env ]; then
 fi
 
 # Start the FastAPI application
-uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --reload
+fastapi dev main.py
+# uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --reload

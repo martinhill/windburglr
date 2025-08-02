@@ -1,6 +1,7 @@
 import os
 import asyncio
 import json
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
@@ -12,7 +13,19 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 import uvicorn
 
-app = FastAPI(title="WindBurglr")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    task = asyncio.create_task(periodic_data_broadcast())
+    yield
+    # Shutdown
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+app = FastAPI(title="WindBurglr", lifespan=lifespan)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
@@ -140,14 +153,15 @@ async def get_wind_data(
         start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
     else:
         start_time = datetime.now(timezone.utc) - timedelta(hours=24)
-    
+
     if to_time:
         end_time = datetime.strptime(to_time, ISO_FORMAT)
     else:
         end_time = datetime.now(timezone.utc)
-    
+
     winddata = await query_wind_data(stn, start_time, end_time)
     return {"station": stn, "winddata": winddata}
+
 @app.post("/api/wind")
 async def create_wind_observation(observation: WindObservation):
     db = get_db_connection()
@@ -216,11 +230,6 @@ async def periodic_data_broadcast():
         except Exception as e:
             print(f"Error in periodic broadcast: {e}")
         await asyncio.sleep(30)  # Broadcast every 30 seconds
-
-@app.on_event("startup")
-async def startup_event():
-    # Start the periodic data broadcast task
-    asyncio.create_task(periodic_data_broadcast())
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 8000))
