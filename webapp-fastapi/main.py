@@ -4,6 +4,7 @@ import json
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
+import zoneinfo
 
 from sqlmodel import SQLModel, Field, create_engine, Session, select
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
@@ -31,16 +32,27 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 DEFAULT_STATION = 'CYTZ'
-ISO_FORMAT = '%Y-%m-%dT%H:%M:%S.%fZ'
+ISO_FORMAT = '%Y-%m-%dT%H:%M:%S'
 EPOCH = datetime.fromtimestamp(0, tz=timezone.utc)
+
+async def get_station_timezone(station_name: str) -> str:
+    """Get the timezone for a given station"""
+    engine = get_engine()
+    if not engine:
+        return 'UTC'
+
+    with Session(engine) as session:
+        station = session.exec(select(Station).where(Station.name == station_name)).first()
+        return station.timezone if station else 'UTC'
 
 class Station(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(index=True)
+    timezone: str = Field(index=True)
 
 class WindObs(SQLModel, table=True):
     __tablename__ = "wind_obs"
-    
+
     id: Optional[int] = Field(default=None, primary_key=True)
     station_id: int = Field(foreign_key="station.id")
     direction: Optional[float]
@@ -113,11 +125,11 @@ async def query_wind_data(station: str, start_time: datetime, end_time: datetime
             .where(WindObs.update_time <= end_time)
             .order_by(WindObs.update_time)
         )
-        
+
         results = []
         for row in session.exec(statement):
             results.append((epoch_time(row.update_time), safe_int(row.direction), safe_int(row.speed_kts), safe_int(row.gust_kts)))
-        
+
         return results
 
 async def get_latest_wind_data(station: str = DEFAULT_STATION):
@@ -133,7 +145,7 @@ async def get_latest_wind_data(station: str = DEFAULT_STATION):
             .order_by(WindObs.update_time.desc())
             .limit(1)
         )
-        
+
         row = session.exec(statement).first()
         if row:
             return {
@@ -150,8 +162,38 @@ async def read_root(request: Request, stn: str = DEFAULT_STATION, hours: int = 3
         "request": request,
         "station": stn,
         "hours": hours,
-        "minutes": minutes
+        "minutes": minutes,
+        "is_live": True
     })
+
+@app.get("/date/{date}", response_class=HTMLResponse)
+async def read_date(request: Request, date: str, stn: str = DEFAULT_STATION, hours: int = 24):
+    try:
+        # Parse ISO date (YYYY-MM-DD) - simple validation
+        selected_date = datetime.strptime(date, "%Y-%m-%d")
+
+        # Calculate previous and next dates
+        prev_date = selected_date - timedelta(days=1)
+        next_date = selected_date + timedelta(days=1)
+
+        # Create naive datetime strings for API (station timezone assumed)
+        day_start = selected_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = day_start + timedelta(days=1)
+
+        return templates.TemplateResponse("index.html", {
+            "request": request,
+            "station": stn,
+            "hours": hours,
+            "minutes": 0,
+            "is_live": False,
+            "selected_date": date,
+            "prev_date": prev_date.strftime("%Y-%m-%d"),
+            "next_date": next_date.strftime("%Y-%m-%d"),
+            "date_start": day_start.strftime("%Y-%m-%dT%H:%M:%S"),
+            "date_end": day_end.strftime("%Y-%m-%dT%H:%M:%S")
+        })
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
 
 @app.get("/api/wind")
 async def get_wind_data(
@@ -160,20 +202,44 @@ async def get_wind_data(
     to_time: Optional[str] = None,
     hours: Optional[int] = None
 ):
-    if from_time:
-        start_time = datetime.strptime(from_time, ISO_FORMAT)
-    elif hours:
-        start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
-    else:
-        start_time = datetime.now(timezone.utc) - timedelta(hours=24)
+    # Get station timezone for proper date handling
+    station_tz_name = await get_station_timezone(stn)
+    station_tz = zoneinfo.ZoneInfo(station_tz_name)
 
-    if to_time:
-        end_time = datetime.strptime(to_time, ISO_FORMAT)
+    if from_time and to_time:
+        # Parse naive datetime strings and assume they're in station timezone
+        start_naive = datetime.strptime(from_time, ISO_FORMAT)
+        end_naive = datetime.strptime(to_time, ISO_FORMAT)
+
+        # Apply station timezone and convert to UTC for database query
+        start_time = start_naive.replace(tzinfo=station_tz).astimezone(timezone.utc)
+        end_time = end_naive.replace(tzinfo=station_tz).astimezone(timezone.utc)
+
+    elif hours:
+        # For relative time queries, use current time in station timezone
+        now_station = datetime.now(station_tz)
+        start_station = now_station - timedelta(hours=hours)
+
+        # Convert to UTC for database query
+        start_time = start_station.astimezone(timezone.utc)
+        end_time = now_station.astimezone(timezone.utc)
     else:
-        end_time = datetime.now(timezone.utc)
+        # Default: last 24 hours in station timezone
+        now_station = datetime.now(station_tz)
+        start_station = now_station - timedelta(hours=24)
+
+        # Convert to UTC for database query
+        start_time = start_station.astimezone(timezone.utc)
+        end_time = now_station.astimezone(timezone.utc)
 
     winddata = await query_wind_data(stn, start_time, end_time)
-    return {"station": stn, "winddata": winddata}
+    return {
+        "station": stn,
+        "winddata": winddata,
+        "timezone": station_tz_name,
+        "start_time": start_time.isoformat(),
+        "end_time": end_time.isoformat()
+    }
 
 @app.post("/api/wind")
 async def create_wind_observation(observation: WindObservation):
@@ -181,13 +247,15 @@ async def create_wind_observation(observation: WindObservation):
     if not engine:
         raise HTTPException(status_code=500, detail="Database connection failed")
 
+    raise HTTPException(status_code=500, detail="Not implemented")
+
     try:
         with Session(engine) as session:
             # Get station by name
             station = session.exec(select(Station).where(Station.name == observation.station)).first()
             if not station:
                 raise HTTPException(status_code=404, detail=f"Station {observation.station} not found")
-            
+
             # Create wind observation
             wind_obs = WindObs(
                 station_id=station.id,
@@ -196,7 +264,7 @@ async def create_wind_observation(observation: WindObservation):
                 gust_kts=observation.gust_kts,
                 update_time=observation.update_time
             )
-            
+
             session.add(wind_obs)
             session.commit()
 

@@ -14,10 +14,17 @@
                 <div class="header-content-outer">
                     <div class="header-content">
                         <div class="title-section">
+                            {% if is_live %}
                             <span class="station"
                                 >{{ station }} currently:</span
                             >
+                            {% else %}
+                            <span class="station"
+                                >{{ station }} on {{ selected_date }}</span
+                            >
+                            {% endif %}
                         </div>
+                        {% if is_live %}
                         <div class="current-conditions-compact">
                             <div class="condition-compact">
                                 <span class="value" id="current-speed">--</span>
@@ -36,6 +43,7 @@
                                 <span class="value" id="last-update">--</span>
                             </div>
                         </div>
+                        {% endif %}
                     </div>
                     <div
                         class="connection-indicator"
@@ -53,6 +61,7 @@
             </div>
 
             <div class="controls">
+                {% if is_live %}
                 <button id="toggle-realtime" class="btn">
                     Pause Real-time Updates
                 </button>
@@ -63,17 +72,54 @@
                     <option value="12">Last 12 hours</option>
                     <option value="24">Last 24 hours</option>
                 </select>
+                {% else %}
+                <div class="date-navigation">
+                    <button
+                        id="prev-date"
+                        class="btn"
+                        onclick="navigateToDate('{{ prev_date }}')"
+                    >
+                        ← Previous Day
+                    </button>
+                    <input
+                        type="date"
+                        id="date-picker"
+                        value="{{ selected_date }}"
+                        onchange="navigateToDate(this.value)"
+                    />
+                    <button
+                        id="next-date"
+                        class="btn"
+                        onclick="navigateToDate('{{ next_date }}')"
+                    >
+                        Next Day →
+                    </button>
+                    <a href="/" class="btn">Back to Live</a>
+                </div>
+                {% endif %}
             </div>
         </div>
 
         <script>
                 const STATION = '{{ station }}';
+                const IS_LIVE = {{ is_live|lower }};
                 const DIRECTIONS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+                {% if not is_live %}
+                const DATE_START = '{{ date_start }}';
+                const DATE_END = '{{ date_end }}';
+                {% endif %}
 
                 let windChart;
                 let websocket;
                 let realtimeEnabled = true;
                 let windData = [];
+
+                function navigateToDate(date) {
+                    const currentParams = new URLSearchParams(window.location.search);
+                    const stn = currentParams.get('stn') || '{{ station }}';
+                    const hours = currentParams.get('hours') || '{{ hours }}';
+                    window.location.href = `/date/${date}?stn=${stn}&hours=${hours}`;
+                }
 
                 function getDirectionText(degrees) {
                     if (degrees === null || degrees === undefined) return '--';
@@ -229,7 +275,14 @@
             }
                 async function loadHistoricalData(hours = 3) {
                     try {
-                        const response = await fetch(`/api/wind?stn=${STATION}&hours=${hours}`);
+                        let url;
+                        if (IS_LIVE) {
+                            url = `/api/wind?stn=${STATION}&hours=${hours}`;
+                        } else {
+                            // For date view, use specific date range
+                            url = `/api/wind?stn=${STATION}&from_time=${DATE_START}&to_time=${DATE_END}`;
+                        }
+                        const response = await fetch(url);
                         const data = await response.json();
                         windData = data.winddata;
                         updateCharts(windData);
@@ -303,22 +356,35 @@
                 }
 
                 // Event listeners
+                {% if is_live %}
                 document.getElementById('toggle-realtime').addEventListener('click', function() {
                     realtimeEnabled = !realtimeEnabled;
                     this.textContent = realtimeEnabled ? 'Pause Real-time Updates' : 'Resume Real-time Updates';
                     this.className = realtimeEnabled ? 'btn' : 'btn paused';
                 });
+                {% endif %}
 
+                {% if is_live %}
                 document.getElementById('time-range').addEventListener('change', function() {
                     const hours = parseInt(this.value);
+                    {% if is_live %}
                     loadHistoricalData(hours);
+                    {% else %}
+                    // For date view, navigate to same date with new hours parameter
+                    const currentParams = new URLSearchParams(window.location.search);
+                    currentParams.set('hours', hours);
+                    window.location.search = currentParams.toString();
+                    {% endif %}
                 });
+                {% endif %}
 
                 // Initialize the application
                 document.addEventListener('DOMContentLoaded', function() {
                     initCharts();
                     loadHistoricalData({{ hours }});
+                    {% if is_live %}
                     connectWebSocket();
+                    {% endif %}
                 });
         </script>
     </body>
