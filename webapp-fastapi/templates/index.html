@@ -20,7 +20,10 @@
                             >
                             {% else %}
                             <span class="station"
-                                >{{ station }} on {{ selected_date }}</span
+                                >{{ station }} on
+                                <span id="formatted-date"
+                                    >{{ selected_date }}</span
+                                ></span
                             >
                             {% endif %}
                         </div>
@@ -72,6 +75,7 @@
                     <option value="12">Last 12 hours</option>
                     <option value="24">Last 24 hours</option>
                 </select>
+                <button id="view-yesterday" class="btn">View Yesterday</button>
                 {% else %}
                 <div class="date-navigation">
                     <button
@@ -117,8 +121,7 @@
                 function navigateToDate(date) {
                     const currentParams = new URLSearchParams(window.location.search);
                     const stn = currentParams.get('stn') || '{{ station }}';
-                    const hours = currentParams.get('hours') || '{{ hours }}';
-                    window.location.href = `/date/${date}?stn=${stn}&hours=${hours}`;
+                    window.location.href = `/date/${date}?stn=${stn}`;
                 }
 
                 function getDirectionText(degrees) {
@@ -152,8 +155,8 @@
                             datasets: [{
                                 label: 'Wind Speed (kts)',
                                 data: [],
-                                borderColor: 'rgb(75, 192, 192)',
-                                backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                                borderColor: 'rgb(0, 168, 240)',
+                                backgroundColor: 'rgba(0, 168, 240, 0.1)',
                                 tension: 0.3,
                                 fill: true,
                                 yAxisID: 'y'
@@ -168,9 +171,9 @@
                             }, {
                                 label: 'Wind Direction',
                                 data: [],
-                                borderColor: 'rgb(54, 162, 235)',
-                                backgroundColor: 'rgba(54, 162, 235, 0.1)',
-                                pointBackgroundColor: 'rgba(54, 162, 235, 0.8)',
+                                borderColor: 'orange',
+                                // backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                                pointBackgroundColor: 'orange',
                                 fill: false,
                                 yAxisID: 'y1',
                                 showLine: false,
@@ -316,7 +319,7 @@
 
                         try {
                             const data = JSON.parse(event.data);
-                            
+
                             // Handle ping messages
                             if (data.type === 'ping') {
                                 console.log('Received ping from server');
@@ -369,12 +372,24 @@
                     };
                 }
 
+                // Function to get yesterday's date in YYYY-MM-DD format
+                function getYesterdayDate() {
+                    const yesterday = new Date();
+                    yesterday.setDate(yesterday.getDate() - 1);
+                    return yesterday.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+                }
+
                 // Event listeners
                 {% if is_live %}
                 document.getElementById('toggle-realtime').addEventListener('click', function() {
                     realtimeEnabled = !realtimeEnabled;
                     this.textContent = realtimeEnabled ? 'Pause Real-time Updates' : 'Resume Real-time Updates';
                     this.className = realtimeEnabled ? 'btn' : 'btn paused';
+                });
+
+                document.getElementById('view-yesterday').addEventListener('click', function() {
+                    const yesterdayDate = getYesterdayDate();
+                    navigateToDate(yesterdayDate);
                 });
                 {% endif %}
 
@@ -394,6 +409,21 @@
 
                 // Initialize the application
                 document.addEventListener('DOMContentLoaded', function() {
+                    {% if not is_live %}
+                    // Format the selected date with weekday
+                    const dateElement = document.getElementById('formatted-date');
+                    if (dateElement) {
+                        const date = new Date('{{ selected_date }}');
+                        const options = {
+                            weekday: 'long',
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric'
+                        };
+                        dateElement.textContent = date.toLocaleDateString('en-US', options);
+                    }
+                    {% endif %}
+
                     initCharts();
                     loadHistoricalData({{ hours }});
                     {% if is_live %}

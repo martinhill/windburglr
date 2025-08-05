@@ -303,7 +303,7 @@ async def read_date(request: Request, date: str, stn: str = DEFAULT_STATION, hou
             "hours": hours,
             "minutes": 0,
             "is_live": False,
-            "selected_date": date,
+            "selected_date": selected_date,
             "prev_date": prev_date.strftime("%Y-%m-%d"),
             "next_date": next_date.strftime("%Y-%m-%d"),
             "date_start": day_start.strftime("%Y-%m-%dT%H:%M:%S"),
