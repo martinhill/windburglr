@@ -314,25 +314,39 @@
                     websocket.onmessage = function(event) {
                         console.log('WebSocket message received:', event.data);
 
-                        // Update status to show we're receiving data
-                        updateConnectionStatus('connected', 'Connected (Live)');
-
-                        if (!realtimeEnabled) return;
-
                         try {
                             const data = JSON.parse(event.data);
-                            updateCurrentConditions(data);
-
-                            // Add new data point to charts
-                            const newPoint = [data.timestamp, data.direction, data.speed_kts, data.gust_kts];
-                            windData.push(newPoint);
-
-                            // Keep only recent data (last 1000 points)
-                            if (windData.length > 1000) {
-                                windData = windData.slice(-1000);
+                            
+                            // Handle ping messages
+                            if (data.type === 'ping') {
+                                console.log('Received ping from server');
+                                updateConnectionStatus('connected', 'Connected');
+                                return;
                             }
 
-                            updateCharts(windData);
+                            // Update status to show we're receiving data
+                            updateConnectionStatus('connected', 'Connected (Live)');
+
+                            if (!realtimeEnabled) return;
+
+                            // Handle wind data messages
+                            if (data.timestamp !== undefined) {
+                                updateCurrentConditions(data);
+
+                                // Add new data point to charts
+                                const newPoint = [data.timestamp, data.direction, data.speed_kts, data.gust_kts];
+                                console.log('New wind data point:', newPoint);
+                                windData.push(newPoint);
+
+                                // Keep only recent data (last 1000 points)
+                                if (windData.length > 1000) {
+                                    windData = windData.slice(-1000);
+                                }
+
+                                updateCharts(windData);
+                            } else {
+                                console.log('Received unknown message type:', data);
+                            }
                         } catch (error) {
                             console.error('Error parsing WebSocket message:', error);
                         }
