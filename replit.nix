@@ -21,5 +21,7 @@ in {
         pkgs.python313Packages.uvicorn
         pkgs.python313Packages.websockets
         pkgs.python313Packages.jinja2
+        pkgs.python313Packages.sqlmodel
+        pkgs.python313Packages.asyncpg
     ];
 }
