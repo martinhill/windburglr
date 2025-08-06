@@ -81,9 +81,6 @@
 
                 <div class="controls">
                     {% if is_live %}
-                    <button id="toggle-realtime" class="btn">
-                        Pause Real-time Updates
-                    </button>
                     <select id="time-range">
                         <option value="1">Last 1 hour</option>
                         <option value="3" selected>Last 3 hours</option>
@@ -150,7 +147,6 @@
 
                 let windChart;
                 let websocket;
-                let realtimeEnabled = true;
                 let windData = [];
                 let lastObservationTime = null;
                 let currentTimeWindowHours = 3;
@@ -691,8 +687,6 @@
                             // Update status to show we're receiving data
                             updateConnectionStatus('connected', 'Connected (Live)');
 
-                            if (!realtimeEnabled) return;
-
                             // Handle wind data messages
                             if (data.timestamp !== undefined) {
                                 updateCurrentConditions(data);
@@ -759,12 +753,6 @@
 
                 // Event listeners
                 {% if is_live %}
-                document.getElementById('toggle-realtime').addEventListener('click', function() {
-                    realtimeEnabled = !realtimeEnabled;
-                    this.textContent = realtimeEnabled ? 'Pause Real-time Updates' : 'Resume Real-time Updates';
-                    this.className = realtimeEnabled ? 'btn' : 'btn paused';
-                });
-
                 document.getElementById('view-yesterday').addEventListener('click', function() {
                     const yesterdayDate = getYesterdayDate();
                     navigateToDate(yesterdayDate);
