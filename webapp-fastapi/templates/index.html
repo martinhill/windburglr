@@ -9,6 +9,16 @@
         <link rel="stylesheet" href="/static/style.css" />
     </head>
     <body>
+        <!-- Mobile orientation popup -->
+        <div id="orientation-popup" class="orientation-popup hidden">
+            <div class="orientation-popup-content">
+                <div class="rotate-icon">📱↻</div>
+                <h3>Better Experience</h3>
+                <p>For the best viewing experience of wind charts, please rotate your device to landscape orientation.</p>
+                <button class="btn" onclick="dismissOrientationPopup()">Got it!</button>
+            </div>
+        </div>
+
         <div class="container">
             <header>
                 <div class="header-content-outer">
@@ -76,8 +86,12 @@
                         <option value="12">Last 12 hours</option>
                         <option value="24">Last 24 hours</option>
                     </select>
-                    <button id="reset-zoom" class="btn" style="display: none;">Reset Zoom</button>
-                    <button id="view-yesterday" class="btn">View Yesterday</button>
+                    <button id="reset-zoom" class="btn" style="display: none">
+                        Reset Zoom
+                    </button>
+                    <button id="view-yesterday" class="btn">
+                        View Yesterday
+                    </button>
                     {% else %}
                     <div class="date-navigation">
                         <button
@@ -100,7 +114,13 @@
                         >
                             Next Day →
                         </button>
-                        <button id="reset-zoom" class="btn" style="display: none;">Reset Zoom</button>
+                        <button
+                            id="reset-zoom"
+                            class="btn"
+                            style="display: none"
+                        >
+                            Reset Zoom
+                        </button>
                         <a href="/" class="btn">Back to Live</a>
                     </div>
                     {% endif %}
@@ -121,7 +141,9 @@
                 let websocket;
                 let realtimeEnabled = true;
                 let windData = [];
-                
+                let lastObservationTime = null;
+                let currentTimeWindowHours = 3;
+
                 // Zoom functionality variables
                 let isZooming = false;
                 let zoomStartX = null;
@@ -148,17 +170,78 @@
                     return new Date(timestamp * 1000).toLocaleString();
                 }
 
+                function filterOldObservations(data) {
+                    if (!IS_LIVE || currentTimeWindowHours <= 0) {
+                        return data;
+                    }
+                    
+                    const now = Date.now() / 1000; // Current time in seconds
+                    const cutoffTime = now - (currentTimeWindowHours * 3600); // Hours to seconds
+                    
+                    return data.filter(point => point[0] >= cutoffTime);
+                }
+
+                function isMobileDevice() {
+                    return window.innerWidth <= 768 && 'ontouchstart' in window;
+                }
+
+                function isPortraitOrientation() {
+                    return window.innerHeight > window.innerWidth;
+                }
+
+                function hasSeenOrientationPopup() {
+                    return localStorage.getItem('windburglr-orientation-popup-seen') === 'true';
+                }
+
+                function markOrientationPopupSeen() {
+                    localStorage.setItem('windburglr-orientation-popup-seen', 'true');
+                }
+
+                function showOrientationPopup() {
+                    const popup = document.getElementById('orientation-popup');
+                    if (popup) {
+                        popup.classList.remove('hidden');
+                    }
+                }
+
+                function hideOrientationPopup() {
+                    const popup = document.getElementById('orientation-popup');
+                    if (popup) {
+                        popup.classList.add('hidden');
+                    }
+                }
+
+                function dismissOrientationPopup() {
+                    hideOrientationPopup();
+                    markOrientationPopupSeen();
+                }
+
+                // Make dismissOrientationPopup globally accessible
+                window.dismissOrientationPopup = dismissOrientationPopup;
+
+                function checkOrientationPopup() {
+                    if (isMobileDevice() && isPortraitOrientation() && !hasSeenOrientationPopup()) {
+                        // Show popup after a short delay to let the page load
+                        setTimeout(showOrientationPopup, 1000);
+                    }
+                }
+
                 function updateCurrentConditions(data) {
                     document.getElementById('current-speed').textContent = data.speed_kts || '--';
                     document.getElementById('current-direction').textContent = getDirectionText(data.direction);
                     document.getElementById('current-gust').textContent = data.gust_kts || '--';
                     document.getElementById('last-update').textContent = formatTime(data.timestamp);
+
+                    // Track the most recent observation time
+                    if (data.timestamp && (!lastObservationTime || data.timestamp > lastObservationTime)) {
+                        lastObservationTime = data.timestamp;
+                    }
                 }
 
                 function createZoomOverlay() {
                     const canvas = document.getElementById('windChart');
                     const rect = canvas.getBoundingClientRect();
-                    
+
                     zoomOverlay = document.createElement('div');
                     zoomOverlay.style.position = 'absolute';
                     zoomOverlay.style.backgroundColor = 'rgba(102, 126, 234, 0.2)';
@@ -166,21 +249,21 @@
                     zoomOverlay.style.pointerEvents = 'none';
                     zoomOverlay.style.zIndex = '1000';
                     zoomOverlay.style.display = 'none';
-                    
+
                     canvas.parentElement.style.position = 'relative';
                     canvas.parentElement.appendChild(zoomOverlay);
                 }
 
                 function updateZoomOverlay(startX, currentX) {
                     if (!zoomOverlay) return;
-                    
+
                     const canvas = document.getElementById('windChart');
                     const rect = canvas.getBoundingClientRect();
                     const chartArea = windChart.chartArea;
-                    
+
                     const left = Math.min(startX, currentX);
                     const width = Math.abs(currentX - startX);
-                    
+
                     zoomOverlay.style.left = `${left - rect.left}px`;
                     zoomOverlay.style.top = `${chartArea.top}px`;
                     zoomOverlay.style.width = `${width}px`;
@@ -198,13 +281,13 @@
                     const canvas = document.getElementById('windChart');
                     const rect = canvas.getBoundingClientRect();
                     const chartArea = windChart.chartArea;
-                    
+
                     // Convert pixel coordinates to data coordinates
                     const startDataX = windChart.scales.x.getValueForPixel(startX - rect.left);
                     const endDataX = windChart.scales.x.getValueForPixel(endX - rect.left);
-                    
+
                     if (!startDataX || !endDataX) return;
-                    
+
                     // Store original range if this is the first zoom
                     if (!originalTimeRange && windChart.data.labels.length > 0) {
                         originalTimeRange = {
@@ -212,15 +295,15 @@
                             max: windChart.data.labels[windChart.data.labels.length - 1]
                         };
                     }
-                    
+
                     // Set new time range
                     const minTime = Math.min(startDataX, endDataX);
                     const maxTime = Math.max(startDataX, endDataX);
-                    
+
                     windChart.options.scales.x.min = minTime;
                     windChart.options.scales.x.max = maxTime;
                     windChart.update();
-                    
+
                     // Show reset zoom button
                     const resetButton = document.getElementById('reset-zoom');
                     if (resetButton) {
@@ -237,7 +320,7 @@
                         delete windChart.options.scales.x.max;
                     }
                     windChart.update();
-                    
+
                     // Hide reset zoom button
                     const resetButton = document.getElementById('reset-zoom');
                     if (resetButton) {
@@ -295,8 +378,7 @@
                                         stepSize: 15,
                                         displayFormats: {
                                             minute: 'HH:mm'
-                                        },
-                                        tooltipFormat: 'MMM dd, HH:mm'
+                                        }
                                     },
                                     ticks: {
                                         maxTicksLimit: 96,
@@ -307,10 +389,10 @@
                                             const minutes = date.getMinutes();
                                             // Only show ticks at 0, 15, 30, 45 minutes
                                             if (minutes % 15 === 0) {
-                                                return date.toLocaleTimeString('en-US', { 
-                                                    hour: '2-digit', 
+                                                return date.toLocaleTimeString('en-US', {
+                                                    hour: '2-digit',
                                                     minute: '2-digit',
-                                                    hour12: false 
+                                                    hour12: false
                                                 });
                                             }
                                             return null;
@@ -352,16 +434,6 @@
                                 legend: {
                                     // display: true,
                                     position: 'bottom'
-                                },
-                                tooltip: {
-                                    callbacks: {
-                                        afterLabel: function(context) {
-                                            if (context.datasetIndex === 2) { // Direction dataset
-                                                return `(${getDirectionText(context.parsed.y)})`;
-                                            }
-                                            return '';
-                                        }
-                                    }
                                 }
                             }
                         }
@@ -372,12 +444,12 @@
 
                     // Add mouse event listeners for zoom functionality
                     const canvas = document.getElementById('windChart');
-                    
+
                     canvas.addEventListener('mousedown', function(e) {
                         const rect = canvas.getBoundingClientRect();
                         const x = e.clientX;
                         const chartArea = windChart.chartArea;
-                        
+
                         // Only start zoom if clicking within chart area
                         if (x >= rect.left + chartArea.left && x <= rect.left + chartArea.right) {
                             isZooming = true;
@@ -397,11 +469,11 @@
                         if (isZooming && zoomStartX !== null) {
                             const endX = e.clientX;
                             const minDragDistance = 20; // Minimum pixels to consider it a zoom
-                            
+
                             if (Math.abs(endX - zoomStartX) > minDragDistance) {
                                 performZoom(zoomStartX, endX);
                             }
-                            
+
                             isZooming = false;
                             zoomStartX = null;
                             hideZoomOverlay();
@@ -434,18 +506,26 @@
                 windChart.data.datasets[0].data = speeds;
                 windChart.data.datasets[1].data = gusts;
                 windChart.data.datasets[2].data = directions;
-                
+
+                // Update lastObservationTime from the data
+                if (data.length > 0) {
+                    const latestTimestamp = Math.max(...data.map(d => d[0]));
+                    if (!lastObservationTime || latestTimestamp > lastObservationTime) {
+                        lastObservationTime = latestTimestamp;
+                    }
+                }
+
                 // Reset zoom when new data is loaded
                 delete windChart.options.scales.x.min;
                 delete windChart.options.scales.x.max;
                 originalTimeRange = null;
-                
+
                 // Hide reset zoom button
                 const resetButton = document.getElementById('reset-zoom');
                 if (resetButton) {
                     resetButton.style.display = 'none';
                 }
-                
+
                 windChart.update();
             }
                 async function loadHistoricalData(hours = 3) {
@@ -463,6 +543,68 @@
                         updateCharts(windData);
                     } catch (error) {
                         console.error('Error loading historical data:', error);
+                    }
+                }
+
+                async function fillDataGap() {
+                    if (!lastObservationTime || !IS_LIVE) {
+                        console.log('No gap filling needed - no last observation time or not in live mode');
+                        return;
+                    }
+
+                    try {
+                        console.log('Filling data gap since:', new Date(lastObservationTime * 1000));
+
+                        // Convert lastObservationTime to ISO format for the API
+                        const fromTime = new Date(lastObservationTime * 1000).toISOString().slice(0, 19);
+                        const toTime = new Date().toISOString().slice(0, 19);
+
+                        const url = `/api/wind?stn=${STATION}&from_time=${fromTime}&to_time=${toTime}`;
+                        const response = await fetch(url);
+                        const data = await response.json();
+
+                        if (data.winddata && data.winddata.length > 0) {
+                            console.log(`Retrieved ${data.winddata.length} data points to fill gap`);
+
+                            // Merge new data with existing data, avoiding duplicates
+                            const newData = data.winddata.filter(newPoint => {
+                                return !windData.some(existingPoint =>
+                                    Math.abs(existingPoint[0] - newPoint[0]) < 1 // Within 1 second
+                                );
+                            });
+
+                            if (newData.length > 0) {
+                                console.log(`Adding ${newData.length} new data points after deduplication`);
+                                windData = windData.concat(newData);
+                                
+                                // Sort by timestamp to maintain chronological order
+                                windData.sort((a, b) => a[0] - b[0]);
+                                
+                                // Filter out observations older than the selected time window
+                                windData = filterOldObservations(windData);
+                                
+                                // Keep only recent data (last 1000 points)
+                                if (windData.length > 1000) {
+                                    windData = windData.slice(-1000);
+                                }
+                                
+                                updateCharts(windData);
+                                // Update current conditions with the latest data point
+                                const latestPoint = newData[newData.length - 1];
+                                updateCurrentConditions({
+                                    timestamp: latestPoint[0],
+                                    direction: latestPoint[1],
+                                    speed_kts: latestPoint[2],
+                                    gust_kts: latestPoint[3]
+                                });
+                            } else {
+                                console.log('No new data points after deduplication');
+                            }
+                        } else {
+                            console.log('No gap data retrieved');
+                        }
+                    } catch (error) {
+                        console.error('Error filling data gap:', error);
                     }
                 }
 
@@ -484,6 +626,9 @@
                     websocket.onopen = function(event) {
                         console.log('WebSocket connected successfully');
                         updateConnectionStatus('connected', 'Connected');
+
+                        // Fill any data gap that occurred during disconnection
+                        fillDataGap();
                     };
 
                     websocket.onmessage = function(event) {
@@ -508,17 +653,31 @@
                             if (data.timestamp !== undefined) {
                                 updateCurrentConditions(data);
 
-                                // Add new data point to charts
+                                // Check for duplicate data points before adding
                                 const newPoint = [data.timestamp, data.direction, data.speed_kts, data.gust_kts];
-                                console.log('New wind data point:', newPoint);
-                                windData.push(newPoint);
+                                const isDuplicate = windData.some(existingPoint =>
+                                    Math.abs(existingPoint[0] - newPoint[0]) < 1 // Within 1 second
+                                );
 
-                                // Keep only recent data (last 1000 points)
-                                if (windData.length > 1000) {
-                                    windData = windData.slice(-1000);
+                                if (!isDuplicate) {
+                                    console.log('New wind data point:', newPoint);
+                                    windData.push(newPoint);
+
+                                    // Sort by timestamp to maintain chronological order
+                                    windData.sort((a, b) => a[0] - b[0]);
+
+                                    // Filter out observations older than the selected time window
+                                    windData = filterOldObservations(windData);
+
+                                    // Keep only recent data (last 1000 points)
+                                    if (windData.length > 1000) {
+                                        windData = windData.slice(-1000);
+                                    }
+
+                                    updateCharts(windData);
+                                } else {
+                                    console.log('Discarding duplicate wind data point:', newPoint);
                                 }
-
-                                updateCharts(windData);
                             } else {
                                 console.log('Received unknown message type:', data);
                             }
@@ -576,6 +735,7 @@
                 {% if is_live %}
                 document.getElementById('time-range').addEventListener('change', function() {
                     const hours = parseInt(this.value);
+                    currentTimeWindowHours = hours; // Update the current time window
                     {% if is_live %}
                     loadHistoricalData(hours);
                     {% else %}
@@ -589,6 +749,9 @@
 
                 // Initialize the application
                 document.addEventListener('DOMContentLoaded', function() {
+                    // Initialize the current time window from template
+                    currentTimeWindowHours = {{ hours }};
+                    
                     {% if not is_live %}
                     // Format the selected date with weekday
                     const dateElement = document.getElementById('formatted-date');
@@ -604,11 +767,31 @@
                     }
                     {% endif %}
 
+                    // Check if we should show the orientation popup
+                    checkOrientationPopup();
+
                     initCharts();
                     loadHistoricalData({{ hours }});
                     {% if is_live %}
                     connectWebSocket();
                     {% endif %}
+                });
+
+                // Handle orientation changes
+                window.addEventListener('orientationchange', function() {
+                    // Hide popup if user rotates to landscape
+                    setTimeout(function() {
+                        if (!isPortraitOrientation()) {
+                            hideOrientationPopup();
+                        }
+                    }, 500); // Small delay to let orientation change complete
+                });
+
+                // Handle window resize (for desktop testing)
+                window.addEventListener('resize', function() {
+                    if (!isPortraitOrientation()) {
+                        hideOrientationPopup();
+                    }
                 });
         </script>
     </body>
