@@ -161,6 +161,11 @@ header h1 {
 .chart-section canvas {
     flex: 1;
     min-height: 0;
+    user-select: none;
+}
+
+.chart-section canvas:hover {
+    cursor: crosshair;
 }
 
 .controls {
@@ -194,6 +199,11 @@ header h1 {
 
 .btn.paused {
     background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+}
+
+a.btn {
+    text-decoration: none;
+    text-align: center;
 }
 
 select {

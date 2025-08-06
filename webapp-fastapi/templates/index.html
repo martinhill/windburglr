@@ -76,6 +76,7 @@
                         <option value="12">Last 12 hours</option>
                         <option value="24">Last 24 hours</option>
                     </select>
+                    <button id="reset-zoom" class="btn" style="display: none;">Reset Zoom</button>
                     <button id="view-yesterday" class="btn">View Yesterday</button>
                     {% else %}
                     <div class="date-navigation">
@@ -99,6 +100,7 @@
                         >
                             Next Day →
                         </button>
+                        <button id="reset-zoom" class="btn" style="display: none;">Reset Zoom</button>
                         <a href="/" class="btn">Back to Live</a>
                     </div>
                     {% endif %}
@@ -119,6 +121,12 @@
                 let websocket;
                 let realtimeEnabled = true;
                 let windData = [];
+                
+                // Zoom functionality variables
+                let isZooming = false;
+                let zoomStartX = null;
+                let zoomOverlay = null;
+                let originalTimeRange = null;
 
                 function navigateToDate(date) {
                     const currentParams = new URLSearchParams(window.location.search);
@@ -145,6 +153,96 @@
                     document.getElementById('current-direction').textContent = getDirectionText(data.direction);
                     document.getElementById('current-gust').textContent = data.gust_kts || '--';
                     document.getElementById('last-update').textContent = formatTime(data.timestamp);
+                }
+
+                function createZoomOverlay() {
+                    const canvas = document.getElementById('windChart');
+                    const rect = canvas.getBoundingClientRect();
+                    
+                    zoomOverlay = document.createElement('div');
+                    zoomOverlay.style.position = 'absolute';
+                    zoomOverlay.style.backgroundColor = 'rgba(102, 126, 234, 0.2)';
+                    zoomOverlay.style.border = '1px solid rgba(102, 126, 234, 0.5)';
+                    zoomOverlay.style.pointerEvents = 'none';
+                    zoomOverlay.style.zIndex = '1000';
+                    zoomOverlay.style.display = 'none';
+                    
+                    canvas.parentElement.style.position = 'relative';
+                    canvas.parentElement.appendChild(zoomOverlay);
+                }
+
+                function updateZoomOverlay(startX, currentX) {
+                    if (!zoomOverlay) return;
+                    
+                    const canvas = document.getElementById('windChart');
+                    const rect = canvas.getBoundingClientRect();
+                    const chartArea = windChart.chartArea;
+                    
+                    const left = Math.min(startX, currentX);
+                    const width = Math.abs(currentX - startX);
+                    
+                    zoomOverlay.style.left = `${left - rect.left}px`;
+                    zoomOverlay.style.top = `${chartArea.top}px`;
+                    zoomOverlay.style.width = `${width}px`;
+                    zoomOverlay.style.height = `${chartArea.bottom - chartArea.top}px`;
+                    zoomOverlay.style.display = 'block';
+                }
+
+                function hideZoomOverlay() {
+                    if (zoomOverlay) {
+                        zoomOverlay.style.display = 'none';
+                    }
+                }
+
+                function performZoom(startX, endX) {
+                    const canvas = document.getElementById('windChart');
+                    const rect = canvas.getBoundingClientRect();
+                    const chartArea = windChart.chartArea;
+                    
+                    // Convert pixel coordinates to data coordinates
+                    const startDataX = windChart.scales.x.getValueForPixel(startX - rect.left);
+                    const endDataX = windChart.scales.x.getValueForPixel(endX - rect.left);
+                    
+                    if (!startDataX || !endDataX) return;
+                    
+                    // Store original range if this is the first zoom
+                    if (!originalTimeRange && windChart.data.labels.length > 0) {
+                        originalTimeRange = {
+                            min: windChart.data.labels[0],
+                            max: windChart.data.labels[windChart.data.labels.length - 1]
+                        };
+                    }
+                    
+                    // Set new time range
+                    const minTime = Math.min(startDataX, endDataX);
+                    const maxTime = Math.max(startDataX, endDataX);
+                    
+                    windChart.options.scales.x.min = minTime;
+                    windChart.options.scales.x.max = maxTime;
+                    windChart.update();
+                    
+                    // Show reset zoom button
+                    const resetButton = document.getElementById('reset-zoom');
+                    if (resetButton) {
+                        resetButton.style.display = 'inline-block';
+                    }
+                }
+
+                function resetZoom() {
+                    if (originalTimeRange) {
+                        windChart.options.scales.x.min = originalTimeRange.min;
+                        windChart.options.scales.x.max = originalTimeRange.max;
+                    } else {
+                        delete windChart.options.scales.x.min;
+                        delete windChart.options.scales.x.max;
+                    }
+                    windChart.update();
+                    
+                    // Hide reset zoom button
+                    const resetButton = document.getElementById('reset-zoom');
+                    if (resetButton) {
+                        resetButton.style.display = 'none';
+                    }
                 }
 
                 function initCharts() {
@@ -264,6 +362,62 @@
                             }
                         }
                     });
+
+                    // Create zoom overlay
+                    createZoomOverlay();
+
+                    // Add mouse event listeners for zoom functionality
+                    const canvas = document.getElementById('windChart');
+                    
+                    canvas.addEventListener('mousedown', function(e) {
+                        const rect = canvas.getBoundingClientRect();
+                        const x = e.clientX;
+                        const chartArea = windChart.chartArea;
+                        
+                        // Only start zoom if clicking within chart area
+                        if (x >= rect.left + chartArea.left && x <= rect.left + chartArea.right) {
+                            isZooming = true;
+                            zoomStartX = x;
+                            canvas.style.cursor = 'crosshair';
+                        }
+                    });
+
+                    canvas.addEventListener('mousemove', function(e) {
+                        if (isZooming && zoomStartX !== null) {
+                            const currentX = e.clientX;
+                            updateZoomOverlay(zoomStartX, currentX);
+                        }
+                    });
+
+                    canvas.addEventListener('mouseup', function(e) {
+                        if (isZooming && zoomStartX !== null) {
+                            const endX = e.clientX;
+                            const minDragDistance = 20; // Minimum pixels to consider it a zoom
+                            
+                            if (Math.abs(endX - zoomStartX) > minDragDistance) {
+                                performZoom(zoomStartX, endX);
+                            }
+                            
+                            isZooming = false;
+                            zoomStartX = null;
+                            hideZoomOverlay();
+                            canvas.style.cursor = 'default';
+                        }
+                    });
+
+                    canvas.addEventListener('mouseleave', function(e) {
+                        if (isZooming) {
+                            isZooming = false;
+                            zoomStartX = null;
+                            hideZoomOverlay();
+                            canvas.style.cursor = 'default';
+                        }
+                    });
+
+                    // Double-click to reset zoom
+                    canvas.addEventListener('dblclick', function(e) {
+                        resetZoom();
+                    });
                 }
 
             function updateCharts(data) {
@@ -276,6 +430,18 @@
                 windChart.data.datasets[0].data = speeds;
                 windChart.data.datasets[1].data = gusts;
                 windChart.data.datasets[2].data = directions;
+                
+                // Reset zoom when new data is loaded
+                delete windChart.options.scales.x.min;
+                delete windChart.options.scales.x.max;
+                originalTimeRange = null;
+                
+                // Hide reset zoom button
+                const resetButton = document.getElementById('reset-zoom');
+                if (resetButton) {
+                    resetButton.style.display = 'none';
+                }
+                
                 windChart.update();
             }
                 async function loadHistoricalData(hours = 3) {
@@ -394,6 +560,11 @@
                     navigateToDate(yesterdayDate);
                 });
                 {% endif %}
+
+                // Reset zoom button event listener
+                document.getElementById('reset-zoom').addEventListener('click', function() {
+                    resetZoom();
+                });
 
                 {% if is_live %}
                 document.getElementById('time-range').addEventListener('change', function() {
