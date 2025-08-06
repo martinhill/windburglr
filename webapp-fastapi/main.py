@@ -274,7 +274,7 @@ async def get_latest_wind_data(station: str = DEFAULT_STATION):
         return None
 
 @app.get("/", response_class=HTMLResponse)
-async def read_root(request: Request, stn: str = DEFAULT_STATION, hours: int = 3, minutes: int = 0):
+async def live_wind_chart(request: Request, stn: str = DEFAULT_STATION, hours: int = 3, minutes: int = 0):
     return templates.TemplateResponse("index.html", {
         "request": request,
         "station": stn,
@@ -290,7 +290,7 @@ async def redirect_to_today(stn: str = DEFAULT_STATION, hours: int = 24):
     return RedirectResponse(url=f"/date/{today}?stn={stn}&hours={hours}", status_code=302)
 
 @app.get("/date/{date}", response_class=HTMLResponse)
-async def read_date(request: Request, date: str, stn: str = DEFAULT_STATION, hours: int = 24):
+async def historical_wind_day_chart(request: Request, date: str, stn: str = DEFAULT_STATION, hours: int = 24):
     try:
         # Parse ISO date (YYYY-MM-DD) - simple validation
         selected_date = datetime.strptime(date, "%Y-%m-%d")
@@ -302,11 +302,11 @@ async def read_date(request: Request, date: str, stn: str = DEFAULT_STATION, hou
         # Get station timezone to convert local day boundaries to UTC
         station_tz_name = await get_station_timezone(stn)
         station_tz = zoneinfo.ZoneInfo(station_tz_name)
-        
+
         # Create day boundaries in station timezone, then convert to UTC
         day_start_local = selected_date.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=station_tz)
         day_end_local = day_start_local + timedelta(days=1)
-        
+
         day_start_utc = day_start_local.astimezone(timezone.utc)
         day_end_utc = day_end_local.astimezone(timezone.utc)
 
