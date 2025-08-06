@@ -3,7 +3,7 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>WindBurglr - {{ station }}</title>
+        <title>windburglr - {{ station }}</title>
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
         <link rel="stylesheet" href="/static/style.css" />
@@ -56,51 +56,53 @@
                 </div>
             </header>
 
-            <div class="charts-container">
-                <div class="chart-section">
-                    <!-- <h3>Wind Speed & Direction (Last {{ hours }} hours)</h3> -->
-                    <canvas id="windChart"></canvas>
+            <div class="content-wrapper">
+                <div class="charts-container">
+                    <div class="chart-section">
+                        <!-- <h3>Wind Speed & Direction (Last {{ hours }} hours)</h3> -->
+                        <canvas id="windChart"></canvas>
+                    </div>
                 </div>
-            </div>
 
-            <div class="controls">
-                {% if is_live %}
-                <button id="toggle-realtime" class="btn">
-                    Pause Real-time Updates
-                </button>
-                <select id="time-range">
-                    <option value="1">Last 1 hour</option>
-                    <option value="3" selected>Last 3 hours</option>
-                    <option value="6">Last 6 hours</option>
-                    <option value="12">Last 12 hours</option>
-                    <option value="24">Last 24 hours</option>
-                </select>
-                <button id="view-yesterday" class="btn">View Yesterday</button>
-                {% else %}
-                <div class="date-navigation">
-                    <button
-                        id="prev-date"
-                        class="btn"
-                        onclick="navigateToDate('{{ prev_date }}')"
-                    >
-                        ← Previous Day
+                <div class="controls">
+                    {% if is_live %}
+                    <button id="toggle-realtime" class="btn">
+                        Pause Real-time Updates
                     </button>
-                    <input
-                        type="date"
-                        id="date-picker"
-                        value="{{ selected_date }}"
-                        onchange="navigateToDate(this.value)"
-                    />
-                    <button
-                        id="next-date"
-                        class="btn"
-                        onclick="navigateToDate('{{ next_date }}')"
-                    >
-                        Next Day →
-                    </button>
-                    <a href="/" class="btn">Back to Live</a>
+                    <select id="time-range">
+                        <option value="1">Last 1 hour</option>
+                        <option value="3" selected>Last 3 hours</option>
+                        <option value="6">Last 6 hours</option>
+                        <option value="12">Last 12 hours</option>
+                        <option value="24">Last 24 hours</option>
+                    </select>
+                    <button id="view-yesterday" class="btn">View Yesterday</button>
+                    {% else %}
+                    <div class="date-navigation">
+                        <button
+                            id="prev-date"
+                            class="btn"
+                            onclick="navigateToDate('{{ prev_date }}')"
+                        >
+                            ← Previous Day
+                        </button>
+                        <input
+                            type="date"
+                            id="date-picker"
+                            value="{{ selected_date }}"
+                            onchange="navigateToDate(this.value)"
+                        />
+                        <button
+                            id="next-date"
+                            class="btn"
+                            onclick="navigateToDate('{{ next_date }}')"
+                        >
+                            Next Day →
+                        </button>
+                        <a href="/" class="btn">Back to Live</a>
+                    </div>
+                    {% endif %}
                 </div>
-                {% endif %}
             </div>
         </div>
 
