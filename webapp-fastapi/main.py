@@ -293,9 +293,16 @@ async def read_date(request: Request, date: str, stn: str = DEFAULT_STATION, hou
         prev_date = selected_date - timedelta(days=1)
         next_date = selected_date + timedelta(days=1)
 
-        # Create naive datetime strings for API (station timezone assumed)
-        day_start = selected_date.replace(hour=0, minute=0, second=0, microsecond=0)
-        day_end = day_start + timedelta(days=1)
+        # Get station timezone to convert local day boundaries to UTC
+        station_tz_name = await get_station_timezone(stn)
+        station_tz = zoneinfo.ZoneInfo(station_tz_name)
+        
+        # Create day boundaries in station timezone, then convert to UTC
+        day_start_local = selected_date.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=station_tz)
+        day_end_local = day_start_local + timedelta(days=1)
+        
+        day_start_utc = day_start_local.astimezone(timezone.utc)
+        day_end_utc = day_end_local.astimezone(timezone.utc)
 
         return templates.TemplateResponse("index.html", {
             "request": request,
@@ -306,8 +313,9 @@ async def read_date(request: Request, date: str, stn: str = DEFAULT_STATION, hou
             "selected_date": selected_date,
             "prev_date": prev_date.strftime("%Y-%m-%d"),
             "next_date": next_date.strftime("%Y-%m-%d"),
-            "date_start": day_start.strftime("%Y-%m-%dT%H:%M:%S"),
-            "date_end": day_end.strftime("%Y-%m-%dT%H:%M:%S")
+            "date_start": day_start_utc.strftime("%Y-%m-%dT%H:%M:%S"),
+            "date_end": day_end_utc.strftime("%Y-%m-%dT%H:%M:%S"),
+            "station_timezone": station_tz_name
         })
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
@@ -319,35 +327,25 @@ async def get_wind_data(
     to_time: Optional[str] = None,
     hours: Optional[int] = None
 ):
-    # Get station timezone for proper date handling
+    # Get station timezone for metadata only
     station_tz_name = await get_station_timezone(stn)
     station_tz = zoneinfo.ZoneInfo(station_tz_name)
 
     if from_time and to_time:
-        # Parse naive datetime strings and assume they're in station timezone
-        start_naive = datetime.strptime(from_time, ISO_FORMAT)
-        end_naive = datetime.strptime(to_time, ISO_FORMAT)
-
-        # Apply station timezone and convert to UTC for database query
-        start_time = start_naive.replace(tzinfo=station_tz).astimezone(timezone.utc)
-        end_time = end_naive.replace(tzinfo=station_tz).astimezone(timezone.utc)
+        # Parse datetime strings as UTC (no timezone conversion)
+        start_time = datetime.strptime(from_time, ISO_FORMAT).replace(tzinfo=timezone.utc)
+        end_time = datetime.strptime(to_time, ISO_FORMAT).replace(tzinfo=timezone.utc)
 
     elif hours:
-        # For relative time queries, use current time in station timezone
-        now_station = datetime.now(station_tz)
-        start_station = now_station - timedelta(hours=hours)
-
-        # Convert to UTC for database query
-        start_time = start_station.astimezone(timezone.utc)
-        end_time = now_station.astimezone(timezone.utc)
+        # For relative time queries, use current UTC time
+        now_utc = datetime.now(timezone.utc)
+        start_time = now_utc - timedelta(hours=hours)
+        end_time = now_utc
     else:
-        # Default: last 24 hours in station timezone
-        now_station = datetime.now(station_tz)
-        start_station = now_station - timedelta(hours=24)
-
-        # Convert to UTC for database query
-        start_time = start_station.astimezone(timezone.utc)
-        end_time = now_station.astimezone(timezone.utc)
+        # Default: last 24 hours in UTC
+        now_utc = datetime.now(timezone.utc)
+        start_time = now_utc - timedelta(hours=24)
+        end_time = now_utc
 
     winddata = await query_wind_data(stn, start_time, end_time)
     return {

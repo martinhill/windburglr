@@ -14,8 +14,13 @@
             <div class="orientation-popup-content">
                 <div class="rotate-icon">📱↻</div>
                 <h3>Better Experience</h3>
-                <p>For the best viewing experience of wind charts, please rotate your device to landscape orientation.</p>
-                <button class="btn" onclick="dismissOrientationPopup()">Got it!</button>
+                <p>
+                    For the best viewing experience of wind charts, please
+                    rotate your device to landscape orientation.
+                </p>
+                <button class="btn" onclick="dismissOrientationPopup()">
+                    Got it!
+                </button>
             </div>
         </div>
 
@@ -135,6 +140,7 @@
                 {% if not is_live %}
                 const DATE_START = '{{ date_start }}';
                 const DATE_END = '{{ date_end }}';
+                const STATION_TIMEZONE = '{{ station_timezone }}';
                 {% endif %}
 
                 let windChart;
@@ -163,21 +169,40 @@
                 }
 
                 function formatTime(timestamp) {
-                    return new Date(timestamp * 1000).toLocaleTimeString();
+                    const date = new Date(timestamp * 1000);
+                    {% if not is_live %}
+                    // For historical data, format in station timezone
+                    return date.toLocaleTimeString('en-US', {
+                        timeZone: STATION_TIMEZONE,
+                        hour12: false
+                    });
+                    {% else %}
+                    // For live data, use local browser timezone
+                    return date.toLocaleTimeString();
+                    {% endif %}
                 }
 
                 function formatDateTime(timestamp) {
-                    return new Date(timestamp * 1000).toLocaleString();
+                    const date = new Date(timestamp * 1000);
+                    {% if not is_live %}
+                    // For historical data, format in station timezone
+                    return date.toLocaleString('en-US', {
+                        timeZone: STATION_TIMEZONE
+                    });
+                    {% else %}
+                    // For live data, use local browser timezone
+                    return date.toLocaleString();
+                    {% endif %}
                 }
 
                 function filterOldObservations(data) {
                     if (!IS_LIVE || currentTimeWindowHours <= 0) {
                         return data;
                     }
-                    
+
                     const now = Date.now() / 1000; // Current time in seconds
                     const cutoffTime = now - (currentTimeWindowHours * 3600); // Hours to seconds
-                    
+
                     return data.filter(point => point[0] >= cutoffTime);
                 }
 
@@ -389,11 +414,22 @@
                                             const minutes = date.getMinutes();
                                             // Only show ticks at 0, 15, 30, 45 minutes
                                             if (minutes % 15 === 0) {
+                                                {% if not is_live %}
+                                                // For historical data, show in station timezone
+                                                return date.toLocaleTimeString('en-US', {
+                                                    timeZone: STATION_TIMEZONE,
+                                                    hour: '2-digit',
+                                                    minute: '2-digit',
+                                                    hour12: false
+                                                });
+                                                {% else %}
+                                                // For live data, show in local timezone
                                                 return date.toLocaleTimeString('en-US', {
                                                     hour: '2-digit',
                                                     minute: '2-digit',
                                                     hour12: false
                                                 });
+                                                {% endif %}
                                             }
                                             return null;
                                         }
@@ -434,6 +470,9 @@
                                 legend: {
                                     // display: true,
                                     position: 'bottom'
+                                },
+                                tooltip: {
+                                  enabled: false
                                 }
                             }
                         }
@@ -555,7 +594,7 @@
                     try {
                         console.log('Filling data gap since:', new Date(lastObservationTime * 1000));
 
-                        // Convert lastObservationTime to ISO format for the API
+                        // Convert lastObservationTime to UTC ISO format for the API
                         const fromTime = new Date(lastObservationTime * 1000).toISOString().slice(0, 19);
                         const toTime = new Date().toISOString().slice(0, 19);
 
@@ -576,18 +615,18 @@
                             if (newData.length > 0) {
                                 console.log(`Adding ${newData.length} new data points after deduplication`);
                                 windData = windData.concat(newData);
-                                
+
                                 // Sort by timestamp to maintain chronological order
                                 windData.sort((a, b) => a[0] - b[0]);
-                                
+
                                 // Filter out observations older than the selected time window
                                 windData = filterOldObservations(windData);
-                                
+
                                 // Keep only recent data (last 1000 points)
                                 if (windData.length > 1000) {
                                     windData = windData.slice(-1000);
                                 }
-                                
+
                                 updateCharts(windData);
                                 // Update current conditions with the latest data point
                                 const latestPoint = newData[newData.length - 1];
@@ -751,7 +790,7 @@
                 document.addEventListener('DOMContentLoaded', function() {
                     // Initialize the current time window from template
                     currentTimeWindowHours = {{ hours }};
-                    
+
                     {% if not is_live %}
                     // Format the selected date with weekday
                     const dateElement = document.getElementById('formatted-date');
