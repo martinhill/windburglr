@@ -299,19 +299,23 @@
                                         tooltipFormat: 'MMM dd, HH:mm'
                                     },
                                     ticks: {
-                                        maxTicksLimit: 20,
-                                        autoSkip: true,
-                                        source: 'data'
+                                        maxTicksLimit: 96,
+                                        autoSkip: false,
+                                        source: 'auto',
+                                        callback: function(value, index, values) {
+                                            const date = new Date(value);
+                                            const minutes = date.getMinutes();
+                                            // Only show ticks at 0, 15, 30, 45 minutes
+                                            if (minutes % 15 === 0) {
+                                                return date.toLocaleTimeString('en-US', { 
+                                                    hour: '2-digit', 
+                                                    minute: '2-digit',
+                                                    hour12: false 
+                                                });
+                                            }
+                                            return null;
+                                        }
                                     }
-                                    //     unit: 'hour',
-                                    //     displayFormats: {
-                                    //       hour: 'HH:mm'
-                                    //     }
-                                    // },
-                                    // ticks: {
-                                    //   stepSize: 0.25,
-                                    //
-                                    // }
                                 },
                                 y: {
                                     type: 'linear',
