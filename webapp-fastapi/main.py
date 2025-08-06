@@ -9,7 +9,7 @@ import zoneinfo
 
 from sqlmodel import SQLModel, Field, create_engine, Session, select
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -283,6 +283,12 @@ async def read_root(request: Request, stn: str = DEFAULT_STATION, hours: int = 3
         "is_live": True
     })
 
+@app.get("/date")
+async def redirect_to_today(stn: str = DEFAULT_STATION, hours: int = 24):
+    """Redirect to current date when no date is specified"""
+    today = datetime.now().strftime("%Y-%m-%d")
+    return RedirectResponse(url=f"/date/{today}?stn={stn}&hours={hours}", status_code=302)
+
 @app.get("/date/{date}", response_class=HTMLResponse)
 async def read_date(request: Request, date: str, stn: str = DEFAULT_STATION, hours: int = 24):
     try:
@@ -310,7 +316,8 @@ async def read_date(request: Request, date: str, stn: str = DEFAULT_STATION, hou
             "hours": hours,
             "minutes": 0,
             "is_live": False,
-            "selected_date": selected_date,
+            "selected_date": selected_date.strftime("%Y-%m-%d"),
+            "selected_date_obj": selected_date,
             "prev_date": prev_date.strftime("%Y-%m-%d"),
             "next_date": next_date.strftime("%Y-%m-%d"),
             "date_start": day_start_utc.strftime("%Y-%m-%dT%H:%M:%S"),

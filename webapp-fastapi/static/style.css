@@ -228,6 +228,13 @@ select:focus {
     flex-wrap: wrap;
 }
 
+.prev-next-nav {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 1rem;
+}
+
 input[type="date"] {
     padding: 0.75rem 1rem;
     border: 1px solid #d1d5db;

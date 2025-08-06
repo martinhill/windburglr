@@ -37,7 +37,7 @@
                             <span class="station"
                                 >{{ station }} on
                                 <span id="formatted-date"
-                                    >{{ selected_date }}</span
+                                    >{{ selected_date_obj }}</span
                                 ></span
                             >
                             {% endif %}
@@ -99,26 +99,31 @@
                     </button>
                     {% else %}
                     <div class="date-navigation">
-                        <button
-                            id="prev-date"
-                            class="btn"
-                            onclick="navigateToDate('{{ prev_date }}')"
-                        >
-                            ← Previous Day
-                        </button>
                         <input
                             type="date"
                             id="date-picker"
                             value="{{ selected_date }}"
                             onchange="navigateToDate(this.value)"
+                            required
                         />
-                        <button
-                            id="next-date"
-                            class="btn"
-                            onclick="navigateToDate('{{ next_date }}')"
-                        >
-                            Next Day →
-                        </button>
+                        <div class="prev-next-nav">
+                            <button
+                                id="prev-date"
+                                class="btn"
+                                onclick="navigateToDate('{{ prev_date }}')"
+                                title="Previous Day"
+                            >
+                                ←
+                            </button>
+                            <button
+                                id="next-date"
+                                class="btn"
+                                onclick="navigateToDate('{{ next_date }}')"
+                                title="Next Day"
+                            >
+                                →
+                            </button>
+                        </div>
                         <button
                             id="reset-zoom"
                             class="btn"
@@ -795,7 +800,7 @@
                     // Format the selected date with weekday
                     const dateElement = document.getElementById('formatted-date');
                     if (dateElement) {
-                        const date = new Date('{{ selected_date }}');
+                        const date = new Date('{{ selected_date }}T00:00:00');
                         const options = {
                             weekday: 'long',
                             year: 'numeric',
