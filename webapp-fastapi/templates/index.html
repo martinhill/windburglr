@@ -174,7 +174,7 @@
                 function navigateToDate(date) {
                     const currentParams = new URLSearchParams(window.location.search);
                     const stn = currentParams.get('stn') || '{{ station }}';
-                    window.location.href = `/date/${date}?stn=${stn}`;
+                    window.location.href = `/day/${date}?stn=${stn}`;
                 }
 
                 function getDirectionText(degrees) {

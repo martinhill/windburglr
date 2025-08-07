@@ -286,13 +286,13 @@ async def live_wind_chart(request: Request, stn: str = DEFAULT_STATION, hours: i
         "is_live": True
     })
 
-@app.get("/date")
+@app.get("/day")
 async def redirect_to_today(stn: str = DEFAULT_STATION, hours: int = 24):
     """Redirect to current date when no date is specified"""
     today = datetime.now().strftime("%Y-%m-%d")
-    return RedirectResponse(url=f"/date/{today}?stn={stn}&hours={hours}", status_code=302)
+    return RedirectResponse(url=f"/day/{today}?stn={stn}&hours={hours}", status_code=302)
 
-@app.get("/date/{date}", response_class=HTMLResponse)
+@app.get("/day/{date}", response_class=HTMLResponse)
 async def historical_wind_day_chart(request: Request, date: str, stn: str = DEFAULT_STATION, hours: int = 24):
     try:
         # Parse ISO date (YYYY-MM-DD) - simple validation
