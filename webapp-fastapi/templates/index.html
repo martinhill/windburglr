@@ -7,6 +7,20 @@
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
         <link rel="stylesheet" href="/static/style.css" />
+        {% if gtag_id %}
+        <script
+            async
+            src="https://www.googletagmanager.com/gtag/js?id={{ gtag_id }}"
+        ></script>
+        <script>
+            window.dataLayer = window.dataLayer || [];
+            function gtag() {
+                dataLayer.push(arguments);
+            }
+            gtag("js", new Date());
+            gtag("config", "{{ gtag_id }}");
+        </script>
+        {% endif %}
     </head>
     <body>
         <!-- Mobile orientation popup -->

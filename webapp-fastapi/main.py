@@ -62,6 +62,8 @@ DEFAULT_STATION = 'CYTZ'
 ISO_FORMAT = '%Y-%m-%dT%H:%M:%S'
 EPOCH = datetime.fromtimestamp(0, tz=timezone.utc)
 
+GTAG_ID = os.environ.get('GOOGLE_TAG_MANAGER_ID', '')
+
 async def get_station_timezone(station_name: str) -> str:
     """Get the timezone for a given station"""
     engine = get_engine()
@@ -276,6 +278,7 @@ async def get_latest_wind_data(station: str = DEFAULT_STATION):
 @app.get("/", response_class=HTMLResponse)
 async def live_wind_chart(request: Request, stn: str = DEFAULT_STATION, hours: int = 3, minutes: int = 0):
     return templates.TemplateResponse("index.html", {
+        "gtag_id": GTAG_ID,
         "request": request,
         "station": stn,
         "hours": hours,
@@ -311,6 +314,7 @@ async def historical_wind_day_chart(request: Request, date: str, stn: str = DEFA
         day_end_utc = day_end_local.astimezone(timezone.utc)
 
         return templates.TemplateResponse("index.html", {
+            "gtag_id": GTAG_ID,
             "request": request,
             "station": stn,
             "hours": hours,
