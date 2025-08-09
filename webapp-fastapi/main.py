@@ -7,7 +7,6 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict
 import zoneinfo
 
-from sqlmodel import SQLModel, Field, create_engine, Session, select
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -66,28 +65,16 @@ GTAG_ID = os.environ.get('GOOGLE_TAG_MANAGER_ID', '')
 
 async def get_station_timezone(station_name: str) -> str:
     """Get the timezone for a given station"""
-    engine = get_engine()
-    if not engine:
+    pool = get_db_pool()
+    if not pool:
         return 'UTC'
 
-    with Session(engine) as session:
-        station = session.exec(select(Station).where(Station.name == station_name)).first()
-        return station.timezone if station else 'UTC'
-
-class Station(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(index=True)
-    timezone: str = Field(index=True)
-
-class WindObs(SQLModel, table=True):
-    __tablename__ = "wind_obs"
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    station_id: int = Field(foreign_key="station.id")
-    direction: Optional[float]
-    speed_kts: Optional[float]
-    gust_kts: Optional[float]
-    update_time: datetime
+    async with pool.acquire() as conn:
+        result = await conn.fetchrow(
+            "SELECT timezone FROM station WHERE name = $1",
+            station_name
+        )
+        return result['timezone'] if result else 'UTC'
 
 class WindObservation(BaseModel):
     station: str
@@ -101,6 +88,7 @@ class ConnectionManager:
         self.active_connections: Dict[str, List[WebSocket]] = {}
         self.pg_listener: Optional[asyncpg.Connection] = None
         self.notification_count = 0
+        self.db_pool: Optional[asyncpg.Pool] = None
 
     async def connect(self, websocket: WebSocket, station: str):
         await websocket.accept()
@@ -152,6 +140,16 @@ class ConnectionManager:
             return
 
         try:
+            # Create connection pool
+            logger.info(f"Creating PostgreSQL connection pool: {database_url[:50]}...")
+            self.db_pool = await asyncpg.create_pool(
+                database_url,
+                min_size=2,
+                max_size=10,
+                command_timeout=60
+            )
+            
+            # Create separate connection for notifications
             logger.info(f"Connecting to PostgreSQL for notifications: {database_url[:50]}...")
             self.pg_listener = await asyncpg.connect(database_url)
 
@@ -177,6 +175,13 @@ class ConnectionManager:
                 logger.info("PostgreSQL listener stopped")
             except Exception as e:
                 logger.error(f"Error stopping PostgreSQL listener: {e}", exc_info=True)
+        
+        if self.db_pool:
+            try:
+                await self.db_pool.close()
+                logger.info("PostgreSQL connection pool closed")
+            except Exception as e:
+                logger.error(f"Error closing PostgreSQL pool: {e}", exc_info=True)
 
     async def _handle_notification(self, connection, pid, channel, payload):
         try:
@@ -211,15 +216,16 @@ manager = ConnectionManager()
 def get_database_url():
     return os.environ.get('DATABASE_URL', '')
 
-def get_engine():
-    database_url = get_database_url()
-    if database_url:
-        return create_engine(database_url)
-    return None
+def get_db_pool():
+    return manager.db_pool
 
 def epoch_time(dt):
+    # Ensure both datetimes are timezone-aware
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
+    # Convert to UTC if not already
+    if dt.tzinfo != timezone.utc:
+        dt = dt.astimezone(timezone.utc)
     delta = dt - EPOCH
     return delta.total_seconds()
 
@@ -230,48 +236,63 @@ def safe_int(d):
         return None
 
 async def query_wind_data(station: str, start_time: datetime, end_time: datetime):
-    engine = get_engine()
-    if not engine:
+    pool = get_db_pool()
+    if not pool:
         return []
 
-    with Session(engine) as session:
-        statement = (
-            select(WindObs.update_time, WindObs.direction, WindObs.speed_kts, WindObs.gust_kts)
-            .join(Station, WindObs.station_id == Station.id)
-            .where(Station.name == station)
-            .where(WindObs.update_time >= start_time)
-            .where(WindObs.update_time <= end_time)
-            .order_by(WindObs.update_time)
-        )
+    # Convert timezone-aware datetimes to timezone-naive UTC for asyncpg
+    # (PostgreSQL timestamp columns are typically timezone-naive)
+    if start_time.tzinfo is not None:
+        start_time = start_time.astimezone(timezone.utc).replace(tzinfo=None)
+    if end_time.tzinfo is not None:
+        end_time = end_time.astimezone(timezone.utc).replace(tzinfo=None)
 
+    async with pool.acquire() as conn:
+        query = """
+            SELECT wo.update_time, wo.direction, wo.speed_kts, wo.gust_kts
+            FROM wind_obs wo
+            JOIN station s ON wo.station_id = s.id
+            WHERE s.name = $1 
+            AND wo.update_time BETWEEN $2 AND $3
+            ORDER BY wo.update_time
+        """
+        
+        rows = await conn.fetch(query, station, start_time, end_time)
+        
         results = [
-            (epoch_time(row.update_time), safe_int(row.direction), safe_int(row.speed_kts), safe_int(row.gust_kts))
-            for row in session.exec(statement)
+            (epoch_time(row['update_time']), safe_int(row['direction']), safe_int(row['speed_kts']), safe_int(row['gust_kts']))
+            for row in rows
         ]
 
         return results
 
 async def get_latest_wind_data(station: str = DEFAULT_STATION):
-    engine = get_engine()
-    if not engine:
+    pool = get_db_pool()
+    if not pool:
         return None
 
-    with Session(engine) as session:
-        statement = (
-            select(WindObs.update_time, WindObs.direction, WindObs.speed_kts, WindObs.gust_kts)
-            .join(Station, WindObs.station_id == Station.id)
-            .where(Station.name == station)
-            .order_by(WindObs.update_time.desc())
-            .limit(1)
-        )
-
-        row = session.exec(statement).first()
+    async with pool.acquire() as conn:
+        query = """
+            SELECT wo.update_time, wo.direction, wo.speed_kts, wo.gust_kts
+            FROM wind_obs wo
+            JOIN station s ON wo.station_id = s.id
+            WHERE s.name = $1
+            ORDER BY wo.update_time DESC
+            LIMIT 1
+        """
+        
+        row = await conn.fetchrow(query, station)
         if row:
+            # Ensure update_time is timezone-aware before processing
+            update_time = row['update_time']
+            if update_time.tzinfo is None:
+                update_time = update_time.replace(tzinfo=timezone.utc)
+                
             return {
-                "timestamp": epoch_time(row.update_time),
-                "direction": safe_int(row.direction),
-                "speed_kts": safe_int(row.speed_kts),
-                "gust_kts": safe_int(row.gust_kts)
+                "timestamp": epoch_time(update_time),
+                "direction": safe_int(row['direction']),
+                "speed_kts": safe_int(row['speed_kts']),
+                "gust_kts": safe_int(row['gust_kts'])
             }
         return None
 
@@ -370,8 +391,8 @@ async def get_wind_data(
 @app.post("/api/wind")
 async def create_wind_observation(observation: WindObservation):
     logger.info(f"Received wind observation: {observation}")
-    engine = get_engine()
-    if not engine:
+    pool = get_db_pool()
+    if not pool:
         logger.error("Database connection failed")
         raise HTTPException(status_code=500, detail="Database connection failed")
 
@@ -379,41 +400,50 @@ async def create_wind_observation(observation: WindObservation):
     raise HTTPException(status_code=500, detail="Not implemented")
 
     try:
-        with Session(engine) as session:
-            logger.debug(f"Starting database transaction for observation: {observation}")
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                logger.debug(f"Starting database transaction for observation: {observation}")
 
-            # Get station by name
-            logger.debug(f"Looking for station: {observation.station}")
-            station = session.exec(select(Station).where(Station.name == observation.station)).first()
-            if not station:
-                logger.warning(f"Station {observation.station} not found")
-                # List available stations for debugging
-                all_stations = session.exec(select(Station)).all()
-                available_stations = [s.name for s in all_stations]
-                logger.warning(f"Available stations: {available_stations}")
-                raise HTTPException(status_code=404, detail=f"Station {observation.station} not found")
+                # Get station by name
+                logger.debug(f"Looking for station: {observation.station}")
+                station = await conn.fetchrow(
+                    "SELECT id, name FROM station WHERE name = $1",
+                    observation.station
+                )
+                
+                if not station:
+                    logger.warning(f"Station {observation.station} not found")
+                    # List available stations for debugging
+                    all_stations = await conn.fetch("SELECT name FROM station")
+                    available_stations = [s['name'] for s in all_stations]
+                    logger.warning(f"Available stations: {available_stations}")
+                    raise HTTPException(status_code=404, detail=f"Station {observation.station} not found")
 
-            logger.info(f"Found station: {station.name} (ID: {station.id})")
+                logger.info(f"Found station: {station['name']} (ID: {station['id']})")
 
-            # Create wind observation
-            wind_obs = WindObs(
-                station_id=station.id,
-                direction=observation.direction,
-                speed_kts=observation.speed_kts,
-                gust_kts=observation.gust_kts,
-                update_time=observation.update_time
-            )
+                # Create wind observation
+                # Convert timezone-aware datetime to timezone-naive UTC for asyncpg
+                update_time = observation.update_time
+                if update_time.tzinfo is not None:
+                    update_time = update_time.astimezone(timezone.utc).replace(tzinfo=None)
+                
+                await conn.execute("""
+                    INSERT INTO wind_obs (station_id, direction, speed_kts, gust_kts, update_time)
+                    VALUES ($1, $2, $3, $4, $5)
+                """, 
+                    station['id'],
+                    observation.direction,
+                    observation.speed_kts,
+                    observation.gust_kts,
+                    update_time
+                )
 
-            logger.info(f"Creating wind observation: station_id={wind_obs.station_id}, direction={wind_obs.direction}, speed={wind_obs.speed_kts}, gust={wind_obs.gust_kts}, time={wind_obs.update_time}")
-            session.add(wind_obs)
+                logger.info(f"✅ Wind observation committed to database for station {observation.station} - trigger should have fired!")
 
-            session.commit()
-            logger.info(f"✅ Wind observation committed to database for station {observation.station} - trigger should have fired!")
+                # The database trigger will automatically send notifications
+                # No need to manually broadcast here
 
-            # The database trigger will automatically send notifications
-            # No need to manually broadcast here
-
-            return observation
+                return observation
     except HTTPException:
         raise
     except Exception as e:
