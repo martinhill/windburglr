@@ -89,6 +89,8 @@ class ConnectionManager:
         self.pg_listener: Optional[asyncpg.Connection] = None
         self.notification_count = 0
         self.db_pool: Optional[asyncpg.Pool] = None
+        self.monitor_task: Optional[asyncio.Task] = None
+        self.is_pg_listener_healthy = False
 
     async def connect(self, websocket: WebSocket, station: str):
         await websocket.accept()
@@ -161,14 +163,32 @@ class ConnectionManager:
             logger.info("PostgreSQL listener started successfully")
             logger.info("Listening for channels: wind_obs_insert")
 
+            # Mark connection as healthy
+            self.is_pg_listener_healthy = True
+
+            # Start background monitoring task
+            self.monitor_task = asyncio.create_task(self._monitor_pg_connection())
+            logger.info("PostgreSQL connection monitoring started")
+
             # Test if we can send/receive a test notification
             await self.pg_listener.execute("SELECT pg_notify('test_channel', 'test_message')")
             logger.debug("Test notification sent")
 
         except Exception as e:
             logger.error(f"Failed to start PostgreSQL listener: {e}", exc_info=True)
+            self.is_pg_listener_healthy = False
 
     async def stop_pg_listener(self):
+        # Cancel monitoring task
+        if hasattr(self, 'monitor_task') and self.monitor_task and not self.monitor_task.done():
+            self.monitor_task.cancel()
+            try:
+                await self.monitor_task
+            except asyncio.CancelledError:
+                logger.info("PostgreSQL connection monitor task cancelled")
+            except Exception as e:
+                logger.error(f"Error cancelling monitor task: {e}")
+        
         if self.pg_listener:
             try:
                 await self.pg_listener.close()
@@ -182,6 +202,78 @@ class ConnectionManager:
                 logger.info("PostgreSQL connection pool closed")
             except Exception as e:
                 logger.error(f"Error closing PostgreSQL pool: {e}", exc_info=True)
+        
+        self.is_pg_listener_healthy = False
+
+    async def _check_pg_connection_health(self) -> bool:
+        """Check if PostgreSQL listener connection is healthy"""
+        if not self.pg_listener or self.pg_listener.is_closed():
+            self.is_pg_listener_healthy = False
+            return False
+        
+        try:
+            # Simple health check query
+            await self.pg_listener.fetchval("SELECT 1")
+            self.is_pg_listener_healthy = True
+            return True
+        except Exception as e:
+            logger.error(f"PostgreSQL connection health check failed: {e}")
+            self.is_pg_listener_healthy = False
+            return False
+
+    async def _reconnect_pg_listener(self) -> bool:
+        """Attempt to reconnect PostgreSQL listener with exponential backoff"""
+        max_retries = 5
+        base_delay = 1  # Start with 1 second
+        
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Attempting PostgreSQL listener reconnection (attempt {attempt + 1}/{max_retries})")
+                
+                # Clean up existing connection
+                if self.pg_listener and not self.pg_listener.is_closed():
+                    await self.pg_listener.close()
+                
+                # Re-establish connection
+                database_url = get_database_url()
+                if not database_url:
+                    logger.error("No database URL available for reconnection")
+                    return False
+                    
+                self.pg_listener = await asyncpg.connect(database_url)
+                await self.pg_listener.add_listener('wind_obs_insert', self._handle_notification)
+                
+                logger.info("PostgreSQL listener reconnected successfully")
+                self.is_pg_listener_healthy = True
+                return True
+                
+            except Exception as e:
+                delay = base_delay * (2 ** attempt)  # Exponential backoff
+                logger.error(f"Reconnection attempt {attempt + 1} failed: {e}")
+                
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(delay)
+        
+        logger.error("Failed to reconnect PostgreSQL listener after all attempts")
+        self.is_pg_listener_healthy = False
+        return False
+
+    async def _monitor_pg_connection(self):
+        """Background task to monitor PostgreSQL connection health"""
+        while True:
+            try:
+                if not await self._check_pg_connection_health():
+                    logger.warning("PostgreSQL listener connection lost, attempting reconnection...")
+                    await self._reconnect_pg_listener()
+                
+                # Check every 30 seconds
+                await asyncio.sleep(30)
+                
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in PostgreSQL connection monitor: {e}")
+                await asyncio.sleep(5)  # Shorter wait on error
 
     async def _handle_notification(self, connection, pid, channel, payload):
         try:
@@ -361,7 +453,6 @@ async def get_wind_data(
 ):
     # Get station timezone for metadata only
     station_tz_name = await get_station_timezone(stn)
-    station_tz = zoneinfo.ZoneInfo(station_tz_name)
 
     if from_time and to_time:
         # Parse datetime strings as UTC (no timezone conversion)
