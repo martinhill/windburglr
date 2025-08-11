@@ -70,11 +70,11 @@ async def get_station_timezone(station_name: str) -> str:
         return 'UTC'
 
     async with pool.acquire() as conn:
-        result = await conn.fetchrow(
-            "SELECT timezone FROM station WHERE name = $1",
+        result = await conn.fetchval(
+            "SELECT get_station_timezone_name($1)",
             station_name
         )
-        return result['timezone'] if result else 'UTC'
+        return result or 'UTC'
 
 class WindObservation(BaseModel):
     station: str
@@ -340,16 +340,10 @@ async def query_wind_data(station: str, start_time: datetime, end_time: datetime
         end_time = end_time.astimezone(timezone.utc).replace(tzinfo=None)
 
     async with pool.acquire() as conn:
-        query = """
-            SELECT wo.update_time, wo.direction, wo.speed_kts, wo.gust_kts
-            FROM wind_obs wo
-            JOIN station s ON wo.station_id = s.id
-            WHERE s.name = $1 
-            AND wo.update_time BETWEEN $2 AND $3
-            ORDER BY wo.update_time
-        """
-        
-        rows = await conn.fetch(query, station, start_time, end_time)
+        rows = await conn.fetch(
+            "SELECT * FROM get_wind_data_by_station_range($1, $2, $3)",
+            station, start_time, end_time
+        )
         
         results = [
             (epoch_time(row['update_time']), safe_int(row['direction']), safe_int(row['speed_kts']), safe_int(row['gust_kts']))
@@ -364,16 +358,10 @@ async def get_latest_wind_data(station: str = DEFAULT_STATION):
         return None
 
     async with pool.acquire() as conn:
-        query = """
-            SELECT wo.update_time, wo.direction, wo.speed_kts, wo.gust_kts
-            FROM wind_obs wo
-            JOIN station s ON wo.station_id = s.id
-            WHERE s.name = $1
-            ORDER BY wo.update_time DESC
-            LIMIT 1
-        """
-        
-        row = await conn.fetchrow(query, station)
+        row = await conn.fetchrow(
+            "SELECT * FROM get_latest_wind_observation($1)",
+            station
+        )
         if row:
             # Ensure update_time is timezone-aware before processing
             update_time = row['update_time']
@@ -498,14 +486,14 @@ async def create_wind_observation(observation: WindObservation):
                 # Get station by name
                 logger.debug(f"Looking for station: {observation.station}")
                 station = await conn.fetchrow(
-                    "SELECT id, name FROM station WHERE name = $1",
+                    "SELECT * FROM get_station_id_by_name($1)",
                     observation.station
                 )
                 
                 if not station:
                     logger.warning(f"Station {observation.station} not found")
                     # List available stations for debugging
-                    all_stations = await conn.fetch("SELECT name FROM station")
+                    all_stations = await conn.fetch("SELECT * FROM get_all_stations()")
                     available_stations = [s['name'] for s in all_stations]
                     logger.warning(f"Available stations: {available_stations}")
                     raise HTTPException(status_code=404, detail=f"Station {observation.station} not found")
