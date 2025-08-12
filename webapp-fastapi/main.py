@@ -150,7 +150,7 @@ class ConnectionManager:
                 max_size=10,
                 command_timeout=60
             )
-            
+
             # Create separate connection for notifications
             logger.info(f"Connecting to PostgreSQL for notifications: {database_url[:50]}...")
             self.pg_listener = await asyncpg.connect(database_url)
@@ -188,21 +188,21 @@ class ConnectionManager:
                 logger.info("PostgreSQL connection monitor task cancelled")
             except Exception as e:
                 logger.error(f"Error cancelling monitor task: {e}")
-        
+
         if self.pg_listener:
             try:
                 await self.pg_listener.close()
                 logger.info("PostgreSQL listener stopped")
             except Exception as e:
                 logger.error(f"Error stopping PostgreSQL listener: {e}", exc_info=True)
-        
+
         if self.db_pool:
             try:
                 await self.db_pool.close()
                 logger.info("PostgreSQL connection pool closed")
             except Exception as e:
                 logger.error(f"Error closing PostgreSQL pool: {e}", exc_info=True)
-        
+
         self.is_pg_listener_healthy = False
 
     async def _check_pg_connection_health(self) -> bool:
@@ -210,7 +210,7 @@ class ConnectionManager:
         if not self.pg_listener or self.pg_listener.is_closed():
             self.is_pg_listener_healthy = False
             return False
-        
+
         try:
             # Simple health check query
             await self.pg_listener.fetchval("SELECT 1")
@@ -225,35 +225,35 @@ class ConnectionManager:
         """Attempt to reconnect PostgreSQL listener with exponential backoff"""
         max_retries = 5
         base_delay = 1  # Start with 1 second
-        
+
         for attempt in range(max_retries):
             try:
                 logger.info(f"Attempting PostgreSQL listener reconnection (attempt {attempt + 1}/{max_retries})")
-                
+
                 # Clean up existing connection
                 if self.pg_listener and not self.pg_listener.is_closed():
                     await self.pg_listener.close()
-                
+
                 # Re-establish connection
                 database_url = get_database_url()
                 if not database_url:
                     logger.error("No database URL available for reconnection")
                     return False
-                    
+
                 self.pg_listener = await asyncpg.connect(database_url)
                 await self.pg_listener.add_listener('wind_obs_insert', self._handle_notification)
-                
+
                 logger.info("PostgreSQL listener reconnected successfully")
                 self.is_pg_listener_healthy = True
                 return True
-                
+
             except Exception as e:
                 delay = base_delay * (2 ** attempt)  # Exponential backoff
                 logger.error(f"Reconnection attempt {attempt + 1} failed: {e}")
-                
+
                 if attempt < max_retries - 1:
                     await asyncio.sleep(delay)
-        
+
         logger.error("Failed to reconnect PostgreSQL listener after all attempts")
         self.is_pg_listener_healthy = False
         return False
@@ -265,10 +265,11 @@ class ConnectionManager:
                 if not await self._check_pg_connection_health():
                     logger.warning("PostgreSQL listener connection lost, attempting reconnection...")
                     await self._reconnect_pg_listener()
-                
+
                 # Check every 30 seconds
                 await asyncio.sleep(30)
-                
+                logger.debug("PostgreSQL connection monitor running")
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -344,7 +345,7 @@ async def query_wind_data(station: str, start_time: datetime, end_time: datetime
             "SELECT * FROM get_wind_data_by_station_range($1, $2, $3)",
             station, start_time, end_time
         )
-        
+
         results = [
             (epoch_time(row['update_time']), safe_int(row['direction']), safe_int(row['speed_kts']), safe_int(row['gust_kts']))
             for row in rows
@@ -367,7 +368,7 @@ async def get_latest_wind_data(station: str = DEFAULT_STATION):
             update_time = row['update_time']
             if update_time.tzinfo is None:
                 update_time = update_time.replace(tzinfo=timezone.utc)
-                
+
             return {
                 "timestamp": epoch_time(update_time),
                 "direction": safe_int(row['direction']),
@@ -489,7 +490,7 @@ async def create_wind_observation(observation: WindObservation):
                     "SELECT * FROM get_station_id_by_name($1)",
                     observation.station
                 )
-                
+
                 if not station:
                     logger.warning(f"Station {observation.station} not found")
                     # List available stations for debugging
@@ -505,11 +506,11 @@ async def create_wind_observation(observation: WindObservation):
                 update_time = observation.update_time
                 if update_time.tzinfo is not None:
                     update_time = update_time.astimezone(timezone.utc).replace(tzinfo=None)
-                
+
                 await conn.execute("""
                     INSERT INTO wind_obs (station_id, direction, speed_kts, gust_kts, update_time)
                     VALUES ($1, $2, $3, $4, $5)
-                """, 
+                """,
                     station['id'],
                     observation.direction,
                     observation.speed_kts,
