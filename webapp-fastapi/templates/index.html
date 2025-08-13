@@ -121,7 +121,6 @@
                                 alt="Loading..."
                                 class="loading-logo"
                             />
-                            <p>Loading wind data...</p>
                         </div>
                     </div>
                 </div>
@@ -529,12 +528,12 @@
                     // Create zoom overlay
                     createZoomOverlay();
 
-                    // Add mouse event listeners for zoom functionality
+                    // Add mouse and touch event listeners for zoom functionality
                     const canvas = document.getElementById('windChart');
 
-                    canvas.addEventListener('mousedown', function(e) {
+                    function handleStart(e) {
                         const rect = canvas.getBoundingClientRect();
-                        const x = e.clientX;
+                        const x = e.clientX || (e.touches && e.touches[0].clientX);
                         const chartArea = windChart.chartArea;
 
                         // Only start zoom if clicking within chart area
@@ -543,22 +542,22 @@
                             zoomStartX = x;
                             canvas.style.cursor = 'crosshair';
                         }
-                    });
+                    }
 
-                    canvas.addEventListener('mousemove', function(e) {
+                    function handleMove(e) {
                         if (isZooming && zoomStartX !== null) {
-                            const currentX = e.clientX;
-                            updateZoomOverlay(zoomStartX, currentX);
+                            const x = e.clientX || (e.touches && e.touches[0].clientX);
+                            updateZoomOverlay(zoomStartX, x);
                         }
-                    });
+                    }
 
-                    canvas.addEventListener('mouseup', function(e) {
+                    function handleEnd(e) {
                         if (isZooming && zoomStartX !== null) {
-                            const endX = e.clientX;
+                            const x = e.clientX || (e.changedTouches && e.changedTouches[0].clientX);
                             const minDragDistance = 20; // Minimum pixels to consider it a zoom
 
-                            if (Math.abs(endX - zoomStartX) > minDragDistance) {
-                                performZoom(zoomStartX, endX);
+                            if (Math.abs(x - zoomStartX) > minDragDistance) {
+                                performZoom(zoomStartX, x);
                             }
 
                             isZooming = false;
@@ -566,20 +565,56 @@
                             hideZoomOverlay();
                             canvas.style.cursor = 'default';
                         }
-                    });
+                    }
 
-                    canvas.addEventListener('mouseleave', function(e) {
+                    function handleCancel() {
                         if (isZooming) {
                             isZooming = false;
                             zoomStartX = null;
                             hideZoomOverlay();
                             canvas.style.cursor = 'default';
                         }
+                    }
+
+                    // Mouse events
+                    canvas.addEventListener('mousedown', handleStart);
+                    canvas.addEventListener('mousemove', handleMove);
+                    canvas.addEventListener('mouseup', handleEnd);
+                    canvas.addEventListener('mouseleave', handleCancel);
+
+                    // Touch events
+                    canvas.addEventListener('touchstart', function(e) {
+                        e.preventDefault();
+                        handleStart(e);
+                    });
+                    canvas.addEventListener('touchmove', function(e) {
+                        e.preventDefault();
+                        handleMove(e);
+                    });
+                    canvas.addEventListener('touchend', function(e) {
+                        e.preventDefault();
+                        handleEnd(e);
+                    });
+                    canvas.addEventListener('touchcancel', function(e) {
+                        e.preventDefault();
+                        handleCancel();
                     });
 
-                    // Double-click to reset zoom
+                    // Double-click/tap to reset zoom
                     canvas.addEventListener('dblclick', function(e) {
                         resetZoom();
+                    });
+                    
+                    // Double-tap for mobile
+                    let lastTap = 0;
+                    canvas.addEventListener('touchend', function(e) {
+                        const currentTime = new Date().getTime();
+                        const tapLength = currentTime - lastTap;
+                        if (tapLength < 500 && tapLength > 0) {
+                            e.preventDefault();
+                            resetZoom();
+                        }
+                        lastTap = currentTime;
                     });
                 }
 
