@@ -1,22 +1,21 @@
-import os
 import asyncio
 import json
 import logging
-from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Dict
+import os
 import zoneinfo
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
+import asyncpg
+import uvicorn
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-import uvicorn
-import asyncpg
 
 # Configure logging
-log_level = os.environ.get('LOG_LEVEL', 'INFO').upper()
+log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
 log_level_value = getattr(logging, log_level, logging.INFO)
 
 # Configure root logger
@@ -26,7 +25,7 @@ logging.basicConfig(
     handlers=[
         logging.StreamHandler(),
     ],
-    force=True  # Force reconfiguration even if already configured
+    force=True,  # Force reconfiguration even if already configured
 )
 
 # Create and configure our application logger
@@ -36,6 +35,7 @@ logger.setLevel(log_level_value)
 # Test that debug logging is working
 logger.debug(f"Logger configured with level: {log_level} ({log_level_value})")
 logger.info(f"WindBurglr logger initialized at level: {log_level}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -52,44 +52,47 @@ async def lifespan(app: FastAPI):
     await manager.stop_pg_listener()
     logger.info("Application shutdown complete")
 
+
 app = FastAPI(title="WindBurglr", lifespan=lifespan)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-DEFAULT_STATION = 'CYTZ'
-ISO_FORMAT = '%Y-%m-%dT%H:%M:%S'
-EPOCH = datetime.fromtimestamp(0, tz=timezone.utc)
+DEFAULT_STATION = "CYTZ"
+ISO_FORMAT = "%Y-%m-%dT%H:%M:%S"
+EPOCH = datetime.fromtimestamp(0, tz=UTC)
 
-GTAG_ID = os.environ.get('GOOGLE_TAG_MANAGER_ID', '')
+GTAG_ID = os.environ.get("GOOGLE_TAG_MANAGER_ID", "")
+
 
 async def get_station_timezone(station_name: str) -> str:
     """Get the timezone for a given station"""
     pool = get_db_pool()
     if not pool:
-        return 'UTC'
+        return "UTC"
 
     async with pool.acquire() as conn:
         result = await conn.fetchval(
-            "SELECT get_station_timezone_name($1)",
-            station_name
+            "SELECT get_station_timezone_name($1)", station_name
         )
-        return result or 'UTC'
+        return result or "UTC"
+
 
 class WindObservation(BaseModel):
     station: str
-    direction: Optional[float]
-    speed_kts: Optional[float]
-    gust_kts: Optional[float]
+    direction: float | None
+    speed_kts: float | None
+    gust_kts: float | None
     update_time: datetime
+
 
 class ConnectionManager:
     def __init__(self):
-        self.active_connections: Dict[str, List[WebSocket]] = {}
-        self.pg_listener: Optional[asyncpg.Connection] = None
+        self.active_connections: dict[str, list[WebSocket]] = {}
+        self.pg_listener: asyncpg.Connection | None = None
         self.notification_count = 0
-        self.db_pool: Optional[asyncpg.Pool] = None
-        self.monitor_task: Optional[asyncio.Task] = None
+        self.db_pool: asyncpg.Pool | None = None
+        self.monitor_task: asyncio.Task | None = None
         self.is_pg_listener_healthy = False
 
     async def connect(self, websocket: WebSocket, station: str):
@@ -97,7 +100,9 @@ class ConnectionManager:
         if station not in self.active_connections:
             self.active_connections[station] = []
         self.active_connections[station].append(websocket)
-        logger.info(f"WebSocket connected for station {station}. Total connections: {len(self.active_connections[station])}")
+        logger.info(
+            f"WebSocket connected for station {station}. Total connections: {len(self.active_connections[station])}"
+        )
 
     def disconnect(self, websocket: WebSocket, station: str):
         if station in self.active_connections:
@@ -107,23 +112,33 @@ class ConnectionManager:
                     del self.active_connections[station]
                     logger.info(f"All connections for station {station} disconnected")
                 else:
-                    logger.info(f"WebSocket disconnected for station {station}. Remaining connections: {len(self.active_connections[station])}")
+                    logger.info(
+                        f"WebSocket disconnected for station {station}. Remaining connections: {len(self.active_connections[station])}"
+                    )
             except ValueError:
-                logger.warning(f"Failed to remove WebSocket connection for station {station}")
+                logger.warning(
+                    f"Failed to remove WebSocket connection for station {station}"
+                )
 
     async def send_personal_message(self, message: str, websocket: WebSocket):
         await websocket.send_text(message)
 
     async def broadcast_to_station(self, message: str, station: str):
         if station in self.active_connections:
-            logger.debug(f"Broadcasting to {len(self.active_connections[station])} connections for station {station}")
+            logger.debug(
+                f"Broadcasting to {len(self.active_connections[station])} connections for station {station}"
+            )
             disconnected = []
             for connection in self.active_connections[station]:
                 try:
                     await connection.send_text(message)
-                    logger.debug(f"Successfully sent message {message} to connection for station {station}")
+                    logger.debug(
+                        f"Successfully sent message {message} to connection for station {station}"
+                    )
                 except Exception as e:
-                    logger.warning(f"Failed to send message to connection for station {station}: {e}")
+                    logger.warning(
+                        f"Failed to send message to connection for station {station}: {e}"
+                    )
                     disconnected.append(connection)
 
             for conn in disconnected:
@@ -145,21 +160,22 @@ class ConnectionManager:
             # Create connection pool
             logger.info(f"Creating PostgreSQL connection pool: {database_url[:50]}...")
             self.db_pool = await asyncpg.create_pool(
-                database_url,
-                min_size=2,
-                max_size=10,
-                command_timeout=60
+                database_url, min_size=2, max_size=10, command_timeout=60
             )
 
             # Create separate connection for notifications
-            logger.info(f"Connecting to PostgreSQL for notifications: {database_url[:50]}...")
+            logger.info(
+                f"Connecting to PostgreSQL for notifications: {database_url[:50]}..."
+            )
             self.pg_listener = await asyncpg.connect(database_url)
 
             # Test the connection
             result = await self.pg_listener.fetchval("SELECT 1")
             logger.debug(f"PostgreSQL connection test result: {result}")
 
-            await self.pg_listener.add_listener('wind_obs_insert', self._handle_notification)
+            await self.pg_listener.add_listener(
+                "wind_obs_insert", self._handle_notification
+            )
             logger.info("PostgreSQL listener started successfully")
             logger.info("Listening for channels: wind_obs_insert")
 
@@ -171,7 +187,9 @@ class ConnectionManager:
             logger.info("PostgreSQL connection monitoring started")
 
             # Test if we can send/receive a test notification
-            await self.pg_listener.execute("SELECT pg_notify('test_channel', 'test_message')")
+            await self.pg_listener.execute(
+                "SELECT pg_notify('test_channel', 'test_message')"
+            )
             logger.debug("Test notification sent")
 
         except Exception as e:
@@ -180,7 +198,11 @@ class ConnectionManager:
 
     async def stop_pg_listener(self):
         # Cancel monitoring task
-        if hasattr(self, 'monitor_task') and self.monitor_task and not self.monitor_task.done():
+        if (
+            hasattr(self, "monitor_task")
+            and self.monitor_task
+            and not self.monitor_task.done()
+        ):
             self.monitor_task.cancel()
             try:
                 await self.monitor_task
@@ -228,7 +250,9 @@ class ConnectionManager:
 
         for attempt in range(max_retries):
             try:
-                logger.info(f"Attempting PostgreSQL listener reconnection (attempt {attempt + 1}/{max_retries})")
+                logger.info(
+                    f"Attempting PostgreSQL listener reconnection (attempt {attempt + 1}/{max_retries})"
+                )
 
                 # Clean up existing connection
                 if self.pg_listener and not self.pg_listener.is_closed():
@@ -241,14 +265,16 @@ class ConnectionManager:
                     return False
 
                 self.pg_listener = await asyncpg.connect(database_url)
-                await self.pg_listener.add_listener('wind_obs_insert', self._handle_notification)
+                await self.pg_listener.add_listener(
+                    "wind_obs_insert", self._handle_notification
+                )
 
                 logger.info("PostgreSQL listener reconnected successfully")
                 self.is_pg_listener_healthy = True
                 return True
 
             except Exception as e:
-                delay = base_delay * (2 ** attempt)  # Exponential backoff
+                delay = base_delay * (2**attempt)  # Exponential backoff
                 logger.error(f"Reconnection attempt {attempt + 1} failed: {e}")
 
                 if attempt < max_retries - 1:
@@ -263,7 +289,9 @@ class ConnectionManager:
         while True:
             try:
                 if not await self._check_pg_connection_health():
-                    logger.warning("PostgreSQL listener connection lost, attempting reconnection...")
+                    logger.warning(
+                        "PostgreSQL listener connection lost, attempting reconnection..."
+                    )
                     await self._reconnect_pg_listener()
 
                 # Check every 30 seconds
@@ -279,54 +307,67 @@ class ConnectionManager:
     async def _handle_notification(self, connection, pid, channel, payload):
         try:
             self.notification_count += 1
-            logger.info(f"🔔 Received notification #{self.notification_count} on channel '{channel}' from PID {pid}")
+            logger.info(
+                f"🔔 Received notification #{self.notification_count} on channel '{channel}' from PID {pid}"
+            )
             logger.debug(f"Raw payload: {payload}")
 
             data = json.loads(payload)
             logger.debug(f"Parsed notification data: {data}")
 
-            station_name = data.get('station_name')
+            station_name = data.get("station_name")
             logger.debug(f"Station name from notification: {station_name}")
 
             if station_name:
                 # Apply the same safe_int conversion as used elsewhere
                 wind_data = {
-                    "timestamp": data.get('update_time'),
-                    "direction": safe_int(data.get('direction')),
-                    "speed_kts": safe_int(data.get('speed_kts')),
-                    "gust_kts": safe_int(data.get('gust_kts'))
+                    "timestamp": data.get("update_time"),
+                    "direction": safe_int(data.get("direction")),
+                    "speed_kts": safe_int(data.get("speed_kts")),
+                    "gust_kts": safe_int(data.get("gust_kts")),
                 }
-                logger.info(f"📡 Broadcasting wind data to station {station_name}: {wind_data}")
-                logger.debug(f"Active connections for {station_name}: {len(self.active_connections.get(station_name, []))}")
+                logger.info(
+                    f"📡 Broadcasting wind data to station {station_name}: {wind_data}"
+                )
+                logger.debug(
+                    f"Active connections for {station_name}: {len(self.active_connections.get(station_name, []))}"
+                )
 
                 await self.broadcast_to_station(json.dumps(wind_data), station_name)
             else:
                 logger.warning("No station name found in notification data")
         except Exception as e:
             logger.error(f"Error handling notification: {e}", exc_info=True)
+
+
 manager = ConnectionManager()
 
+
 def get_database_url():
-    return os.environ.get('DATABASE_URL', '')
+    return os.environ.get("DATABASE_URL", "")
+
 
 def get_db_pool():
     return manager.db_pool
 
+
 def epoch_time(dt):
     # Ensure both datetimes are timezone-aware
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     # Convert to UTC if not already
-    if dt.tzinfo != timezone.utc:
-        dt = dt.astimezone(timezone.utc)
+    if dt.tzinfo != UTC:
+        dt = dt.astimezone(UTC)
     delta = dt - EPOCH
     return delta.total_seconds()
+
 
 def safe_int(d):
     try:
         return int(d) if d is not None else None
     except (TypeError, ValueError):
         return None
+
 
 async def query_wind_data(station: str, start_time: datetime, end_time: datetime):
     pool = get_db_pool()
@@ -336,22 +377,30 @@ async def query_wind_data(station: str, start_time: datetime, end_time: datetime
     # Convert timezone-aware datetimes to timezone-naive UTC for asyncpg
     # (PostgreSQL timestamp columns are typically timezone-naive)
     if start_time.tzinfo is not None:
-        start_time = start_time.astimezone(timezone.utc).replace(tzinfo=None)
+        start_time = start_time.astimezone(UTC).replace(tzinfo=None)
     if end_time.tzinfo is not None:
-        end_time = end_time.astimezone(timezone.utc).replace(tzinfo=None)
+        end_time = end_time.astimezone(UTC).replace(tzinfo=None)
 
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             "SELECT * FROM get_wind_data_by_station_range($1, $2, $3)",
-            station, start_time, end_time
+            station,
+            start_time,
+            end_time,
         )
 
         results = [
-            (epoch_time(row['update_time']), safe_int(row['direction']), safe_int(row['speed_kts']), safe_int(row['gust_kts']))
+            (
+                epoch_time(row["update_time"]),
+                safe_int(row["direction"]),
+                safe_int(row["speed_kts"]),
+                safe_int(row["gust_kts"]),
+            )
             for row in rows
         ]
 
         return results
+
 
 async def get_latest_wind_data(station: str = DEFAULT_STATION):
     pool = get_db_pool()
@@ -360,42 +409,53 @@ async def get_latest_wind_data(station: str = DEFAULT_STATION):
 
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT * FROM get_latest_wind_observation($1)",
-            station
+            "SELECT * FROM get_latest_wind_observation($1)", station
         )
         if row:
             # Ensure update_time is timezone-aware before processing
-            update_time = row['update_time']
+            update_time = row["update_time"]
             if update_time.tzinfo is None:
-                update_time = update_time.replace(tzinfo=timezone.utc)
+                update_time = update_time.replace(tzinfo=UTC)
 
             return {
                 "timestamp": epoch_time(update_time),
-                "direction": safe_int(row['direction']),
-                "speed_kts": safe_int(row['speed_kts']),
-                "gust_kts": safe_int(row['gust_kts'])
+                "direction": safe_int(row["direction"]),
+                "speed_kts": safe_int(row["speed_kts"]),
+                "gust_kts": safe_int(row["gust_kts"]),
             }
         return None
 
+
 @app.get("/", response_class=HTMLResponse)
-async def live_wind_chart(request: Request, stn: str = DEFAULT_STATION, hours: int = 3, minutes: int = 0):
-    return templates.TemplateResponse("index.html", {
-        "gtag_id": GTAG_ID,
-        "request": request,
-        "station": stn,
-        "hours": hours,
-        "minutes": minutes,
-        "is_live": True
-    })
+async def live_wind_chart(
+    request: Request, stn: str = DEFAULT_STATION, hours: int = 3, minutes: int = 0
+):
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "gtag_id": GTAG_ID,
+            "request": request,
+            "station": stn,
+            "hours": hours,
+            "minutes": minutes,
+            "is_live": True,
+        },
+    )
+
 
 @app.get("/day")
 async def redirect_to_today(stn: str = DEFAULT_STATION, hours: int = 24):
     """Redirect to current date when no date is specified"""
     today = datetime.now().strftime("%Y-%m-%d")
-    return RedirectResponse(url=f"/day/{today}?stn={stn}&hours={hours}", status_code=302)
+    return RedirectResponse(
+        url=f"/day/{today}?stn={stn}&hours={hours}", status_code=302
+    )
+
 
 @app.get("/day/{date}", response_class=HTMLResponse)
-async def historical_wind_day_chart(request: Request, date: str, stn: str = DEFAULT_STATION, hours: int = 24):
+async def historical_wind_day_chart(
+    request: Request, date: str, stn: str = DEFAULT_STATION, hours: int = 24
+):
     try:
         # Parse ISO date (YYYY-MM-DD) - simple validation
         selected_date = datetime.strptime(date, "%Y-%m-%d")
@@ -409,53 +469,61 @@ async def historical_wind_day_chart(request: Request, date: str, stn: str = DEFA
         station_tz = zoneinfo.ZoneInfo(station_tz_name)
 
         # Create day boundaries in station timezone, then convert to UTC
-        day_start_local = selected_date.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=station_tz)
+        day_start_local = selected_date.replace(
+            hour=0, minute=0, second=0, microsecond=0, tzinfo=station_tz
+        )
         day_end_local = day_start_local + timedelta(days=1)
 
-        day_start_utc = day_start_local.astimezone(timezone.utc)
-        day_end_utc = day_end_local.astimezone(timezone.utc)
+        day_start_utc = day_start_local.astimezone(UTC)
+        day_end_utc = day_end_local.astimezone(UTC)
 
-        return templates.TemplateResponse("index.html", {
-            "gtag_id": GTAG_ID,
-            "request": request,
-            "station": stn,
-            "hours": hours,
-            "minutes": 0,
-            "is_live": False,
-            "selected_date": selected_date.strftime("%Y-%m-%d"),
-            "selected_date_obj": selected_date,
-            "prev_date": prev_date.strftime("%Y-%m-%d"),
-            "next_date": next_date.strftime("%Y-%m-%d"),
-            "date_start": day_start_utc.strftime("%Y-%m-%dT%H:%M:%S"),
-            "date_end": day_end_utc.strftime("%Y-%m-%dT%H:%M:%S"),
-            "station_timezone": station_tz_name
-        })
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+        return templates.TemplateResponse(
+            "index.html",
+            {
+                "gtag_id": GTAG_ID,
+                "request": request,
+                "station": stn,
+                "hours": hours,
+                "minutes": 0,
+                "is_live": False,
+                "selected_date": selected_date.strftime("%Y-%m-%d"),
+                "selected_date_obj": selected_date,
+                "prev_date": prev_date.strftime("%Y-%m-%d"),
+                "next_date": next_date.strftime("%Y-%m-%d"),
+                "date_start": day_start_utc.strftime("%Y-%m-%dT%H:%M:%S"),
+                "date_end": day_end_utc.strftime("%Y-%m-%dT%H:%M:%S"),
+                "station_timezone": station_tz_name,
+            },
+        )
+    except ValueError as err:
+        raise HTTPException(
+            status_code=400, detail="Invalid date format. Use YYYY-MM-DD"
+        ) from err
+
 
 @app.get("/api/wind")
 async def get_wind_data(
     stn: str = DEFAULT_STATION,
-    from_time: Optional[str] = None,
-    to_time: Optional[str] = None,
-    hours: Optional[int] = None
+    from_time: str | None = None,
+    to_time: str | None = None,
+    hours: int | None = None,
 ):
     # Get station timezone for metadata only
     station_tz_name = await get_station_timezone(stn)
 
     if from_time and to_time:
         # Parse datetime strings as UTC (no timezone conversion)
-        start_time = datetime.strptime(from_time, ISO_FORMAT).replace(tzinfo=timezone.utc)
-        end_time = datetime.strptime(to_time, ISO_FORMAT).replace(tzinfo=timezone.utc)
+        start_time = datetime.strptime(from_time, ISO_FORMAT).replace(tzinfo=UTC)
+        end_time = datetime.strptime(to_time, ISO_FORMAT).replace(tzinfo=UTC)
 
     elif hours:
         # For relative time queries, use current UTC time
-        now_utc = datetime.now(timezone.utc)
+        now_utc = datetime.now(UTC)
         start_time = now_utc - timedelta(hours=hours)
         end_time = now_utc
     else:
         # Default: last 24 hours in UTC
-        now_utc = datetime.now(timezone.utc)
+        now_utc = datetime.now(UTC)
         start_time = now_utc - timedelta(hours=24)
         end_time = now_utc
 
@@ -465,8 +533,9 @@ async def get_wind_data(
         "winddata": winddata,
         "timezone": station_tz_name,
         "start_time": start_time.isoformat(),
-        "end_time": end_time.isoformat()
+        "end_time": end_time.isoformat(),
     }
+
 
 @app.post("/api/wind")
 async def create_wind_observation(observation: WindObservation):
@@ -482,22 +551,26 @@ async def create_wind_observation(observation: WindObservation):
     try:
         async with pool.acquire() as conn:
             async with conn.transaction():
-                logger.debug(f"Starting database transaction for observation: {observation}")
+                logger.debug(
+                    f"Starting database transaction for observation: {observation}"
+                )
 
                 # Get station by name
                 logger.debug(f"Looking for station: {observation.station}")
                 station = await conn.fetchrow(
-                    "SELECT * FROM get_station_id_by_name($1)",
-                    observation.station
+                    "SELECT * FROM get_station_id_by_name($1)", observation.station
                 )
 
                 if not station:
                     logger.warning(f"Station {observation.station} not found")
                     # List available stations for debugging
                     all_stations = await conn.fetch("SELECT * FROM get_all_stations()")
-                    available_stations = [s['name'] for s in all_stations]
+                    available_stations = [s["name"] for s in all_stations]
                     logger.warning(f"Available stations: {available_stations}")
-                    raise HTTPException(status_code=404, detail=f"Station {observation.station} not found")
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Station {observation.station} not found",
+                    )
 
                 logger.info(f"Found station: {station['name']} (ID: {station['id']})")
 
@@ -505,20 +578,23 @@ async def create_wind_observation(observation: WindObservation):
                 # Convert timezone-aware datetime to timezone-naive UTC for asyncpg
                 update_time = observation.update_time
                 if update_time.tzinfo is not None:
-                    update_time = update_time.astimezone(timezone.utc).replace(tzinfo=None)
+                    update_time = update_time.astimezone(UTC).replace(tzinfo=None)
 
-                await conn.execute("""
+                await conn.execute(
+                    """
                     INSERT INTO wind_obs (station_id, direction, speed_kts, gust_kts, update_time)
                     VALUES ($1, $2, $3, $4, $5)
                 """,
-                    station['id'],
+                    station["id"],
                     observation.direction,
                     observation.speed_kts,
                     observation.gust_kts,
-                    update_time
+                    update_time,
                 )
 
-                logger.info(f"✅ Wind observation committed to database for station {observation.station} - trigger should have fired!")
+                logger.info(
+                    f"✅ Wind observation committed to database for station {observation.station} - trigger should have fired!"
+                )
 
                 # The database trigger will automatically send notifications
                 # No need to manually broadcast here
@@ -528,7 +604,8 @@ async def create_wind_observation(observation: WindObservation):
         raise
     except Exception as e:
         logger.error(f"Error creating wind observation: {e}", exc_info=True)
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
 
 @app.websocket("/ws/{station}")
 async def websocket_endpoint(websocket: WebSocket, station: str):
@@ -544,7 +621,7 @@ async def websocket_endpoint(websocket: WebSocket, station: str):
             try:
                 # Wait for any message from client (ping/pong)
                 await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Send ping to keep connection alive
                 await websocket.send_text(json.dumps({"type": "ping"}))
             except WebSocketDisconnect:
@@ -555,9 +632,8 @@ async def websocket_endpoint(websocket: WebSocket, station: str):
         manager.disconnect(websocket, station)
 
 
-
 if __name__ == "__main__":
-    port = int(os.environ.get('PORT', 8000))
+    port = int(os.environ.get("PORT", 8000))
 
     # Configure uvicorn logging to respect our configuration
     uvicorn_log_level = log_level.lower()
@@ -567,5 +643,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=port,
         log_level=uvicorn_log_level,
-        log_config=None  # Don't use uvicorn's default log config
+        log_config=None,  # Don't use uvicorn's default log config
     )
