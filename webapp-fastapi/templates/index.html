@@ -321,6 +321,8 @@
                     zoomOverlay.style.pointerEvents = 'none';
                     zoomOverlay.style.zIndex = '1000';
                     zoomOverlay.style.display = 'none';
+                    zoomOverlay.style.marginTop = '1em';
+                    zoomOverlay.style.minHeight = '80%';
 
                     canvas.parentElement.style.position = 'relative';
                     canvas.parentElement.appendChild(zoomOverlay);
@@ -339,7 +341,7 @@
                     zoomOverlay.style.left = `${left - rect.left}px`;
                     zoomOverlay.style.top = `${chartArea.top}px`;
                     zoomOverlay.style.width = `${width}px`;
-                    zoomOverlay.style.height = `${chartArea.bottom - chartArea.top}px`;
+                    zoomOverlay.style.height = `${rect.height - rect.top - chartArea.top}px`;
                     zoomOverlay.style.display = 'block';
                 }
 
@@ -534,14 +536,17 @@
                     function handleStart(e) {
                         const rect = canvas.getBoundingClientRect();
                         const x = e.clientX || (e.touches && e.touches[0].clientX);
+                        const y = e.clientY || (e.touches && e.touches[0].clientY);
                         const chartArea = windChart.chartArea;
 
                         // Only start zoom if clicking within chart area
-                        if (x >= rect.left + chartArea.left && x <= rect.left + chartArea.right) {
+                        if (x >= rect.left + chartArea.left && x <= rect.left + chartArea.right &&
+                          y >= rect.top + chartArea.top && y <= rect.bottom - 100) {
                             isZooming = true;
                             zoomStartX = x;
-                            canvas.style.cursor = 'crosshair';
-                        }
+                            canvas.style.cursor = 'zoom-in';
+                            e.preventDefault();
+                          }
                     }
 
                     function handleMove(e) {
@@ -584,7 +589,7 @@
 
                     // Touch events
                     canvas.addEventListener('touchstart', function(e) {
-                        e.preventDefault();
+                        // e.preventDefault();
                         handleStart(e);
                     });
                     canvas.addEventListener('touchmove', function(e) {
@@ -604,7 +609,7 @@
                     canvas.addEventListener('dblclick', function(e) {
                         resetZoom();
                     });
-                    
+
                     // Double-tap for mobile
                     let lastTap = 0;
                     canvas.addEventListener('touchend', function(e) {
