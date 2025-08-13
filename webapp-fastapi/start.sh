@@ -1,8 +1,12 @@
 #!/bin/bash
 
+if [ -d .venv ]; then
+	source .venv/bin/activate
+fi
+
 # Load environment variables if .env file exists
 if [ -f .env ]; then
-    export $(cat .env | xargs)
+    export $(sed 's/#.*$//' -f .env | xargs)
 fi
 
 # Start the FastAPI application

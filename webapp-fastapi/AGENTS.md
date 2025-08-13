@@ -3,17 +3,14 @@
 ## Build/Test Commands
 ```bash
 # Run application
-python main.py
+./start.sh
 
 # Type checking
-pyright
+source .venv/bin/activate && pyright
 
 # Linting (if available)
 ruff check .
 ruff format .
-
-# Debug mode
-LOG_LEVEL=DEBUG python main.py
 ```
 
 ## Code Style Guidelines
