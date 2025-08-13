@@ -7,7 +7,7 @@
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
         <link rel="stylesheet" href="/static/style.css" />
-        <link rel="icon" href="/static/favicon.ico" />
+        <link rel="icon" href="/static/favicon.ico" sizes="32x32" />
         <link
             rel="apple-touch-icon"
             sizes="180x180"
@@ -24,6 +24,12 @@
             type="image/png"
             sizes="16x16"
             href="/static/favicon-16x16.png"
+        />
+        <link
+            rel="icon"
+            href="/static/favicon.svg"
+            type="image/svg+xml"
+            sizes="any"
         />
         <link rel="manifest" href="/static/site.webmanifest" />
         {% if gtag_id %}
@@ -109,6 +115,14 @@
                     <div class="chart-section">
                         <!-- <h3>Wind Speed & Direction (Last {{ hours }} hours)</h3> -->
                         <canvas id="windChart"></canvas>
+                        <div id="loading-indicator" class="loading-indicator">
+                            <img
+                                src="/static/windburglr.svg"
+                                alt="Loading..."
+                                class="loading-logo"
+                            />
+                            <p>Loading wind data...</p>
+                        </div>
                     </div>
                 </div>
 
@@ -599,10 +613,29 @@
                     resetButton.style.display = 'none';
                 }
 
+                // Fade out loading indicator
+                const loadingIndicator = document.getElementById('loading-indicator');
+                if (loadingIndicator) {
+                    loadingIndicator.classList.add('fade-out');
+
+                    // Hide loading indicator completely after fade animation
+                    // setTimeout(() => {
+                    //     loadingIndicator.style.display = 'none';
+                    //     loadingIndicator.classList.remove('fade-out');
+                    // }, 2000);
+                }
+
                 windChart.update();
             }
                 async function loadHistoricalData(hours = 3) {
                     try {
+                        // Show loading indicator
+                        const loadingIndicator = document.getElementById('loading-indicator');
+                        if (loadingIndicator) {
+                            loadingIndicator.style.display = 'flex';
+                            loadingIndicator.classList.remove('fade-out');
+                        }
+
                         let url;
                         if (IS_LIVE) {
                             url = `/api/wind?stn=${STATION}&hours=${hours}`;
@@ -616,6 +649,12 @@
                         updateCharts(windData);
                     } catch (error) {
                         console.error('Error loading historical data:', error);
+
+                        // Hide loading indicator even on error
+                        const loadingIndicator = document.getElementById('loading-indicator');
+                        if (loadingIndicator) {
+                            loadingIndicator.style.display = 'none';
+                        }
                     }
                 }
 

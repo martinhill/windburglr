@@ -148,6 +148,7 @@ header h1 {
     display: flex;
     flex-direction: column;
     min-height: 0;
+    position: relative;
 }
 
 .chart-section h3 {
@@ -162,10 +163,47 @@ header h1 {
     flex: 1;
     min-height: 0;
     user-select: none;
+    width: 100%;
+    height: 100%;
 }
 
 .chart-section canvas:hover {
     cursor: crosshair;
+}
+
+.loading-indicator {
+    position: absolute;
+    top: 15%;
+    left: 10%;
+    right: 10%;
+    bottom: 15%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    /* color: #6b7280;
+    background: white; */
+    z-index: 10;
+}
+
+.loading-logo {
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    margin-bottom: 1rem;
+    opacity: 1;
+    object-fit: contain;
+}
+
+.loading-indicator.fade-out {
+    opacity: 0.05;
+    transition: opacity 2s ease-out;
+}
+
+.loading-indicator p {
+    font-size: 1rem;
+    font-weight: 500;
 }
 
 .controls {
