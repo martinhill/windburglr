@@ -14,6 +14,10 @@ A modern FastAPI-based wind observation web application with real-time WebSocket
 
 1. Install dependencies:
 ```bash
+poetry install
+```
+or
+```bash
 pip install -r requirements.txt
 ```
 
@@ -81,12 +85,13 @@ CREATE TABLE wind_obs (
 ## Frontend Features
 
 - **Live Dashboard**: Real-time wind conditions display
-- **Interactive Charts**: 
+- **Interactive Charts**:
   - Wind speed over time with gust overlay
   - Wind direction scatter plot
 - **Time Range Selection**: View data for 1, 3, 6, 12, or 24 hours
-- **Pause/Resume**: Control real-time updates
 - **Connection Status**: Visual WebSocket connection indicator
+- **Historical Data**: Retrieve past observations by date
+- **Zoom**: Click or touch and drag to zoom in, double click/tap to zoom out
 
 ## Technology Stack
 

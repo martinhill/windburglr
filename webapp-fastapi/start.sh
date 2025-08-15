@@ -6,7 +6,7 @@ fi
 
 # Load environment variables if .env file exists
 if [ -f .env ]; then
-    export $(sed 's/#.*$//' -f .env | xargs)
+    export $(sed 's/#.*$//' .env | xargs)
 fi
 
 # Start the FastAPI application

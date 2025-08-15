@@ -186,12 +186,6 @@ class ConnectionManager:
             self.monitor_task = asyncio.create_task(self._monitor_pg_connection())
             logger.info("PostgreSQL connection monitoring started")
 
-            # Test if we can send/receive a test notification
-            await self.pg_listener.execute(
-                "SELECT pg_notify('test_channel', 'test_message')"
-            )
-            logger.debug("Test notification sent")
-
         except Exception as e:
             logger.error(f"Failed to start PostgreSQL listener: {e}", exc_info=True)
             self.is_pg_listener_healthy = False
@@ -501,6 +495,48 @@ async def historical_wind_day_chart(
         ) from err
 
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for monitoring and load balancers"""
+    health_status = {
+        "status": "healthy",
+        "timestamp": datetime.now(UTC).isoformat(),
+        "database": "unknown",
+        "websocket": "unknown",
+        "postgresql_listener": "unknown",
+    }
+
+    # Check database connection
+    pool = get_db_pool()
+    if pool:
+        try:
+            async with pool.acquire() as conn:
+                result = await conn.fetchval("SELECT 1")
+                health_status["database"] = "connected" if result == 1 else "failed"
+        except Exception as e:
+            health_status["database"] = f"error: {str(e)}"
+    else:
+        health_status["database"] = "not_configured"
+
+    # Check WebSocket manager
+    health_status["websocket"] = (
+        "active" if manager.active_connections else "no_connections"
+    )
+
+    # Check PostgreSQL listener
+    health_status["postgresql_listener"] = (
+        "healthy" if manager.is_pg_listener_healthy else "unhealthy"
+    )
+
+    # Determine overall status
+    if health_status["database"] == "connected" and manager.is_pg_listener_healthy:
+        health_status["status"] = "healthy"
+    else:
+        health_status["status"] = "unhealthy"
+
+    return health_status
+
+
 @app.get("/api/wind")
 async def get_wind_data(
     stn: str = DEFAULT_STATION,
@@ -535,6 +571,48 @@ async def get_wind_data(
         "start_time": start_time.isoformat(),
         "end_time": end_time.isoformat(),
     }
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for monitoring and load balancers"""
+    health_status = {
+        "status": "healthy",
+        "timestamp": datetime.now(UTC).isoformat(),
+        "database": "unknown",
+        "websocket": "unknown",
+        "postgresql_listener": "unknown",
+    }
+
+    # Check database connection
+    pool = get_db_pool()
+    if pool:
+        try:
+            async with pool.acquire() as conn:
+                result = await conn.fetchval("SELECT 1")
+                health_status["database"] = "connected" if result == 1 else "failed"
+        except Exception as e:
+            health_status["database"] = f"error: {str(e)}"
+    else:
+        health_status["database"] = "not_configured"
+
+    # Check WebSocket manager
+    health_status["websocket"] = (
+        "active" if manager.active_connections else "no_connections"
+    )
+
+    # Check PostgreSQL listener
+    health_status["postgresql_listener"] = (
+        "healthy" if manager.is_pg_listener_healthy else "unhealthy"
+    )
+
+    # Determine overall status
+    if health_status["database"] == "connected" and manager.is_pg_listener_healthy:
+        health_status["status"] = "healthy"
+    else:
+        health_status["status"] = "unhealthy"
+
+    return health_status
 
 
 @app.post("/api/wind")
@@ -605,6 +683,48 @@ async def create_wind_observation(observation: WindObservation):
     except Exception as e:
         logger.error(f"Error creating wind observation: {e}", exc_info=True)
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for monitoring and load balancers"""
+    health_status = {
+        "status": "healthy",
+        "timestamp": datetime.now(UTC).isoformat(),
+        "database": "unknown",
+        "websocket": "unknown",
+        "postgresql_listener": "unknown",
+    }
+
+    # Check database connection
+    pool = get_db_pool()
+    if pool:
+        try:
+            async with pool.acquire() as conn:
+                result = await conn.fetchval("SELECT 1")
+                health_status["database"] = "connected" if result == 1 else "failed"
+        except Exception as e:
+            health_status["database"] = f"error: {str(e)}"
+    else:
+        health_status["database"] = "not_configured"
+
+    # Check WebSocket manager
+    health_status["websocket"] = (
+        "active" if manager.active_connections else "no_connections"
+    )
+
+    # Check PostgreSQL listener
+    health_status["postgresql_listener"] = (
+        "healthy" if manager.is_pg_listener_healthy else "unhealthy"
+    )
+
+    # Determine overall status
+    if health_status["database"] == "connected" and manager.is_pg_listener_healthy:
+        health_status["status"] = "healthy"
+    else:
+        health_status["status"] = "unhealthy"
+
+    return health_status
 
 
 @app.websocket("/ws/{station}")

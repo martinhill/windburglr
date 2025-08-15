@@ -17,14 +17,22 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "websockets>=12.0",
     "httpx>=0.25.0",
+    "jinja2>=3.1.0",
+    "aiofiles>=23.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
+    "fastapi[standard]>=0.104.0",
     "pyright>=1.1.335",
     "ruff>=0.1.0",
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "pytest-playwright>=0.4.0",
+    "playwright>=1.40.0",
+    "factory-boy>=3.3.0",
+    "faker>=20.0.0",
 ]
 
 [tool.ruff]
@@ -37,8 +45,37 @@ ignore = ["E501", "S104"]
 
 [tool.ruff.lint.per-file-ignores]
 "__pycache__" = ["E501"]
+"tests/*" = ["S101"]     # Allow assert statements in tests
 
 [tool.pyright]
 typeCheckingMode = "strict"
 pythonVersion = "3.13"
-exclude = ["__pycache__", ".venv", ".git"]
+exclude = ["__pycache__", ".venv", ".git", "htmlcov"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=main",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-report=xml",
+]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "e2e: End-to-end tests",
+    "slow: Slow tests",
+    "asyncio: Async tests",
+]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.uv]
+package = false
