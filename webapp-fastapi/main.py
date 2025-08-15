@@ -425,10 +425,10 @@ async def live_wind_chart(
     request: Request, stn: str = DEFAULT_STATION, hours: int = 3, minutes: int = 0
 ):
     return templates.TemplateResponse(
-        "index.html",
-        {
+        request=request,
+        name="index.html",
+        context={
             "gtag_id": GTAG_ID,
-            "request": request,
             "station": stn,
             "hours": hours,
             "minutes": minutes,
@@ -472,10 +472,10 @@ async def historical_wind_day_chart(
         day_end_utc = day_end_local.astimezone(UTC)
 
         return templates.TemplateResponse(
-            "index.html",
-            {
+            request=request,
+            name="index.html",
+            context={
                 "gtag_id": GTAG_ID,
-                "request": request,
                 "station": stn,
                 "hours": hours,
                 "minutes": 0,

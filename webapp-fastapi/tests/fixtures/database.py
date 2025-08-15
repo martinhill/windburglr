@@ -1,17 +1,17 @@
+import os
 import asyncpg
+import pytest
 from datetime import datetime, UTC, timedelta
 
 
 class TestDatabaseManager:
     """Real database manager for integration testing."""
 
-    def __init__(self, database_url):
-        self.database_url = database_url
-        self.pool = None
-
-    async def setup(self):
+    async def setup(self, database_url):
         """Initialize database connection pool."""
-        if self.database_url:
+        if database_url:
+            self.database_url = database_url
+            self.pool = None
             try:
                 self.pool = await asyncpg.create_pool(self.database_url)
                 await self.create_schema()
@@ -89,8 +89,6 @@ class TestDatabaseManager:
 
             for i in range(days * 24):
                 obs_time = base_time - timedelta(hours=i)
-                # Convert to naive datetime for PostgreSQL compatibility
-                naive_time = obs_time.replace(tzinfo=None)
                 direction = (i * 15) % 360
                 speed_kts = 5 + (i % 20)
                 gust_kts = speed_kts + 2
@@ -99,10 +97,10 @@ class TestDatabaseManager:
                     """
                     INSERT INTO wind_obs (station_id, update_time, direction, speed_kts, gust_kts)
                     VALUES ($1, $2, $3, $4, $5)
-                    ON CONFLICT DO NOTHING
+                    ON CONFLICT (station_id, update_time) DO NOTHING
                     """,
                     station_id,
-                    naive_time,
+                    obs_time,
                     direction,
                     speed_kts,
                     gust_kts,
@@ -113,7 +111,7 @@ class TestDatabaseManager:
                         "direction": direction,
                         "speed_kts": speed_kts,
                         "gust_kts": gust_kts,
-                        "update_time": naive_time,
+                        "update_time": obs_time,
                     }
                 )
 
@@ -136,10 +134,6 @@ class TestDatabaseManager:
             return []
 
         async with self.pool.acquire() as conn:
-            # Convert to naive datetime for PostgreSQL compatibility
-            naive_start = start_time.replace(tzinfo=None)
-            naive_end = end_time.replace(tzinfo=None)
-
             return await conn.fetch(
                 """
                 SELECT w.direction, w.speed_kts, w.gust_kts, w.update_time
@@ -149,6 +143,33 @@ class TestDatabaseManager:
                 ORDER BY w.update_time DESC
                 """,
                 station_name,
-                naive_start,
-                naive_end,
+                start_time,
+                end_time,
             )
+
+
+@pytest.fixture(scope="session")
+async def test_db_manager():
+    """Real database manager for integration tests."""
+    database_url = os.environ.get("TEST_DATABASE_URL")
+    if not database_url:
+        pytest.skip("TEST_DATABASE_URL not set - skipping real database tests")
+
+    manager = TestDatabaseManager()
+    setup_success = await manager.setup(database_url)
+    if not setup_success:
+        pytest.skip("Could not connect to test database")
+
+    try:
+        yield manager
+    finally:
+        await manager.cleanup()
+
+
+@pytest.fixture(scope="session")
+def database_url():
+    """Get test database URL."""
+    url = os.environ.get("TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("TEST_DATABASE_URL not set - skipping real database tests")
+    return url
