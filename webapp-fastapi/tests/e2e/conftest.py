@@ -11,8 +11,8 @@ def run_test_server():
     """Context manager to run the test server."""
     # Set test environment
     env = os.environ.copy()
-    # Use a mock database URL to avoid real database dependency
-    env["DATABASE_URL"] = "sqlite:///./test.db"  # Mock database
+    # Use the test database
+    env["DATABASE_URL"] = env["TEST_DATABASE_URL"]
     env["PORT"] = "8001"  # Use different port for tests
 
     # Start server

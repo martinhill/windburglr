@@ -5,10 +5,18 @@ import os
 import zoneinfo
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from typing import Annotated
 
 import asyncpg
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -63,19 +71,6 @@ ISO_FORMAT = "%Y-%m-%dT%H:%M:%S"
 EPOCH = datetime.fromtimestamp(0, tz=UTC)
 
 GTAG_ID = os.environ.get("GOOGLE_TAG_MANAGER_ID", "")
-
-
-async def get_station_timezone(station_name: str) -> str:
-    """Get the timezone for a given station"""
-    pool = get_db_pool()
-    if not pool:
-        return "UTC"
-
-    async with pool.acquire() as conn:
-        result = await conn.fetchval(
-            "SELECT get_station_timezone_name($1)", station_name
-        )
-        return result or "UTC"
 
 
 class WindObservation(BaseModel):
@@ -170,12 +165,13 @@ class ConnectionManager:
             self.pg_listener = await asyncpg.connect(database_url)
 
             # Test the connection
-            result = await self.pg_listener.fetchval("SELECT 1")
-            logger.debug(f"PostgreSQL connection test result: {result}")
+            if self.pg_listener:
+                result = await self.pg_listener.fetchval("SELECT 1")
+                logger.debug(f"PostgreSQL connection test result: {result}")
 
-            await self.pg_listener.add_listener(
-                "wind_obs_insert", self._handle_notification
-            )
+                await self.pg_listener.add_listener(
+                    "wind_obs_insert", self._handle_notification
+                )
             logger.info("PostgreSQL listener started successfully")
             logger.info("Listening for channels: wind_obs_insert")
 
@@ -259,9 +255,10 @@ class ConnectionManager:
                     return False
 
                 self.pg_listener = await asyncpg.connect(database_url)
-                await self.pg_listener.add_listener(
-                    "wind_obs_insert", self._handle_notification
-                )
+                if self.pg_listener:
+                    await self.pg_listener.add_listener(
+                        "wind_obs_insert", self._handle_notification
+                    )
 
                 logger.info("PostgreSQL listener reconnected successfully")
                 self.is_pg_listener_healthy = True
@@ -341,7 +338,10 @@ def get_database_url():
     return os.environ.get("DATABASE_URL", "")
 
 
-def get_db_pool():
+async def get_db_pool() -> asyncpg.Pool:
+    """Get database pool with proper error handling"""
+    if not manager.db_pool:
+        raise HTTPException(status_code=503, detail="Database not available")
     return manager.db_pool
 
 
@@ -363,11 +363,23 @@ def safe_int(d):
         return None
 
 
-async def query_wind_data(station: str, start_time: datetime, end_time: datetime):
-    pool = get_db_pool()
-    if not pool:
-        return []
+async def get_station_timezone(
+    station_name: str, pool: Annotated[asyncpg.Pool, Depends(get_db_pool)]
+) -> str:
+    """Get the timezone for a given station"""
+    async with pool.acquire() as conn:
+        result = await conn.fetchval(
+            "SELECT get_station_timezone_name($1)", station_name
+        )
+        return result or "UTC"
 
+
+async def query_wind_data(
+    station: str,
+    start_time: datetime,
+    end_time: datetime,
+    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+):
     # Convert timezone-aware datetimes to timezone-naive UTC for asyncpg
     # (PostgreSQL timestamp columns are typically timezone-naive)
     if start_time.tzinfo is not None:
@@ -396,11 +408,9 @@ async def query_wind_data(station: str, start_time: datetime, end_time: datetime
         return results
 
 
-async def get_latest_wind_data(station: str = DEFAULT_STATION):
-    pool = get_db_pool()
-    if not pool:
-        return None
-
+async def get_latest_wind_data(
+    station: str, pool: Annotated[asyncpg.Pool, Depends(get_db_pool)]
+):
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             "SELECT * FROM get_latest_wind_observation($1)", station
@@ -448,7 +458,11 @@ async def redirect_to_today(stn: str = DEFAULT_STATION, hours: int = 24):
 
 @app.get("/day/{date}", response_class=HTMLResponse)
 async def historical_wind_day_chart(
-    request: Request, date: str, stn: str = DEFAULT_STATION, hours: int = 24
+    request: Request,
+    date: str,
+    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+    stn: str = DEFAULT_STATION,
+    hours: int = 24,
 ):
     try:
         # Parse ISO date (YYYY-MM-DD) - simple validation
@@ -459,7 +473,7 @@ async def historical_wind_day_chart(
         next_date = selected_date + timedelta(days=1)
 
         # Get station timezone to convert local day boundaries to UTC
-        station_tz_name = await get_station_timezone(stn)
+        station_tz_name = await get_station_timezone(stn, pool)
         station_tz = zoneinfo.ZoneInfo(station_tz_name)
 
         # Create day boundaries in station timezone, then convert to UTC
@@ -496,7 +510,7 @@ async def historical_wind_day_chart(
 
 
 @app.get("/health")
-async def health_check():
+async def health_check(pool: Annotated[asyncpg.Pool, Depends(get_db_pool)]):
     """Health check endpoint for monitoring and load balancers"""
     health_status = {
         "status": "healthy",
@@ -507,7 +521,6 @@ async def health_check():
     }
 
     # Check database connection
-    pool = get_db_pool()
     if pool:
         try:
             async with pool.acquire() as conn:
@@ -539,13 +552,14 @@ async def health_check():
 
 @app.get("/api/wind")
 async def get_wind_data(
+    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
     stn: str = DEFAULT_STATION,
     from_time: str | None = None,
     to_time: str | None = None,
     hours: int | None = None,
 ):
     # Get station timezone for metadata only
-    station_tz_name = await get_station_timezone(stn)
+    station_tz_name = await get_station_timezone(stn, pool)
 
     if from_time and to_time:
         # Parse datetime strings as UTC (no timezone conversion)
@@ -563,7 +577,7 @@ async def get_wind_data(
         start_time = now_utc - timedelta(hours=24)
         end_time = now_utc
 
-    winddata = await query_wind_data(stn, start_time, end_time)
+    winddata = await query_wind_data(stn, start_time, end_time, pool)
     return {
         "station": stn,
         "winddata": winddata,
@@ -573,166 +587,12 @@ async def get_wind_data(
     }
 
 
-@app.get("/health")
-async def health_check():
-    """Health check endpoint for monitoring and load balancers"""
-    health_status = {
-        "status": "healthy",
-        "timestamp": datetime.now(UTC).isoformat(),
-        "database": "unknown",
-        "websocket": "unknown",
-        "postgresql_listener": "unknown",
-    }
-
-    # Check database connection
-    pool = get_db_pool()
-    if pool:
-        try:
-            async with pool.acquire() as conn:
-                result = await conn.fetchval("SELECT 1")
-                health_status["database"] = "connected" if result == 1 else "failed"
-        except Exception as e:
-            health_status["database"] = f"error: {str(e)}"
-    else:
-        health_status["database"] = "not_configured"
-
-    # Check WebSocket manager
-    health_status["websocket"] = (
-        "active" if manager.active_connections else "no_connections"
-    )
-
-    # Check PostgreSQL listener
-    health_status["postgresql_listener"] = (
-        "healthy" if manager.is_pg_listener_healthy else "unhealthy"
-    )
-
-    # Determine overall status
-    if health_status["database"] == "connected" and manager.is_pg_listener_healthy:
-        health_status["status"] = "healthy"
-    else:
-        health_status["status"] = "unhealthy"
-
-    return health_status
-
-
-@app.post("/api/wind")
-async def create_wind_observation(observation: WindObservation):
-    logger.info(f"Received wind observation: {observation}")
-    pool = get_db_pool()
-    if not pool:
-        logger.error("Database connection failed")
-        raise HTTPException(status_code=500, detail="Database connection failed")
-
-    # No authorization yet, so do not allow for any request
-    raise HTTPException(status_code=500, detail="Not implemented")
-
-    try:
-        async with pool.acquire() as conn:
-            async with conn.transaction():
-                logger.debug(
-                    f"Starting database transaction for observation: {observation}"
-                )
-
-                # Get station by name
-                logger.debug(f"Looking for station: {observation.station}")
-                station = await conn.fetchrow(
-                    "SELECT * FROM get_station_id_by_name($1)", observation.station
-                )
-
-                if not station:
-                    logger.warning(f"Station {observation.station} not found")
-                    # List available stations for debugging
-                    all_stations = await conn.fetch("SELECT * FROM get_all_stations()")
-                    available_stations = [s["name"] for s in all_stations]
-                    logger.warning(f"Available stations: {available_stations}")
-                    raise HTTPException(
-                        status_code=404,
-                        detail=f"Station {observation.station} not found",
-                    )
-
-                logger.info(f"Found station: {station['name']} (ID: {station['id']})")
-
-                # Create wind observation
-                # Convert timezone-aware datetime to timezone-naive UTC for asyncpg
-                update_time = observation.update_time
-                if update_time.tzinfo is not None:
-                    update_time = update_time.astimezone(UTC).replace(tzinfo=None)
-
-                await conn.execute(
-                    """
-                    INSERT INTO wind_obs (station_id, direction, speed_kts, gust_kts, update_time)
-                    VALUES ($1, $2, $3, $4, $5)
-                """,
-                    station["id"],
-                    observation.direction,
-                    observation.speed_kts,
-                    observation.gust_kts,
-                    update_time,
-                )
-
-                logger.info(
-                    f"✅ Wind observation committed to database for station {observation.station} - trigger should have fired!"
-                )
-
-                # The database trigger will automatically send notifications
-                # No need to manually broadcast here
-
-                return observation
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error creating wind observation: {e}", exc_info=True)
-        raise HTTPException(status_code=400, detail=str(e)) from e
-
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint for monitoring and load balancers"""
-    health_status = {
-        "status": "healthy",
-        "timestamp": datetime.now(UTC).isoformat(),
-        "database": "unknown",
-        "websocket": "unknown",
-        "postgresql_listener": "unknown",
-    }
-
-    # Check database connection
-    pool = get_db_pool()
-    if pool:
-        try:
-            async with pool.acquire() as conn:
-                result = await conn.fetchval("SELECT 1")
-                health_status["database"] = "connected" if result == 1 else "failed"
-        except Exception as e:
-            health_status["database"] = f"error: {str(e)}"
-    else:
-        health_status["database"] = "not_configured"
-
-    # Check WebSocket manager
-    health_status["websocket"] = (
-        "active" if manager.active_connections else "no_connections"
-    )
-
-    # Check PostgreSQL listener
-    health_status["postgresql_listener"] = (
-        "healthy" if manager.is_pg_listener_healthy else "unhealthy"
-    )
-
-    # Determine overall status
-    if health_status["database"] == "connected" and manager.is_pg_listener_healthy:
-        health_status["status"] = "healthy"
-    else:
-        health_status["status"] = "unhealthy"
-
-    return health_status
-
-
 @app.websocket("/ws/{station}")
-async def websocket_endpoint(websocket: WebSocket, station: str):
+async def websocket_endpoint(websocket: WebSocket, station: str, pool: Annotated[asyncpg.Pool, Depends(get_db_pool)]):
     await manager.connect(websocket, station)
     try:
         # Send initial data
-        initial_data = await get_latest_wind_data(station)
+        initial_data = await get_latest_wind_data(station, pool)
         if initial_data:
             await websocket.send_text(json.dumps(initial_data))
 

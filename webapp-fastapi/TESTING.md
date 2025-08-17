@@ -107,7 +107,7 @@ pytest tests/unit/test_api_endpoints.py::TestAPIEndpoints::test_root_endpoint -v
 
 ### Integration Tests
 
-Integration tests verify component interactions:
+Integration tests verify component interactions with a real Postgres database:
 
 ```bash
 # Run integration tests
