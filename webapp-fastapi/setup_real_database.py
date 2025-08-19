@@ -62,9 +62,9 @@ async def setup_real_database():
         for name, timezone in stations:
             await conn.execute(
                 """
-                INSERT INTO station (name, timezone_name)
+                INSERT INTO station (name, timezone)
                 VALUES ($1, $2)
-                ON CONFLICT (name) DO UPDATE SET timezone_name = EXCLUDED.timezone_name
+                ON CONFLICT (name) DO UPDATE SET timezone = EXCLUDED.timezone
                 """,
                 name,
                 timezone,

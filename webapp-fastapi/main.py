@@ -90,6 +90,18 @@ class ConnectionManager:
         self.monitor_task: asyncio.Task | None = None
         self.is_pg_listener_healthy = False
 
+    async def get_db_pool(self):
+        if self.db_pool is None:
+            # Create connection pool
+            database_url = get_database_url()
+            logger.info(f"Creating PostgreSQL connection pool: {database_url[:50]}...")
+            if database_url is None:
+                raise ValueError("Database URL is not set")
+            self.db_pool = await asyncpg.create_pool(
+                database_url, min_size=2, max_size=10, command_timeout=60
+            )
+        return self.db_pool
+
     async def connect(self, websocket: WebSocket, station: str):
         await websocket.accept()
         if station not in self.active_connections:
@@ -152,12 +164,6 @@ class ConnectionManager:
             return
 
         try:
-            # Create connection pool
-            logger.info(f"Creating PostgreSQL connection pool: {database_url[:50]}...")
-            self.db_pool = await asyncpg.create_pool(
-                database_url, min_size=2, max_size=10, command_timeout=60
-            )
-
             # Create separate connection for notifications
             logger.info(
                 f"Connecting to PostgreSQL for notifications: {database_url[:50]}..."
@@ -340,9 +346,11 @@ def get_database_url():
 
 async def get_db_pool() -> asyncpg.Pool:
     """Get database pool with proper error handling"""
-    if not manager.db_pool:
+    try:
+        return await manager.get_db_pool()
+    except Exception as e:
+        logger.error(f"Error getting database pool: {e}", exc_info=True)
         raise HTTPException(status_code=503, detail="Database not available")
-    return manager.db_pool
 
 
 def epoch_time(dt):
@@ -601,6 +609,7 @@ async def websocket_endpoint(websocket: WebSocket, station: str, pool: Annotated
             try:
                 # Wait for any message from client (ping/pong)
                 await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
+                await websocket.send_text(json.dumps({"type": "pong"}))
             except TimeoutError:
                 # Send ping to keep connection alive
                 await websocket.send_text(json.dumps({"type": "ping"}))

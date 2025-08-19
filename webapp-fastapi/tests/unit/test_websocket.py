@@ -1,6 +1,9 @@
+import pytest
+
+
 def test_websocket_connection(test_client, mock_test_db_manager):
     """Test WebSocket connection establishment."""
-    test_data = mock_test_db_manager.create_test_data()
+    mock_test_db_manager.create_test_data()
     with test_client.websocket_connect("/ws/CYTZ") as websocket:
         # Connection should be established
         assert websocket is not None
@@ -12,8 +15,10 @@ def test_websocket_connection(test_client, mock_test_db_manager):
         assert 0 <= data["direction"] <= 360
 
 
-def test_websocket_different_stations(test_client):
+def test_websocket_different_stations(test_client, mock_test_db_manager):
     """Test WebSocket connections to different stations."""
+    mock_test_db_manager.create_test_data("CYTZ")
+    mock_test_db_manager.create_test_data("CYYZ")
     with (
         test_client.websocket_connect("/ws/CYTZ") as ws1,
         test_client.websocket_connect("/ws/CYYZ") as ws2,
@@ -42,3 +47,22 @@ def test_websocket_disconnect(test_client):
     with test_client.websocket_connect("/ws/CYTZ") as websocket:
         # Connection should be active
         assert websocket is not None
+
+def test_websocket_ping_pong(test_client):
+    """Test websocket ping"""
+    with test_client.websocket_connect("/ws/CYTZ") as websocket:
+        # With no wind data, there is no latest wind observation
+        # Check for ping
+        websocket.send_json({"type": "ping"})
+        ping_response = websocket.receive_json()
+        print(ping_response)
+        assert ping_response["type"] == "pong"
+
+@pytest.mark.slow
+def test_websocket_ping(test_client):
+    """Test websocket ping"""
+    # Check for ping
+    with test_client.websocket_connect("/ws/CYTZ") as websocket:
+        # Check for ping
+        server_ping = websocket.receive_json()
+        assert server_ping["type"] == "ping"

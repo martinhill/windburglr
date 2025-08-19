@@ -1,8 +1,8 @@
 import os
-import asyncio
 import pytest
 from fastapi.testclient import TestClient
 from httpx import AsyncClient, ASGITransport
+from httpx_ws.transport import ASGIWebSocketTransport
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any
 from contextlib import asynccontextmanager
@@ -86,7 +86,7 @@ async def test_db_manager():
                     CREATE TABLE IF NOT EXISTS station (
                         id SERIAL PRIMARY KEY,
                         name VARCHAR(10) UNIQUE NOT NULL,
-                        timezone_name VARCHAR(50) NOT NULL DEFAULT 'UTC'
+                        timezone VARCHAR(50) NOT NULL DEFAULT 'UTC'
                     )
                 """)
 
@@ -111,6 +111,17 @@ async def test_db_manager():
                     # Hypertable might already exist
                     pass
 
+        async def create_test_stations(self, stations_data):
+            await self.test_connection.executemany(
+                """
+                INSERT INTO station (name, timezone)
+                VALUES ($1, $2)
+                ON CONFLICT (name) DO UPDATE SET timezone = EXCLUDED.timezone
+                RETURNING id
+                """,
+                ((station["name"], station["timezone"]) for station in stations_data),
+            )
+
         async def create_test_data(
             self, station_name="CYTZ", timezone_name="America/Toronto", days=1
         ):
@@ -118,9 +129,9 @@ async def test_db_manager():
             # Insert station if not exists
             station_id = await self.test_connection.fetchval(
                 """
-                INSERT INTO station (name, timezone_name)
+                INSERT INTO station (name, timezone)
                 VALUES ($1, $2)
-                ON CONFLICT (name) DO UPDATE SET timezone_name = EXCLUDED.timezone_name
+                ON CONFLICT (name) DO UPDATE SET timezone = EXCLUDED.timezone
                 RETURNING id
                 """,
                 station_name,
@@ -172,10 +183,25 @@ async def test_db_manager():
 
             return data
 
+        async def insert_new_wind_obs(
+            self, station_name: str, direction: int, speed_kts: int, gust_kts: int, obs_time: datetime
+        ):
+            await self.test_connection.execute(
+                """
+                INSERT INTO wind_obs (station_id, direction, speed_kts, gust_kts, update_time)
+                VALUES ((SELECT id FROM station WHERE name = $1), $2, $3, $4, $5)
+                """,
+                station_name,
+                direction,
+                speed_kts,
+                gust_kts,
+                obs_time,
+            )
+
         async def get_station_timezone(self, station_name):
             """Get station timezone within test transaction."""
             result = await self.test_connection.fetchval(
-                "SELECT timezone_name FROM station WHERE name = $1", station_name
+                "SELECT timezone FROM station WHERE name = $1", station_name
             )
             return result or "UTC"
 
@@ -246,7 +272,15 @@ def mock_test_db_manager():
             """Mock station data."""
             return {"name": station_name, "timezone": "America/Toronto"}
 
-    return MockTestDatabaseManager()
+        def cleanup(self):
+            self.test_data = None
+
+    manager = MockTestDatabaseManager()
+
+    try:
+        yield manager
+    finally:
+        manager.cleanup()
 
 
 class WindDataGenerator:
@@ -392,7 +426,6 @@ def test_client(mock_test_db_manager):
 
         async def fetchrow(self, query, *args):
             """Mock fetchrow method for single row queries."""
-            from datetime import datetime, timezone, timedelta
 
             if "get_latest_wind_observation" in query.lower():
                 station = args[0] if args else "CYTZ"
@@ -407,19 +440,8 @@ def test_client(mock_test_db_manager):
                         "update_time": latest["update_time"],
                         "name": latest.get("station", station),
                     }
-                else:
-                    # Generate a default observation
-                    now = datetime.now(timezone.utc)
-                    return {
-                        "direction": 270,
-                        "speed_kts": 12.5,
-                        "gust_kts": 15.2,
-                        "update_time": now - timedelta(minutes=5),
-                        "name": station,
-                    }
 
-            if "station" in query.lower() and "timezone_name" in query.lower():
-                station_name = args[0] if args else "CYTZ"
+            if "station" in query.lower() and "timezone" in query.lower():
                 return {"timezone_name": "America/Toronto"}
 
             return None
@@ -447,23 +469,24 @@ def test_client(mock_test_db_manager):
         return mock_pool
 
     app.dependency_overrides[get_db_pool] = get_mock_data_source
-    return TestClient(app)
+    yield TestClient(app)
+
+
+class TestPool:
+    """Mock pool that returns the test connection from test_db_manager."""
+
+    def __init__(self, connection):
+        self.connection = connection
+
+    @asynccontextmanager
+    async def acquire(self):
+        yield self.connection
 
 
 @pytest.fixture
-def integration_client(test_db_manager):
+async def integration_client(test_db_manager):
     """Create a test client with real database for integration tests."""
     from main import app, get_db_pool
-
-    class TestPool:
-        """Mock pool that returns the test connection from test_db_manager."""
-
-        def __init__(self, connection):
-            self.connection = connection
-
-        @asynccontextmanager
-        async def acquire(self):
-            yield self.connection
 
     test_pool = TestPool(test_db_manager.test_connection)
 
@@ -471,7 +494,23 @@ def integration_client(test_db_manager):
         return test_pool
 
     app.dependency_overrides[get_db_pool] = get_real_data_source
-    return AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver")
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        yield client
+
+
+@pytest.fixture
+async def ws_integration_client(test_db_manager):
+    """Create a test client with real database for integration tests."""
+    from main import app, get_db_pool
+
+    test_pool = TestPool(test_db_manager.test_connection)
+
+    async def get_real_data_source():
+        return test_pool
+
+    app.dependency_overrides[get_db_pool] = get_real_data_source
+    async with AsyncClient(transport=ASGIWebSocketTransport(app=app), base_url="http://testserver") as client:
+        yield client
 
 
 @pytest.fixture

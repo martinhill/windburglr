@@ -91,7 +91,7 @@ class DatabaseTester:
             CREATE TABLE IF NOT EXISTS station (
                 id SERIAL PRIMARY KEY,
                 name VARCHAR(10) UNIQUE NOT NULL,
-                timezone_name VARCHAR(50) NOT NULL DEFAULT 'UTC'
+                timezone VARCHAR(50) NOT NULL DEFAULT 'UTC'
             )
         """)
 
@@ -123,9 +123,9 @@ class DatabaseTester:
         # Insert test station
         station_id = await conn.fetchval(
             """
-            INSERT INTO station (name, timezone_name)
+            INSERT INTO station (name, timezone)
             VALUES ($1, $2)
-            ON CONFLICT (name) DO UPDATE SET timezone_name = EXCLUDED.timezone_name
+            ON CONFLICT (name) DO UPDATE SET timezone = EXCLUDED.timezone
             RETURNING id
             """,
             self.test_station_name,
@@ -210,7 +210,7 @@ class DatabaseTester:
 
         # Test timezone retrieval
         timezone = await conn.fetchval(
-            "SELECT timezone_name FROM station WHERE name = $1", self.test_station_name
+            "SELECT timezone FROM station WHERE name = $1", self.test_station_name
         )
         print(f"✅ Station timezone: {timezone}")
 

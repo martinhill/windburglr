@@ -64,7 +64,7 @@ async def setup_test_db():
             CREATE TABLE IF NOT EXISTS station (
                 id SERIAL PRIMARY KEY,
                 name VARCHAR(10) UNIQUE NOT NULL,
-                timezone_name VARCHAR(50) NOT NULL DEFAULT 'UTC'
+                timezone VARCHAR(50) NOT NULL DEFAULT 'UTC'
             );
         ''')
 
@@ -84,7 +84,7 @@ async def setup_test_db():
 
         # Insert test stations
         await conn.execute('''
-            INSERT INTO station (id, name, timezone_name) VALUES
+            INSERT INTO station (id, name, timezone) VALUES
                 (1, 'CYTZ', 'America/Toronto'),
                 (2, 'CYYZ', 'America/Toronto'),
                 (3, 'CYVR', 'America/Vancouver')
