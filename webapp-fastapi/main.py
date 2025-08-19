@@ -5,13 +5,14 @@ import os
 import zoneinfo
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Optional
 
 import asyncpg
 import uvicorn
 from fastapi import (
     Depends,
     FastAPI,
+    APIRouter,
     HTTPException,
     Request,
     WebSocket,
@@ -45,25 +46,35 @@ logger.debug(f"Logger configured with level: {log_level} ({log_level_value})")
 logger.info(f"WindBurglr logger initialized at level: {log_level}")
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup
-    logger.debug("DEBUG: Starting WindBurglr application lifespan")
-    logger.info("Starting WindBurglr application")
-    await manager.start_pg_listener()
-    logger.debug("DEBUG: Application startup complete")
-    logger.info("Application startup complete")
-    yield
-    # Shutdown
-    logger.debug("DEBUG: Shutting down WindBurglr application")
-    logger.info("Shutting down WindBurglr application")
-    await manager.stop_pg_listener()
-    logger.info("Application shutdown complete")
+def make_app(pg_connection: Optional[asyncpg.Connection] = None):
+    global router
 
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        # Startup
+        logger.info("Starting WindBurglr application")
 
-app = FastAPI(title="WindBurglr", lifespan=lifespan)
+        # Optional: inject a custom connection before starting the listener
+        # database_url = get_database_url()
+        # if database_url:
+        #     custom_connection = await asyncpg.connect(database_url)
+        #     manager.set_pg_listener(custom_connection)
+        if pg_connection:
+            manager.set_pg_listener(pg_connection)
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+        await manager.start_pg_listener()
+        logger.info("Application startup complete")
+        yield
+        # Shutdown
+        logger.info("Shutting down WindBurglr application")
+        await manager.stop_pg_listener()
+        logger.info("Application shutdown complete")
+
+    app = FastAPI(title="WindBurglr", lifespan=lifespan)
+    app.include_router(router)
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+    return app
+
 templates = Jinja2Templates(directory="templates")
 
 DEFAULT_STATION = "CYTZ"
@@ -89,6 +100,10 @@ class ConnectionManager:
         self.db_pool: asyncpg.Pool | None = None
         self.monitor_task: asyncio.Task | None = None
         self.is_pg_listener_healthy = False
+
+    def set_pg_listener(self, connection: asyncpg.Connection):
+        """Inject an asyncpg connection to be used as the pg_listener"""
+        self.pg_listener = connection
 
     async def get_db_pool(self):
         if self.db_pool is None:
@@ -158,18 +173,32 @@ class ConnectionManager:
             await self.broadcast_to_station(message, station)
 
     async def start_pg_listener(self):
-        database_url = get_database_url()
-        if not database_url:
-            logger.warning("No database URL configured, skipping PostgreSQL listener")
-            return
+        # If a connection was already injected, use it directly
+        if self.pg_listener:
+            logger.info("Using injected PostgreSQL connection for listener")
+        else:
+            # Create a new connection if none was injected
+            database_url = get_database_url()
+            if not database_url:
+                logger.warning(
+                    "No database URL configured, skipping PostgreSQL listener"
+                )
+                return
+
+            try:
+                # Create separate connection for notifications
+                logger.info(
+                    f"Connecting to PostgreSQL for notifications: {database_url[:50]}..."
+                )
+                self.pg_listener = await asyncpg.connect(database_url)
+            except Exception as e:
+                logger.error(
+                    f"Failed to create PostgreSQL connection: {e}", exc_info=True
+                )
+                self.is_pg_listener_healthy = False
+                return
 
         try:
-            # Create separate connection for notifications
-            logger.info(
-                f"Connecting to PostgreSQL for notifications: {database_url[:50]}..."
-            )
-            self.pg_listener = await asyncpg.connect(database_url)
-
             # Test the connection
             if self.pg_listener:
                 result = await self.pg_listener.fetchval("SELECT 1")
@@ -438,7 +467,9 @@ async def get_latest_wind_data(
         return None
 
 
-@app.get("/", response_class=HTMLResponse)
+router = APIRouter()
+
+@router.get("/", response_class=HTMLResponse)
 async def live_wind_chart(
     request: Request, stn: str = DEFAULT_STATION, hours: int = 3, minutes: int = 0
 ):
@@ -455,7 +486,7 @@ async def live_wind_chart(
     )
 
 
-@app.get("/day")
+@router.get("/day")
 async def redirect_to_today(stn: str = DEFAULT_STATION, hours: int = 24):
     """Redirect to current date when no date is specified"""
     today = datetime.now().strftime("%Y-%m-%d")
@@ -464,7 +495,7 @@ async def redirect_to_today(stn: str = DEFAULT_STATION, hours: int = 24):
     )
 
 
-@app.get("/day/{date}", response_class=HTMLResponse)
+@router.get("/day/{date}", response_class=HTMLResponse)
 async def historical_wind_day_chart(
     request: Request,
     date: str,
@@ -517,7 +548,7 @@ async def historical_wind_day_chart(
         ) from err
 
 
-@app.get("/health")
+@router.get("/health")
 async def health_check(pool: Annotated[asyncpg.Pool, Depends(get_db_pool)]):
     """Health check endpoint for monitoring and load balancers"""
     health_status = {
@@ -558,7 +589,7 @@ async def health_check(pool: Annotated[asyncpg.Pool, Depends(get_db_pool)]):
     return health_status
 
 
-@app.get("/api/wind")
+@router.get("/api/wind")
 async def get_wind_data(
     pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
     stn: str = DEFAULT_STATION,
@@ -595,8 +626,12 @@ async def get_wind_data(
     }
 
 
-@app.websocket("/ws/{station}")
-async def websocket_endpoint(websocket: WebSocket, station: str, pool: Annotated[asyncpg.Pool, Depends(get_db_pool)]):
+@router.websocket("/ws/{station}")
+async def websocket_endpoint(
+    websocket: WebSocket,
+    station: str,
+    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+):
     await manager.connect(websocket, station)
     try:
         # Send initial data
@@ -620,6 +655,7 @@ async def websocket_endpoint(websocket: WebSocket, station: str, pool: Annotated
     finally:
         manager.disconnect(websocket, station)
 
+app = make_app()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))

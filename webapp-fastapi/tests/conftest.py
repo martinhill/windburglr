@@ -6,6 +6,7 @@ from httpx_ws.transport import ASGIWebSocketTransport
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any
 from contextlib import asynccontextmanager
+from asgi_lifespan import LifespanManager
 
 
 # Test database configuration
@@ -484,31 +485,49 @@ class TestPool:
 
 
 @pytest.fixture
-async def integration_client(test_db_manager):
-    """Create a test client with real database for integration tests."""
-    from main import app, get_db_pool
+async def persistent_connection():
+    """Provide a persistent database connection for the listener."""
+    import asyncpg
+    # from main import manager
+
+    database_url = os.environ.get("TEST_DATABASE_URL")
+    if not database_url:
+        pytest.skip("TEST_DATABASE_URL not set - skipping real database tests")
+
+    connection = await asyncpg.connect(database_url)
+    # manager.set_pg_listener(connection)
+
+    yield connection
+
+    await connection.close()
+
+
+@pytest.fixture
+async def app(test_db_manager, persistent_connection):
+    from main import make_app, get_db_pool
 
     test_pool = TestPool(test_db_manager.test_connection)
 
-    async def get_real_data_source():
+    async def get_test_db_pool():
         return test_pool
 
-    app.dependency_overrides[get_db_pool] = get_real_data_source
+    app = make_app(persistent_connection)
+    app.dependency_overrides[get_db_pool] = get_test_db_pool
+
+    async with LifespanManager(app) as manager:
+        yield manager.app
+
+
+@pytest.fixture
+async def integration_client(app):
+    """Create a test client with real database for integration tests."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
         yield client
 
 
 @pytest.fixture
-async def ws_integration_client(test_db_manager):
+async def ws_integration_client(app):
     """Create a test client with real database for integration tests."""
-    from main import app, get_db_pool
-
-    test_pool = TestPool(test_db_manager.test_connection)
-
-    async def get_real_data_source():
-        return test_pool
-
-    app.dependency_overrides[get_db_pool] = get_real_data_source
     async with AsyncClient(transport=ASGIWebSocketTransport(app=app), base_url="http://testserver") as client:
         yield client
 

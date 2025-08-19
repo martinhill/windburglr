@@ -9,6 +9,17 @@ class TestIntegration:
     """Integration tests combining multiple components with sync fixtures."""
 
     @pytest.mark.anyio
+    async def test_health(self, integration_client):
+        """Test health endpoint."""
+        response = await integration_client.get("/health")
+        assert response.status_code == 200
+        health_data = response.json()
+        assert health_data["status"] == "healthy"
+        assert health_data["database"] == "connected"
+        assert health_data["websocket"] == "no_connections"
+        assert health_data["postgresql_listener"] == "healthy"
+
+    @pytest.mark.anyio
     async def test_multiple_stations(self, integration_client):
         """Test multiple stations."""
         # Test CYTZ
@@ -87,7 +98,7 @@ class TestIntegration:
             # Test live update
             sleep(1)
             new_obs_time = datetime.now(timezone.utc).replace(tzinfo=None)
-            test_db_manager.insert_new_wind_obs(station_name="CYTZ", direction=180, speed_kts=10, gust_kts=None, obs_time=new_obs_time)
+            await test_db_manager.insert_new_wind_obs(station_name="CYTZ", direction=180, speed_kts=10, gust_kts=None, obs_time=new_obs_time)
             updated_wind_obs = await websocket.receive_json()
             print(updated_wind_obs)
             assert isinstance(updated_wind_obs, dict)
