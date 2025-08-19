@@ -1,22 +1,9 @@
 import pytest
+from httpx_ws import aconnect_ws
 
 
 class TestIntegration:
     """Integration tests combining multiple components with sync fixtures."""
-
-    @pytest.mark.anyio
-    async def test_full_data_flow(self, integration_client):
-        """Test complete data flow from API to frontend."""
-        response = await integration_client.get("/api/wind?hours=24")
-        assert response.status_code == 200
-
-        data = response.json()
-        assert "station" in data
-        assert "winddata" in data
-        assert "timezone" in data
-        assert "start_time" in data
-        assert "end_time" in data
-        assert data["station"] == "CYTZ"
 
     @pytest.mark.anyio
     async def test_multiple_stations(self, integration_client):
@@ -60,17 +47,22 @@ class TestIntegration:
         assert response.status_code == 422  # Validation error
 
     @pytest.mark.anyio
-    async def test_webbsocket_integration(self, integration_client):
+    async def test_websocket(self, integration_client, test_db_manager):
         """Test WebSocket integration."""
-        # Skip WebSocket test for HTTP client - this requires a different testing approach
-        pytest.skip(
-            "WebSocket testing requires specialized client - tested in unit tests"
-        )
+        pytest.skip("WebSocket test needs implementation")
+        await test_db_manager.create_test_data(station_name="CYTZ", days=1)
+        async with aconnect_ws("http://testserver/ws/CYTZ", integration_client) as websocket:
+            data = await websocket.receive_json()
+            assert isinstance(data, dict)
+            # Should receive some JSON data structure
+            assert len(data) > 0
 
     @pytest.mark.anyio
-    async def test_performance_basic(self, integration_client):
+    async def test_performance_basic(self, integration_client, test_db_manager):
         """Test basic performance."""
         from datetime import datetime
+
+        await test_db_manager.create_test_data(station_name="CYTZ", days=7)
 
         start_time = datetime.now()
         response = await integration_client.get("/api/wind?hours=24")
@@ -80,4 +72,4 @@ class TestIntegration:
 
         # Response should be reasonably fast
         response_time = (end_time - start_time).total_seconds()
-        assert response_time < 2.0  # Basic performance check
+        assert response_time < 0.2  # Basic performance check

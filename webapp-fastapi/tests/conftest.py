@@ -45,29 +45,38 @@ async def test_db_manager():
 
         def __init__(self):
             self.pool = None
-            self.database_url = None
+            self.test_connection = None
+            self.test_transaction = None
 
         async def setup(self, database_url):
-            """Initialize database connection pool."""
+            """Initialize database connection pool and test transaction."""
             self.database_url = database_url
             try:
                 self.pool = await asyncpg.create_pool(self.database_url)
                 await self.create_schema()
+
+                # Get dedicated connection for this test
+                self.test_connection = await self.pool.acquire()
+                # Start transaction that will be rolled back after test
+                self.test_transaction = self.test_connection.transaction()
+                await self.test_transaction.start()
+
                 return True
             except Exception as e:
                 print(f"Failed to connect to database: {e}")
                 return False
 
         async def cleanup(self):
-            """Clean up database connection."""
+            """Clean up test transaction and database connection."""
+            if self.test_transaction:
+                await self.test_transaction.rollback()
+            if self.test_connection:
+                await self.pool.release(self.test_connection)
             if self.pool:
                 await self.pool.close()
 
         async def create_schema(self):
-            """Create test database schema."""
-            if not self.pool:
-                return
-
+            """Create test database schema (outside of test transaction)."""
             async with self.pool.acquire() as conn:
                 # Create extensions
                 await conn.execute("CREATE EXTENSION IF NOT EXISTS timescaledb")
@@ -102,102 +111,88 @@ async def test_db_manager():
                     # Hypertable might already exist
                     pass
 
-        async def create_test_data(self, station_name="CYTZ", days=1):
-            """Create test data in the database at 1-minute intervals."""
-            if not self.pool:
-                return []
+        async def create_test_data(
+            self, station_name="CYTZ", timezone_name="America/Toronto", days=1
+        ):
+            """Create test data within the test transaction."""
+            # Insert station if not exists
+            station_id = await self.test_connection.fetchval(
+                """
+                INSERT INTO station (name, timezone_name)
+                VALUES ($1, $2)
+                ON CONFLICT (name) DO UPDATE SET timezone_name = EXCLUDED.timezone_name
+                RETURNING id
+                """,
+                station_name,
+                timezone_name,
+            )
 
-            async with self.pool.acquire() as conn:
-                # Insert station if not exists
-                station_id = await conn.fetchval(
+            # Generate test data at 1-minute intervals
+            base_time = datetime.now(timezone.utc)
+            data = []
+
+            # Generate data for the specified number of days at 1-minute intervals
+            total_minutes = days * 24 * 60
+            for i in range(total_minutes):
+                obs_time = (base_time - timedelta(minutes=i)).replace(tzinfo=None)
+                hour_of_day = obs_time.hour
+
+                # Create more realistic wind patterns
+                direction = (
+                    int(obs_time.timestamp() / 360) % 360
+                )  # Gradual direction changes
+
+                # Simulate realistic wind speeds with some variation
+                base_speed = 8 + (hour_of_day % 12)  # Varies by time of day
+                speed_kts = max(0, base_speed + (i % 7) - 3)  # Add some randomness
+                gust_kts = speed_kts + max(
+                    1, (i % 5)
+                )  # Gust is typically 1-5 kts above speed
+
+                await self.test_connection.execute(
                     """
-                    INSERT INTO station (name, timezone_name)
-                    VALUES ($1, $2)
-                    ON CONFLICT (name) DO UPDATE SET timezone_name = EXCLUDED.timezone_name
-                    RETURNING id
+                    INSERT INTO wind_obs (station_id, update_time, direction, speed_kts, gust_kts)
+                    VALUES ($1, $2, $3, $4, $5)
                     """,
-                    station_name,
-                    "America/Toronto",
+                    station_id,
+                    obs_time,
+                    direction,
+                    speed_kts,
+                    gust_kts,
                 )
 
-                # Generate test data at 1-minute intervals
-                base_time = datetime.now(timezone.utc)
-                data = []
+                data.append(
+                    {
+                        "direction": direction,
+                        "speed_kts": speed_kts,
+                        "gust_kts": gust_kts,
+                        "update_time": obs_time,
+                    }
+                )
 
-                # Generate data for the specified number of days at 1-minute intervals
-                total_minutes = days * 24 * 60
-                for i in range(total_minutes):
-                    obs_time = base_time - timedelta(minutes=i)
-                    hour_of_day = obs_time.hour
-
-                    # Create more realistic wind patterns
-                    direction = (
-                        int(obs_time.timestamp() / 360) % 360
-                    )  # Gradual direction changes
-
-                    # Simulate realistic wind speeds with some variation
-                    base_speed = 8 + (hour_of_day % 12)  # Varies by time of day
-                    speed_kts = max(0, base_speed + (i % 7) - 3)  # Add some randomness
-                    gust_kts = speed_kts + max(
-                        1, (i % 5)
-                    )  # Gust is typically 1-5 kts above speed
-
-                    try:
-                        await conn.execute(
-                            """
-                            INSERT INTO wind_obs (station_id, update_time, direction, speed_kts, gust_kts)
-                            VALUES ($1, $2, $3, $4, $5)
-                            """,
-                            station_id,
-                            obs_time,
-                            direction,
-                            speed_kts,
-                            gust_kts,
-                        )
-                    except:
-                        # Skip duplicates
-                        pass
-
-                    data.append(
-                        {
-                            "direction": direction,
-                            "speed_kts": speed_kts,
-                            "gust_kts": gust_kts,
-                            "update_time": obs_time,
-                        }
-                    )
-
-                return data
+            return data
 
         async def get_station_timezone(self, station_name):
-            """Get station timezone from database."""
-            if not self.pool:
-                return "UTC"
-
-            async with self.pool.acquire() as conn:
-                result = await conn.fetchval(
-                    "SELECT timezone_name FROM station WHERE name = $1", station_name
-                )
-                return result or "UTC"
+            """Get station timezone within test transaction."""
+            result = await self.test_connection.fetchval(
+                "SELECT timezone_name FROM station WHERE name = $1", station_name
+            )
+            return result or "UTC"
 
         async def get_wind_data(self, station_name, start_time, end_time):
-            """Get wind data for a station and time range."""
-            if not self.pool:
-                return []
-
-            async with self.pool.acquire() as conn:
-                return await conn.fetch(
-                    """
-                    SELECT w.direction, w.speed_kts, w.gust_kts, w.update_time
-                    FROM wind_obs w
-                    JOIN station s ON w.station_id = s.id
-                    WHERE s.name = $1 AND w.update_time >= $2 AND w.update_time <= $3
-                    ORDER BY w.update_time DESC
-                    """,
-                    station_name,
-                    start_time,
-                    end_time,
-                )
+            """Get wind data within test transaction."""
+            return await self.test_connection.fetch(
+                """
+                SELECT w.direction, w.speed_kts, w.gust_kts, w.update_time
+                FROM wind_obs w
+                JOIN station s ON w.station_id = s.id
+                WHERE s.name = $1 AND w.update_time >= $2 AND w.update_time <= $3
+                ORDER BY w.update_time DESC
+                """,
+                station_name,
+                start_time,
+                end_time,
+            )
 
     # Create and setup manager
     manager = TestDatabaseManager()
@@ -460,8 +455,20 @@ def integration_client(test_db_manager):
     """Create a test client with real database for integration tests."""
     from main import app, get_db_pool
 
+    class TestPool:
+        """Mock pool that returns the test connection from test_db_manager."""
+
+        def __init__(self, connection):
+            self.connection = connection
+
+        @asynccontextmanager
+        async def acquire(self):
+            yield self.connection
+
+    test_pool = TestPool(test_db_manager.test_connection)
+
     async def get_real_data_source():
-        return test_db_manager.pool
+        return test_pool
 
     app.dependency_overrides[get_db_pool] = get_real_data_source
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver")
