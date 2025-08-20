@@ -11,6 +11,7 @@ echo "========================"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Function to print colored output
@@ -26,6 +27,133 @@ print_error() {
     echo -e "${RED}✗${NC} $1"
 }
 
+print_info() {
+    echo -e "${BLUE}ℹ${NC} $1"
+}
+
+# Function to install Podman on macOS
+install_podman() {
+    print_info "Checking Podman installation..."
+
+    if command -v podman &> /dev/null; then
+        print_status "Podman is already installed"
+        return 0
+    fi
+
+    print_warning "Podman not found. Installing via Homebrew..."
+
+    # Check if Homebrew is installed
+    if ! command -v brew &> /dev/null; then
+        print_error "Homebrew not found. Please install Homebrew first:"
+        echo "  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+        exit 1
+    fi
+
+    # Install Podman
+    brew install podman
+
+    # Initialize Podman machine
+    print_status "Initializing Podman machine..."
+    podman machine init --cpus 2 --memory 4096 --disk-size 20
+
+    print_status "Podman installation completed"
+}
+
+# Function to setup TimescaleDB container
+setup_timescaledb() {
+    print_info "Setting up TimescaleDB test database..."
+
+    # Container and database configuration
+    CONTAINER_NAME="windburglr-pg"
+    DB_NAME="windburglr_test"
+    DB_USER="windburglr"
+    DB_PASSWORD="windburglr"
+    DB_PORT="5433"
+
+    # Check if container already exists and is running
+    if podman ps --format "{{.Names}}" | grep -q "^${CONTAINER_NAME}$"; then
+        print_warning "TimescaleDB container is already running"
+        return 0
+    fi
+
+    # Remove existing stopped container if it exists
+    if podman ps -a --format "{{.Names}}" | grep -q "^${CONTAINER_NAME}$"; then
+        print_info "Removing existing stopped container..."
+        podman rm -f "${CONTAINER_NAME}"
+    fi
+
+    # Start Podman machine if not running
+    if ! podman machine info &> /dev/null; then
+        print_status "Starting Podman machine..."
+        podman machine start
+
+        # Wait for machine to be ready
+        sleep 10
+    fi
+
+    # Pull TimescaleDB image
+    print_status "Pulling TimescaleDB image..."
+    podman pull timescale/timescaledb:latest-pg15
+
+    # Run TimescaleDB container
+    print_status "Starting TimescaleDB container..."
+    podman run -d \
+        --name "${CONTAINER_NAME}" \
+        -p "${DB_PORT}:5432" \
+        -e POSTGRES_DB="${DB_NAME}" \
+        -e POSTGRES_USER="${DB_USER}" \
+        -e POSTGRES_PASSWORD="${DB_PASSWORD}" \
+        -e POSTGRES_HOST_AUTH_METHOD=trust \
+        timescale/timescaledb:latest-pg15
+
+    # Wait for database to be ready
+    print_status "Waiting for database to be ready..."
+    for i in {1..30}; do
+        if podman exec "${CONTAINER_NAME}" pg_isready -U "${DB_USER}" -d "${DB_NAME}" &> /dev/null; then
+            break
+        fi
+        sleep 1
+    done
+
+    if ! podman exec "${CONTAINER_NAME}" pg_isready -U "${DB_USER}" -d "${DB_NAME}" &> /dev/null; then
+        print_error "Database failed to start within 30 seconds"
+        exit 1
+    fi
+
+    print_status "TimescaleDB container is ready"
+
+    # Update .env.test file with database URL
+    export TEST_DATABASE_URL="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:${DB_PORT}/${DB_NAME}"
+    echo "TEST_DATABASE_URL=${TEST_DATABASE_URL}" > .env.test
+}
+
+# Function to cleanup test database
+cleanup_test_db() {
+    print_info "Cleaning up test database..."
+    CONTAINER_NAME="windburglr-timescaledb-test"
+
+    if podman ps --format "{{.Names}}" | grep -q "^${CONTAINER_NAME}$"; then
+        print_status "Stopping and removing TimescaleDB container..."
+        podman stop "${CONTAINER_NAME}"
+        podman rm "${CONTAINER_NAME}"
+    fi
+}
+
+# Handle cleanup on script exit
+trap cleanup_test_db EXIT
+
+# Check for cleanup flag
+if [[ "$1" == "cleanup" ]]; then
+    cleanup_test_db
+    exit 0
+fi
+
+# Install Podman if needed
+install_podman
+
+# Setup TimescaleDB container
+setup_timescaledb
+
 # Check if virtual environment is activated
 if [[ "$VIRTUAL_ENV" == "" ]]; then
     print_warning "Virtual environment not activated. Activating..."
@@ -34,91 +162,41 @@ fi
 
 # Install test dependencies
 print_status "Installing test dependencies..."
-#pip install -e ".[dev]"
-#pip install pytest-cov pytest-playwright playwright
 uv sync --extra dev
-uv pip install pytest-cov pytest-playwright playwright
+# uv pip install pytest-cov pytest-playwright playwright
 playwright install chromium
 
 # Set test environment
-export $(cat .env.test | xargs)
+if [[ -f .env.test ]]; then
+    export $(cat .env.test | xargs)
+fi
 
 # Run database setup
-print_status "Setting up test database..."
-python -c "
-import asyncio
-import asyncpg
-import os
-
-async def setup_test_db():
-    try:
-        conn = await asyncpg.connect(os.getenv('TEST_DATABASE_URL'))
-
-        # Create test schema if needed
-        await conn.execute('CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";')
-
-        await conn.execute('CREATE EXTENSION IF NOT EXISTS timescaledb;')
-
-        # Create basic tables for testing
-        await conn.execute('''
-            CREATE TABLE IF NOT EXISTS station (
-                id SERIAL PRIMARY KEY,
-                name VARCHAR(10) UNIQUE NOT NULL,
-                timezone VARCHAR(50) NOT NULL DEFAULT 'UTC'
-            );
-        ''')
-
-        await conn.execute('''
-            CREATE TABLE IF NOT EXISTS wind_obs (
-                station_id INTEGER REFERENCES station(id),
-                update_time TIMESTAMP NOT NULL,
-                direction INTEGER,
-                speed_kts INTEGER,
-                gust_kts INTEGER
-            );
-        ''')
-
-        await conn.execute('''
-            SELECT create_hypertable('wind_obs','update_time');
-            ''')
-
-        # Insert test stations
-        await conn.execute('''
-            INSERT INTO station (id, name, timezone) VALUES
-                (1, 'CYTZ', 'America/Toronto'),
-                (2, 'CYYZ', 'America/Toronto'),
-                (3, 'CYVR', 'America/Vancouver')
-            ON CONFLICT (id) DO NOTHING;
-        ''')
-
-        await conn.close()
-        print('✓ Test database setup complete')
-    except Exception as e:
-        print(f'✗ Test database setup failed: {e}')
-        exit(1)
-
-asyncio.run(setup_test_db())
-"
+print_status "Setting up test database schema..."
+psql "$TEST_DATABASE_URL" -f ../common/timescaledb_schema.sql
 
 # Run tests based on arguments
-if [[ "$1" == "unit" ]]; then
+if [[ "$2" == "unit" || ("$1" == "unit" && "$2" == "") ]]; then
     print_status "Running unit tests..."
     pytest tests/unit -v -m "unit"
-elif [[ "$1" == "integration" ]]; then
+elif [[ "$2" == "integration" || ("$1" == "integration" && "$2" == "") ]]; then
     print_status "Running integration tests..."
     pytest tests/integration -v -m "integration"
-elif [[ "$1" == "e2e" ]]; then
+elif [[ "$2" == "e2e" || ("$1" == "e2e" && "$2" == "") ]]; then
     print_status "Running end-to-end tests..."
     pytest tests/e2e -v -m "e2e"
-elif [[ "$1" == "quick" ]]; then
+elif [[ "$2" == "quick" || ("$1" == "quick" && "$2" == "") ]]; then
     print_status "Running quick tests (unit only)..."
     pytest tests/unit -v -m "unit and not slow"
-elif [[ "$1" == "coverage" ]]; then
+elif [[ "$2" == "coverage" || ("$1" == "coverage" && "$2" == "") ]]; then
     print_status "Running all tests with coverage..."
     pytest tests/ -v --cov=main --cov-report=html --cov-report=term-missing
 else
+    if [[ "$1" != "" && "$1" != "cleanup" ]]; then
+        print_warning "Unknown test type: $1. Running all tests..."
+    fi
     print_status "Running all tests..."
-    pytest tests/ -v
+    pytest -v
 fi
 
 print_status "Test suite completed!"

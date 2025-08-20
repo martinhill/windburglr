@@ -59,7 +59,6 @@ async def test_db_manager():
             self.database_url = database_url
             try:
                 self.pool = await asyncpg.create_pool(self.database_url)
-                await self.create_schema()
                 return True
             except Exception as e:
                 print(f"Failed to connect to database: {e}")
@@ -83,42 +82,6 @@ async def test_db_manager():
                         )
                     self.test_stations.clear()
                 await self.pool.close()
-
-        async def create_schema(self):
-            """Create test database schema (outside of test transaction)."""
-            async with self.pool.acquire() as conn:
-                # Create extensions
-                await conn.execute("CREATE EXTENSION IF NOT EXISTS timescaledb")
-
-                # Create station table
-                await conn.execute("""
-                    CREATE TABLE IF NOT EXISTS station (
-                        id SERIAL PRIMARY KEY,
-                        name VARCHAR(10) UNIQUE NOT NULL,
-                        timezone VARCHAR(50) NOT NULL DEFAULT 'UTC'
-                    )
-                """)
-
-                # Create wind_obs table
-                await conn.execute("""
-                    CREATE TABLE IF NOT EXISTS wind_obs (
-                        station_id INTEGER REFERENCES station(id),
-                        update_time TIMESTAMP NOT NULL,
-                        direction NUMERIC,
-                        speed_kts NUMERIC,
-                        gust_kts NUMERIC,
-                        PRIMARY KEY (station_id, update_time)
-                    )
-                """)
-
-                # Create hypertable
-                try:
-                    await conn.execute(
-                        "SELECT create_hypertable('wind_obs', 'update_time')"
-                    )
-                except:
-                    # Hypertable might already exist
-                    pass
 
         async def create_test_stations(self, stations_data):
             async with self.pool.acquire() as conn:

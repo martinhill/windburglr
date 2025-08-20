@@ -9,7 +9,7 @@ import pytest
 
 
 @pytest.mark.integration
-class TestAPIWithRealDatabase:
+class TestAPI:
     """Test API endpoints with real database and generated test data."""
 
     @pytest.mark.anyio
