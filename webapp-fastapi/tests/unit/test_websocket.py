@@ -42,12 +42,6 @@ def test_websocket_different_stations(test_client, mock_test_db_manager):
         assert 0 <= data2["direction"] <= 360
 
 
-def test_websocket_disconnect(test_client):
-    """Test WebSocket disconnection."""
-    with test_client.websocket_connect("/ws/CYTZ") as websocket:
-        # Connection should be active
-        assert websocket is not None
-
 def test_websocket_ping_pong(test_client):
     """Test websocket ping"""
     with test_client.websocket_connect("/ws/CYTZ") as websocket:

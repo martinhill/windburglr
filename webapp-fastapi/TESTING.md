@@ -365,3 +365,104 @@ pytest tests/unit/ tests/e2e/ -v
 export TEST_DATABASE_URL="postgresql://user:password@localhost:5432/windburglr_test"
 pytest tests/unit/ tests/integration/ tests/e2e/ -v
 ```
+
+## Database Test Data Management
+
+The WindBurglr test suite provides optimized approaches for handling test data to avoid notification spam and improve performance.
+
+### Bulk Data Loading (Recommended for Large Datasets)
+
+For tests requiring large amounts of historical wind observation data, use the bulk data fixtures:
+
+```python
+@pytest.mark.anyio
+async def test_api_with_bulk_historical_data(integration_client_with_bulk_data):
+    """Test API with pre-loaded bulk data (no notification spam)."""
+
+    # Data is already loaded - 1 day of minute-by-minute data for CYTZ
+    # Bulk insert happens BEFORE app startup with disabled triggers
+
+    response = await integration_client_with_bulk_data.get("/api/wind")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["station"] == "CYTZ"
+    assert len(data["winddata"]) > 0  # Should have ~1440 observations
+```
+
+### Regular Data Insert (For Testing Notifications)
+
+For tests that need to verify the notification system:
+
+```python
+@pytest.mark.anyio
+async def test_api_with_notifications(integration_client, test_db_manager):
+    """Test API with regular data insert (triggers notifications)."""
+
+    # Small dataset - triggers notifications for each row
+    await test_db_manager.create_test_data(station_name="CYYZ", days=0.1)
+
+    response = await integration_client.get("/api/wind?station=CYYZ")
+    assert response.status_code == 200
+```
+
+### Single Observation Testing (For Real-time Updates)
+
+For testing real-time wind observation updates:
+
+```python
+@pytest.mark.anyio
+async def test_realtime_notification(integration_client, test_db_manager):
+    """Test real-time wind observation notifications."""
+    from datetime import datetime, timezone
+
+    # Insert single observation that triggers notification
+    await test_db_manager.insert_new_wind_obs(
+        station_name="CYTZ",
+        direction=270,
+        speed_kts=15,
+        gust_kts=18,
+        obs_time=datetime.now(timezone.utc)
+    )
+
+    response = await integration_client.get("/api/wind/latest?station=CYTZ")
+    assert response.status_code == 200
+```
+
+### Available Test Fixtures
+
+**Database Managers:**
+- `test_db_manager`: Basic database manager for manual data creation
+- `test_db_with_bulk_data`: Manager with pre-loaded 1 day of CYTZ data (no notifications)
+
+**App Instances:**
+- `app`: FastAPI app with empty database
+- `app_with_bulk_data`: FastAPI app with pre-loaded bulk data (recommended)
+
+**HTTP Clients:**
+- `integration_client`: HTTP client with basic app (empty database)
+- `integration_client_with_bulk_data`: HTTP client with pre-loaded data (recommended for API tests)
+- `ws_integration_client`: WebSocket client for real-time testing
+
+### Performance Comparison
+
+**Bulk Insert Approach (Recommended):**
+- ✅ Fast: Uses `executemany()` for bulk operations
+- ✅ Clean logs: Temporarily disables triggers during insert
+- ✅ Realistic: 1 day = 1440 observations at 1-minute intervals
+- ✅ Safe: Automatically restores triggers after insert
+
+**Individual Insert Approach:**
+- ⚠️ Slow: Individual `INSERT` statements
+- ⚠️ Log spam: Each insert triggers PostgreSQL notification
+- ✅ Real notifications: Good for testing notification system
+- ⚠️ Resource intensive: Don't use for large datasets
+
+
+### Database Cleanup
+
+All test fixtures handle automatic cleanup:
+- Bulk data fixtures delete all test stations and their wind observations
+- Database triggers are restored after bulk operations
+- Connection pools are properly closed
+- No deadlock risks from simplified cleanup approach

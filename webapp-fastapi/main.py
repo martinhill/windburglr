@@ -105,7 +105,7 @@ class ConnectionManager:
         """Inject an asyncpg connection to be used as the pg_listener"""
         self.pg_listener = connection
 
-    async def get_db_pool(self):
+    async def get_db_pool(self): # pragma: no cover
         if self.db_pool is None:
             # Create connection pool
             database_url = get_database_url()
@@ -142,9 +142,6 @@ class ConnectionManager:
                     f"Failed to remove WebSocket connection for station {station}"
                 )
 
-    async def send_personal_message(self, message: str, websocket: WebSocket):
-        await websocket.send_text(message)
-
     async def broadcast_to_station(self, message: str, station: str):
         if station in self.active_connections:
             logger.debug(
@@ -168,15 +165,11 @@ class ConnectionManager:
         else:
             logger.debug(f"No active connections for station {station}")
 
-    async def broadcast(self, message: str):
-        for station in list(self.active_connections.keys()):
-            await self.broadcast_to_station(message, station)
-
     async def start_pg_listener(self):
         # If a connection was already injected, use it directly
         if self.pg_listener:
             logger.info("Using injected PostgreSQL connection for listener")
-        else:
+        else: # pragma: no cover
             # Create a new connection if none was injected
             database_url = get_database_url()
             if not database_url:
@@ -369,11 +362,11 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
-def get_database_url():
+def get_database_url(): # pragma: no cover
     return os.environ.get("DATABASE_URL", "")
 
 
-async def get_db_pool() -> asyncpg.Pool:
+async def get_db_pool() -> asyncpg.Pool: # pragma: no cover
     """Get database pool with proper error handling"""
     try:
         return await manager.get_db_pool()

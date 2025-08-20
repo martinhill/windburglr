@@ -62,45 +62,50 @@ class TestIntegration:
         assert response.status_code == 422  # Validation error
 
     @pytest.mark.anyio
-    async def test_websocket_initial_data(self, ws_integration_client: AsyncClient, test_db_manager):
+    async def test_websocket_initial_data(
+        self,
+        ws_integration_client: AsyncClient,
+        test_db_with_bulk_data):
         """Test WebSocket integration."""
-        # pytest.skip("WebSocket test needs implementation")
-        test_data = await test_db_manager.create_test_data(station_name="CYTZ", days=1)
-        latest_update_time = max(wind_obs["update_time"] for wind_obs in test_data)
+
+        check_latest_wind_obs = test_db_with_bulk_data.latest_wind_obs
         async with aconnect_ws("/ws/CYTZ", ws_integration_client) as websocket:
             #  The first message should be the latest wind observation
             latest_wind_obs = await websocket.receive_json()
             assert isinstance(latest_wind_obs, dict)
             # Should receive some JSON data structure
             update_time = datetime.fromtimestamp(latest_wind_obs["timestamp"], tz=timezone.utc).replace(tzinfo=None)
-            assert update_time == latest_update_time
-            assert 0 <= latest_wind_obs["direction"] <= 360
-            assert latest_wind_obs["speed_kts"] >= 0
-            assert latest_wind_obs["gust_kts"] > 0 or latest_wind_obs["gust_kts"] is None
+            assert update_time == check_latest_wind_obs["update_time"]
+            assert latest_wind_obs["direction"] == check_latest_wind_obs["direction"]
+            assert latest_wind_obs["speed_kts"] == check_latest_wind_obs["speed_kts"]
+            assert latest_wind_obs["gust_kts"] == check_latest_wind_obs["gust_kts"]
 
     @pytest.mark.anyio
-    async def test_websocket_live_update(self, ws_integration_client: AsyncClient, test_db_manager):
+    async def test_websocket_live_update(self, ws_integration_client: AsyncClient, test_db_with_bulk_data):
         """Test WebSocket integration."""
-        # pytest.skip("WebSocket test needs implementation")
-        test_data = await test_db_manager.create_test_data(station_name="CYTZ", days=1)
-        latest_update_time = max(wind_obs["update_time"] for wind_obs in test_data)
+
+        check_latest_wind_obs = test_db_with_bulk_data.latest_wind_obs
         async with aconnect_ws("/ws/CYTZ", ws_integration_client) as websocket:
             #  The first message should be the latest wind observation
             latest_wind_obs = await websocket.receive_json()
             assert isinstance(latest_wind_obs, dict)
             # Should receive some JSON data structure
             update_time = datetime.fromtimestamp(latest_wind_obs["timestamp"], tz=timezone.utc).replace(tzinfo=None)
-            assert update_time == latest_update_time
-            assert 0 <= latest_wind_obs["direction"] <= 360
-            assert latest_wind_obs["speed_kts"] >= 0
-            assert latest_wind_obs["gust_kts"] > 0 or latest_wind_obs["gust_kts"] is None
+            assert update_time == check_latest_wind_obs["update_time"]
+            assert latest_wind_obs["direction"] == check_latest_wind_obs["direction"]
+            assert latest_wind_obs["speed_kts"] == check_latest_wind_obs["speed_kts"]
+            assert latest_wind_obs["gust_kts"] == check_latest_wind_obs["gust_kts"]
 
             # Test live update
             sleep(1)
-            new_obs_time = datetime.now(timezone.utc).replace(tzinfo=None)
-            await test_db_manager.insert_new_wind_obs(station_name="CYTZ", direction=180, speed_kts=10, gust_kts=None, obs_time=new_obs_time)
+            new_obs_time = datetime.now(timezone.utc)
+            await test_db_with_bulk_data.insert_new_wind_obs(
+                station_name="CYTZ",
+                direction=180,
+                speed_kts=10,
+                gust_kts=None,
+                obs_time=new_obs_time.replace(tzinfo=None))
             updated_wind_obs = await websocket.receive_json()
-            print(updated_wind_obs)
             assert isinstance(updated_wind_obs, dict)
             assert updated_wind_obs["timestamp"] == new_obs_time.timestamp()
             assert updated_wind_obs["direction"] == 180
@@ -108,18 +113,16 @@ class TestIntegration:
             assert updated_wind_obs["gust_kts"] is None
 
     @pytest.mark.anyio
-    async def test_performance_basic(self, integration_client, test_db_manager):
-        """Test basic performance."""
+    async def test_performance_basic(self, integration_client_with_bulk_data):
+        """Test basic performance: /api/wind?hours=24 responds in under 100 milliseconds."""
         from datetime import datetime
 
-        await test_db_manager.create_test_data(station_name="CYTZ", days=7)
-
         start_time = datetime.now()
-        response = await integration_client.get("/api/wind?hours=24")
+        response = await integration_client_with_bulk_data.get("/api/wind?hours=24")
         end_time = datetime.now()
 
         assert response.status_code == 200
 
         # Response should be reasonably fast
         response_time = (end_time - start_time).total_seconds()
-        assert response_time < 0.2  # Basic performance check
+        assert response_time < 0.1  # Basic performance check
