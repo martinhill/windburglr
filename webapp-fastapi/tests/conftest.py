@@ -9,19 +9,6 @@ from contextlib import asynccontextmanager
 from asgi_lifespan import LifespanManager
 
 
-# Test database configuration
-@pytest.fixture(scope="session", autouse=True)
-def setup_test_environment():
-    """Set up test environment variables."""
-    # Use TEST_DATABASE_URL if provided, otherwise use mock
-    test_db_url = os.environ.get("TEST_DATABASE_URL")
-    if test_db_url:
-        os.environ["DATABASE_URL"] = test_db_url
-    else:
-        # Use mock database for testing
-        os.environ["DATABASE_URL"] = ""
-
-
 @pytest.fixture
 def sample_stations():
     """Provide sample station data."""

@@ -13,10 +13,7 @@ ruff check .
 ruff format .
 
 # Run tests
-TEST_DATABASE_URL=postgresql://postgres:windburglr@localhost:5432/windburglr_test pytest tests -v
-
-# Run tests with coverage
-TEST_DATABASE_URL=postgresql://postgres:windburglr@localhost:5432/windburglr_test pytest tests -v --cov=agents
+source .venv/bin/activate && TEST_DATABASE_URL=postgresql://postgres:windburglr@localhost:5432/windburglr_test pytest -v
 ```
 
 ## Code Style Guidelines

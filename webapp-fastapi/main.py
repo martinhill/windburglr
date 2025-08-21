@@ -54,11 +54,10 @@ def make_app(pg_connection: Optional[asyncpg.Connection] = None):
         # Startup
         logger.info("Starting WindBurglr application")
 
+        # Create database connection pool during startup
+        await manager.create_db_pool()
+
         # Optional: inject a custom connection before starting the listener
-        # database_url = get_database_url()
-        # if database_url:
-        #     custom_connection = await asyncpg.connect(database_url)
-        #     manager.set_pg_listener(custom_connection)
         if pg_connection:
             manager.set_pg_listener(pg_connection)
 
@@ -74,6 +73,7 @@ def make_app(pg_connection: Optional[asyncpg.Connection] = None):
     app.include_router(router)
     app.mount("/static", StaticFiles(directory="static"), name="static")
     return app
+
 
 templates = Jinja2Templates(directory="templates")
 
@@ -105,16 +105,27 @@ class ConnectionManager:
         """Inject an asyncpg connection to be used as the pg_listener"""
         self.pg_listener = connection
 
-    async def get_db_pool(self): # pragma: no cover
+    async def create_db_pool(self):  # pragma: no cover
+        """Create database connection pool during startup"""
         if self.db_pool is None:
-            # Create connection pool
-            database_url = get_database_url()
-            logger.info(f"Creating PostgreSQL connection pool: {database_url[:50]}...")
-            if database_url is None:
-                raise ValueError("Database URL is not set")
-            self.db_pool = await asyncpg.create_pool(
-                database_url, min_size=2, max_size=10, command_timeout=60
-            )
+            database_url = get_database_url(True)
+            if database_url:
+                logger.info(f"Creating PostgreSQL connection pool: {database_url[:50]}...")
+                self.db_pool = await asyncpg.create_pool(
+                    database_url, min_size=2, max_size=10, command_timeout=60
+                )
+                logger.info("PostgreSQL connection pool created successfully")
+            else:
+                logger.warning("No database URL provided")
+        else:
+            logger.warning("Database pool already exists")
+
+    async def get_db_pool(self):  # pragma: no cover
+        """Get existing database pool, but create it if it doesn't exist"""
+        if self.db_pool is None:
+            await self.create_db_pool()
+            if self.db_pool is None:
+                raise RuntimeError("Database pool not initialized - ensure lifespan startup completed")
         return self.db_pool
 
     async def connect(self, websocket: WebSocket, station: str):
@@ -169,9 +180,9 @@ class ConnectionManager:
         # If a connection was already injected, use it directly
         if self.pg_listener:
             logger.info("Using injected PostgreSQL connection for listener")
-        else: # pragma: no cover
+        else:  # pragma: no cover
             # Create a new connection if none was injected
-            database_url = get_database_url()
+            database_url = get_database_url(False)
             if not database_url:
                 logger.warning(
                     "No database URL configured, skipping PostgreSQL listener"
@@ -277,7 +288,7 @@ class ConnectionManager:
                     await self.pg_listener.close()
 
                 # Re-establish connection
-                database_url = get_database_url()
+                database_url = get_database_url(False)
                 if not database_url:
                     logger.error("No database URL available for reconnection")
                     return False
@@ -366,11 +377,13 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
-def get_database_url(): # pragma: no cover
+def get_database_url(pooled: bool = False) -> str:  # pragma: no cover
+    if pooled:
+        return os.environ.get("DATABASE_POOL_URL", os.environ.get("DATABASE_URL", ""))
     return os.environ.get("DATABASE_URL", "")
 
 
-async def get_db_pool() -> asyncpg.Pool: # pragma: no cover
+async def get_db_pool() -> asyncpg.Pool:  # pragma: no cover
     """Get database pool with proper error handling"""
     try:
         return await manager.get_db_pool()
@@ -465,6 +478,7 @@ async def get_latest_wind_data(
 
 
 router = APIRouter()
+
 
 @router.get("/", response_class=HTMLResponse)
 async def live_wind_chart(
@@ -580,14 +594,20 @@ async def health_check(pool: Annotated[asyncpg.Pool, Depends(get_db_pool)]):
 
     # Check connection monitor
     health_status["connection_monitor"] = (
-        ("healthy" if not manager.monitor_task.done() else (
-            "cancelled" if manager.monitor_task.cancelled() else "done"
-        )) if manager.monitor_task
+        (
+            "healthy"
+            if not manager.monitor_task.done()
+            else ("cancelled" if manager.monitor_task.cancelled() else "done")
+        )
+        if manager.monitor_task
         else "not_started"
     )
 
     # Determine overall status
-    if health_status["database"] == "connected" and await manager.is_pg_listener_healthy:
+    if (
+        health_status["database"] == "connected"
+        and await manager.is_pg_listener_healthy
+    ):
         health_status["status"] = "healthy"
     else:
         health_status["status"] = "unhealthy"
@@ -660,6 +680,7 @@ async def websocket_endpoint(
         pass
     finally:
         manager.disconnect(websocket, station)
+
 
 app = make_app()
 
