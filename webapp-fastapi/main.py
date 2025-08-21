@@ -18,7 +18,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -568,7 +568,7 @@ async def health_check(pool: Annotated[asyncpg.Pool, Depends(get_db_pool)]):
         "database": "unknown",
         "websocket": "unknown",
         "postgresql_listener": "unknown",
-        "connection_monitor": "unknown",
+        "connection_monitor": {},
     }
 
     # Check database connection
@@ -593,15 +593,10 @@ async def health_check(pool: Annotated[asyncpg.Pool, Depends(get_db_pool)]):
     )
 
     # Check connection monitor
-    health_status["connection_monitor"] = (
-        (
-            "healthy"
-            if not manager.monitor_task.done()
-            else ("cancelled" if manager.monitor_task.cancelled() else "done")
-        )
-        if manager.monitor_task
-        else "not_started"
-    )
+    health_status["connection_monitor"] = {
+        "done": manager.monitor_task.done(),
+        "cancelled": manager.monitor_task.cancelled(),
+    } if manager.monitor_task else "no_task"
 
     # Determine overall status
     if (
@@ -613,6 +608,14 @@ async def health_check(pool: Annotated[asyncpg.Pool, Depends(get_db_pool)]):
         health_status["status"] = "unhealthy"
 
     return health_status
+
+
+@router.get("/health/stack", response_class=PlainTextResponse)
+async def get_health_stack():
+    """Returns the stack of the monitoring task"""
+    if manager.monitor_task:
+        return "\n".join(str(s) for s in manager.monitor_task.get_stack())
+    return "no_task"
 
 
 @router.get("/api/wind")
