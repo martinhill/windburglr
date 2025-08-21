@@ -99,7 +99,7 @@ class ConnectionManager:
         self.notification_count = 0
         self.db_pool: asyncpg.Pool | None = None
         self.monitor_task: asyncio.Task | None = None
-        self.is_pg_listener_healthy = False
+        self._is_pg_listener_healthy = False
 
     def set_pg_listener(self, connection: asyncpg.Connection):
         """Inject an asyncpg connection to be used as the pg_listener"""
@@ -188,7 +188,7 @@ class ConnectionManager:
                 logger.error(
                     f"Failed to create PostgreSQL connection: {e}", exc_info=True
                 )
-                self.is_pg_listener_healthy = False
+                self._is_pg_listener_healthy = False
                 return
 
         try:
@@ -204,7 +204,7 @@ class ConnectionManager:
             logger.info("Listening for channels: wind_obs_insert")
 
             # Mark connection as healthy
-            self.is_pg_listener_healthy = True
+            self._is_pg_listener_healthy = True
 
             # Start background monitoring task
             self.monitor_task = asyncio.create_task(self._monitor_pg_connection())
@@ -212,7 +212,7 @@ class ConnectionManager:
 
         except Exception as e:
             logger.error(f"Failed to start PostgreSQL listener: {e}", exc_info=True)
-            self.is_pg_listener_healthy = False
+            self._is_pg_listener_healthy = False
 
     async def stop_pg_listener(self):
         # Cancel monitoring task
@@ -243,22 +243,22 @@ class ConnectionManager:
             except Exception as e:
                 logger.error(f"Error closing PostgreSQL pool: {e}", exc_info=True)
 
-        self.is_pg_listener_healthy = False
+        self._is_pg_listener_healthy = False
 
     async def _check_pg_connection_health(self) -> bool:
         """Check if PostgreSQL listener connection is healthy"""
         if not self.pg_listener or self.pg_listener.is_closed():
-            self.is_pg_listener_healthy = False
+            self._is_pg_listener_healthy = False
             return False
 
         try:
             # Simple health check query
             await self.pg_listener.fetchval("SELECT 1")
-            self.is_pg_listener_healthy = True
+            self._is_pg_listener_healthy = True
             return True
         except Exception as e:
             logger.error(f"PostgreSQL connection health check failed: {e}")
-            self.is_pg_listener_healthy = False
+            self._is_pg_listener_healthy = False
             return False
 
     async def _reconnect_pg_listener(self) -> bool:
@@ -289,7 +289,7 @@ class ConnectionManager:
                     )
 
                 logger.info("PostgreSQL listener reconnected successfully")
-                self.is_pg_listener_healthy = True
+                self._is_pg_listener_healthy = True
                 return True
 
             except Exception as e:
@@ -300,8 +300,12 @@ class ConnectionManager:
                     await asyncio.sleep(delay)
 
         logger.error("Failed to reconnect PostgreSQL listener after all attempts")
-        self.is_pg_listener_healthy = False
+        self._is_pg_listener_healthy = False
         return False
+
+    @property
+    async def is_pg_listener_healthy(self):
+        return self._is_pg_listener_healthy and await self._check_pg_connection_health()
 
     async def _monitor_pg_connection(self):
         """Background task to monitor PostgreSQL connection health"""
@@ -550,6 +554,7 @@ async def health_check(pool: Annotated[asyncpg.Pool, Depends(get_db_pool)]):
         "database": "unknown",
         "websocket": "unknown",
         "postgresql_listener": "unknown",
+        "connection_monitor": "unknown",
     }
 
     # Check database connection
@@ -570,11 +575,19 @@ async def health_check(pool: Annotated[asyncpg.Pool, Depends(get_db_pool)]):
 
     # Check PostgreSQL listener
     health_status["postgresql_listener"] = (
-        "healthy" if manager.is_pg_listener_healthy else "unhealthy"
+        "healthy" if await manager.is_pg_listener_healthy else "unhealthy"
+    )
+
+    # Check connection monitor
+    health_status["connection_monitor"] = (
+        ("healthy" if not manager.monitor_task.done() else (
+            "cancelled" if manager.monitor_task.cancelled() else "done"
+        )) if manager.monitor_task
+        else "not_started"
     )
 
     # Determine overall status
-    if health_status["database"] == "connected" and manager.is_pg_listener_healthy:
+    if health_status["database"] == "connected" and await manager.is_pg_listener_healthy:
         health_status["status"] = "healthy"
     else:
         health_status["status"] = "unhealthy"
