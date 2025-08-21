@@ -3,17 +3,28 @@ import subprocess
 import time
 import requests
 import os
+import socket
 from contextlib import contextmanager
+
+
+def get_free_port():
+    """Get a free port for the test server."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('', 0))
+        s.listen(1)
+        port = s.getsockname()[1]
+    return port
 
 
 @contextmanager
 def run_test_server():
     """Context manager to run the test server."""
+    port = get_free_port()
+
     # Set test environment
     env = os.environ.copy()
-    # Use the test database
     env["DATABASE_URL"] = env["TEST_DATABASE_URL"]
-    env["PORT"] = "8001"  # Use different port for tests
+    env["PORT"] = str(port)
 
     # Start server
     process = subprocess.Popen(
@@ -25,29 +36,38 @@ def run_test_server():
             "--host",
             "0.0.0.0",
             "--port",
-            "8001",
-            "--reload",
-        ],
+            str(port),
+        ],  # Remove --reload for tests (faster startup)
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
 
-    # Wait for server to start
-    for _ in range(30):  # Wait up to 30 seconds
+    url = f"http://localhost:{port}"
+
+    # Wait for server to start with better error reporting
+    last_error = None
+    for i in range(30):
         try:
-            response = requests.get("http://localhost:8001/health", timeout=1)
+            response = requests.get(f"{url}/health", timeout=2)
             if response.status_code == 200:
                 break
-        except requests.exceptions.RequestException:
+        except requests.exceptions.RequestException as e:
+            last_error = e
             time.sleep(1)
     else:
+        # Capture any error output
+        stdout, stderr = process.communicate(timeout=5)
         process.terminate()
         process.wait()
-        raise RuntimeError("Test server failed to start")
+        raise RuntimeError(
+            f"Test server failed to start after 30 seconds. "
+            f"Last error: {last_error}. "
+            f"Server output: {stderr.decode() if stderr else 'No stderr'}"
+        )
 
     try:
-        yield "http://localhost:8001"
+        yield url
     finally:
         process.terminate()
         process.wait()
