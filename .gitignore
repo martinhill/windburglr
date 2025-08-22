@@ -1,8 +1,9 @@
 venv*
+.venv*
 .*.swn
 .*.swo
 .*.swp
-.env
+.env*
 
 *.py[co]
 
@@ -25,6 +26,8 @@ pip-log.txt
 # Unit test / coverage reports
 .coverage
 .tox
+htmlcov
+coverage.xml
 
 #Translations
 *.mo
@@ -40,9 +43,13 @@ ga.html
 
 data.bz2
 *.tar.gz
+*.log
+.idea
+.upm/
+.DS_Store
+attic/
 
 # Replit
 .pythonlibs
 logs
 cache
-
