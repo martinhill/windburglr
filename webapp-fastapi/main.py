@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated, Optional
 
 import asyncpg
+from async_lru import alru_cache
 import uvicorn
 from fastapi import (
     Depends,
@@ -21,7 +22,7 @@ from fastapi import (
 from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 # Configure logging
 log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -79,7 +80,6 @@ templates = Jinja2Templates(directory="templates")
 
 DEFAULT_STATION = "CYTZ"
 ISO_FORMAT = "%Y-%m-%dT%H:%M:%S"
-EPOCH = datetime.fromtimestamp(0, tz=timezone.utc)
 
 GTAG_ID = os.environ.get("GOOGLE_TAG_MANAGER_ID", "")
 
@@ -90,6 +90,26 @@ class WindObservation(BaseModel):
     speed_kts: float | None
     gust_kts: float | None
     update_time: datetime
+
+
+class WindDataPoint(BaseModel):
+    timestamp: float
+    direction: Optional[int]
+    speed_kts: Optional[int]
+    gust_kts: Optional[int]
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def convert_timestamp(cls, ts_value):
+        if isinstance(ts_value, datetime):
+            # Ensure both datetimes are timezone-aware
+            if ts_value.tzinfo is None:
+                ts_value = ts_value.replace(tzinfo=timezone.utc)
+            # Convert to UTC if not already
+            if ts_value.tzinfo != timezone.utc:
+                ts_value = ts_value.astimezone(timezone.utc)
+            return ts_value.timestamp()
+        return ts_value
 
 
 class ConnectionManager:
@@ -110,7 +130,9 @@ class ConnectionManager:
         if self.db_pool is None:
             database_url = get_database_url(True)
             if database_url:
-                logger.info(f"Creating PostgreSQL connection pool: {database_url[:50]}...")
+                logger.info(
+                    f"Creating PostgreSQL connection pool: {database_url[:50]}..."
+                )
                 self.db_pool = await asyncpg.create_pool(
                     database_url, min_size=2, max_size=10, command_timeout=60
                 )
@@ -125,7 +147,9 @@ class ConnectionManager:
         if self.db_pool is None:
             await self.create_db_pool()
             if self.db_pool is None:
-                raise RuntimeError("Database pool not initialized - ensure lifespan startup completed")
+                raise RuntimeError(
+                    "Database pool not initialized - ensure lifespan startup completed"
+                )
         return self.db_pool
 
     async def connect(self, websocket: WebSocket, station: str):
@@ -353,13 +377,13 @@ class ConnectionManager:
             logger.debug(f"Station name from notification: {station_name}")
 
             if station_name:
-                # Apply the same safe_int conversion as used elsewhere
-                wind_data = {
-                    "timestamp": data.get("update_time"),
-                    "direction": safe_int(data.get("direction")),
-                    "speed_kts": safe_int(data.get("speed_kts")),
-                    "gust_kts": safe_int(data.get("gust_kts")),
-                }
+                # Use Pydantic model for data validation and conversion
+                wind_data = WindDataPoint(
+                    timestamp=data.get("update_time"),
+                    direction=data.get("direction"),
+                    speed_kts=data.get("speed_kts"),
+                    gust_kts=data.get("gust_kts"),
+                ).model_dump()
                 logger.info(
                     f"📡 Broadcasting wind data to station {station_name}: {wind_data}"
                 )
@@ -392,27 +416,8 @@ async def get_db_pool() -> asyncpg.Pool:  # pragma: no cover
         raise HTTPException(status_code=503, detail="Database not available")
 
 
-def epoch_time(dt):
-    # Ensure both datetimes are timezone-aware
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    # Convert to UTC if not already
-    if dt.tzinfo != timezone.utc:
-        dt = dt.astimezone(timezone.utc)
-    delta = dt - EPOCH
-    return delta.total_seconds()
-
-
-def safe_int(d):
-    try:
-        return int(d) if d is not None else None
-    except (TypeError, ValueError):
-        return None
-
-
-async def get_station_timezone(
-    station_name: str, pool: Annotated[asyncpg.Pool, Depends(get_db_pool)]
-) -> str:
+@alru_cache(maxsize=10)
+async def get_station_timezone(station_name: str, pool: asyncpg.Pool) -> str:
     """Get the timezone for a given station"""
     async with pool.acquire() as conn:
         result = await conn.fetchval(
@@ -442,22 +447,17 @@ async def query_wind_data(
             end_time,
         )
 
-        results = [
-            (
-                epoch_time(row["update_time"]),
-                safe_int(row["direction"]),
-                safe_int(row["speed_kts"]),
-                safe_int(row["gust_kts"]),
+        return (
+            WindDataPoint(
+                timestamp=row["update_time"],
+                direction=row["direction"],
+                speed_kts=row["speed_kts"],
+                gust_kts=row["gust_kts"],
             )
-            for row in rows
-        ]
-
-        return results
+            for row in rows)
 
 
-async def get_latest_wind_data(
-    station: str, pool: Annotated[asyncpg.Pool, Depends(get_db_pool)]
-):
+async def get_latest_wind_data(station: str, pool: asyncpg.Pool):
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             "SELECT * FROM get_latest_wind_observation($1)", station
@@ -468,12 +468,12 @@ async def get_latest_wind_data(
             if update_time.tzinfo is None:
                 update_time = update_time.replace(tzinfo=timezone.utc)
 
-            return {
-                "timestamp": epoch_time(update_time),
-                "direction": safe_int(row["direction"]),
-                "speed_kts": safe_int(row["speed_kts"]),
-                "gust_kts": safe_int(row["gust_kts"]),
-            }
+            return WindDataPoint(
+                timestamp=update_time,
+                direction=row["direction"],
+                speed_kts=row["speed_kts"],
+                gust_kts=row["gust_kts"],
+            ).model_dump()
         return None
 
 
@@ -593,10 +593,14 @@ async def health_check(pool: Annotated[asyncpg.Pool, Depends(get_db_pool)]):
     )
 
     # Check connection monitor
-    health_status["connection_monitor"] = {
-        "done": manager.monitor_task.done(),
-        "cancelled": manager.monitor_task.cancelled(),
-    } if manager.monitor_task else "no_task"
+    health_status["connection_monitor"] = (
+        {
+            "done": manager.monitor_task.done(),
+            "cancelled": manager.monitor_task.cancelled(),
+        }
+        if manager.monitor_task
+        else "no_task"
+    )
 
     # Determine overall status
     if (
@@ -631,7 +635,9 @@ async def get_wind_data(
 
     if from_time and to_time:
         # Parse datetime strings as UTC (no timezone conversion)
-        start_time = datetime.strptime(from_time, ISO_FORMAT).replace(tzinfo=timezone.utc)
+        start_time = datetime.strptime(from_time, ISO_FORMAT).replace(
+            tzinfo=timezone.utc
+        )
         end_time = datetime.strptime(to_time, ISO_FORMAT).replace(tzinfo=timezone.utc)
 
     elif hours:
@@ -645,7 +651,11 @@ async def get_wind_data(
         start_time = now_utc - timedelta(hours=24)
         end_time = now_utc
 
-    winddata = await query_wind_data(stn, start_time, end_time, pool)
+    # Convert generator of WindDataPoint objects to list of tuples
+    winddata = [
+        (point.timestamp, point.direction, point.speed_kts, point.gust_kts)
+        for point in await query_wind_data(stn, start_time, end_time, pool)
+    ]
     return {
         "station": stn,
         "winddata": winddata,

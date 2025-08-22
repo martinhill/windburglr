@@ -19,6 +19,7 @@ dependencies = [
     "httpx>=0.25.0",
     "jinja2>=3.1.0",
     "aiofiles>=23.0.0",
+    "async_lru>=2.0.5",
 ]
 
 [project.optional-dependencies]
@@ -80,10 +81,7 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.coverage.report]
-exclude_also = [
-    'if __name__ == .__main__.:',
-    'except Exception',
-]
+exclude_also = ['if __name__ == .__main__.:', 'except Exception']
 
 [tool.uv]
 package = false
