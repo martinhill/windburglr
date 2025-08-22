@@ -61,14 +61,14 @@ sniffio = "*"
 
 [[package]]
 name = "async-lru"
-version = "2.0.4"
+version = "2.0.5"
 description = "Simple LRU cache for asyncio"
 optional = false
-python-versions = ">=3.8"
+python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "async-lru-2.0.4.tar.gz", hash = "sha256:b8a59a5df60805ff63220b2a0c5b5393da5521b113cd5465a44eb037d81a5627"},
-    {file = "async_lru-2.0.4-py3-none-any.whl", hash = "sha256:ff02944ce3c288c5be660c42dbcca0742b32c3b279d6dceda655190240b99224"},
+    {file = "async_lru-2.0.5-py3-none-any.whl", hash = "sha256:ab95404d8d2605310d345932697371a5f40def0487c03d6d0ad9138de52c9943"},
+    {file = "async_lru-2.0.5.tar.gz", hash = "sha256:481d52ccdd27275f42c43a928b4a50c3bfb2d67af4e78b170e3e0bb39c66e5bb"},
 ]
 
 [[package]]
@@ -2198,4 +2198,4 @@ dev = ["asgi-lifespan", "factory-boy", "faker", "fastapi", "httpx-ws", "playwrig
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13"
-content-hash = "12611e2dc76aebc7405c62b8e78b7e101ab4a73d19f8c70cb83f9c510b67edcd"
+content-hash = "109dfb69ca5f76a61fc601011e3e8af040bd0774273e4fa87f850b012e0aa79a"
