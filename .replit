@@ -1,4 +1,4 @@
-modules = ["python-3.13"]
+modules = ["python-3.13", "python-base-3.13"]
 
 hidden = [".pythonlibs"]
 run = "sh start.sh"

@@ -1,30 +1,91 @@
-[tool.poetry]
-name = "python-template"
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "windburglr"
 version = "0.1.0"
-description = ""
-authors = ["Martin Hill <martin@hillm.net>"]
+description = "Real-time wind data visualization and alerting system"
+authors = [{ name = "Martin Hill" }]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "sqlmodel>=0.0.14",
+    "asyncpg>=0.29.0",
+    "python-dotenv>=1.0.0",
+    "websockets>=12.0",
+    "httpx>=0.25.0",
+    "jinja2>=3.1.0",
+    "aiofiles>=23.0.0",
+    "async-lru (==2.0.4)",
+    "waitress (>=3.0.2,<4.0.0)",
+    "onesignalpythonsdk (>=0.1,<0.2)",
+]
 
-[tool.poetry.dependencies]
-python = ">=3.10.0,<3.11"
-flask = "^3.0.0"
-python-dotenv = "^1.0.0"
-psycopg2-binary = "^2.9.9"
-aiohttp = "^3.8.6"
-waitress = "^2.1.2"
-
-[tool.pyright]
-# https://github.com/microsoft/pyright/blob/main/docs/configuration.md
-useLibraryCodeForTypes = true
-include = ["webapp-fastapi"]
-exclude = [".cache"]
-venvPath = "."
-venv = "venv-fastapi"
+[project.optional-dependencies]
+dev = [
+    "fastapi[standard]>=0.104.0",
+    "pyright>=1.1.335",
+    "ruff>=0.1.0",
+    "pytest>=8.4.1",
+    "pytest-asyncio>=1.1.0",
+    "asgi-lifespan>=2.0",
+    "pytest-cov>=4.1.0",
+    "pytest-playwright>=0.4.0",
+    "playwright>=1.40.0",
+    "factory-boy>=3.3.0",
+    "faker>=20.0.0",
+    "httpx-ws>=0.7.2",
+]
 
 [tool.ruff]
-# https://beta.ruff.rs/docs/configuration/
-select = ['E', 'W', 'F', 'I', 'B', 'C4', 'ARG', 'SIM']
-ignore = ['W291', 'W292', 'W293']
+target-version = "py313"
+line-length = 88
 
-[build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "S", "B", "A", "C4", "T20"]
+ignore = ["E501", "S104"]
+
+[tool.ruff.lint.per-file-ignores]
+"__pycache__" = ["E501"]
+"tests/*" = ["S101"]     # Allow assert statements in tests
+
+[tool.pyright]
+typeCheckingMode = "strict"
+pythonVersion = "3.13"
+exclude = ["__pycache__", ".venv", ".git", "htmlcov"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=main",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-report=xml",
+]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "e2e: End-to-end tests",
+    "slow: Slow tests",
+    "asyncio: Async tests",
+]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.coverage.report]
+exclude_also = ['if __name__ == .__main__.:', 'except Exception']
+
+[tool.uv]
+package = false
+
+[tool.poetry]
