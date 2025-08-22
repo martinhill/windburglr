@@ -4,7 +4,7 @@ import logging
 import os
 import zoneinfo
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Optional
 
 import asyncpg
@@ -79,7 +79,7 @@ templates = Jinja2Templates(directory="templates")
 
 DEFAULT_STATION = "CYTZ"
 ISO_FORMAT = "%Y-%m-%dT%H:%M:%S"
-EPOCH = datetime.fromtimestamp(0, tz=UTC)
+EPOCH = datetime.fromtimestamp(0, tz=timezone.utc)
 
 GTAG_ID = os.environ.get("GOOGLE_TAG_MANAGER_ID", "")
 
@@ -395,10 +395,10 @@ async def get_db_pool() -> asyncpg.Pool:  # pragma: no cover
 def epoch_time(dt):
     # Ensure both datetimes are timezone-aware
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
+        dt = dt.replace(tzinfo=timezone.utc)
     # Convert to UTC if not already
-    if dt.tzinfo != UTC:
-        dt = dt.astimezone(UTC)
+    if dt.tzinfo != timezone.utc:
+        dt = dt.astimezone(timezone.utc)
     delta = dt - EPOCH
     return delta.total_seconds()
 
@@ -430,9 +430,9 @@ async def query_wind_data(
     # Convert timezone-aware datetimes to timezone-naive UTC for asyncpg
     # (PostgreSQL timestamp columns are typically timezone-naive)
     if start_time.tzinfo is not None:
-        start_time = start_time.astimezone(UTC).replace(tzinfo=None)
+        start_time = start_time.astimezone(timezone.utc).replace(tzinfo=None)
     if end_time.tzinfo is not None:
-        end_time = end_time.astimezone(UTC).replace(tzinfo=None)
+        end_time = end_time.astimezone(timezone.utc).replace(tzinfo=None)
 
     async with pool.acquire() as conn:
         rows = await conn.fetch(
@@ -466,7 +466,7 @@ async def get_latest_wind_data(
             # Ensure update_time is timezone-aware before processing
             update_time = row["update_time"]
             if update_time.tzinfo is None:
-                update_time = update_time.replace(tzinfo=UTC)
+                update_time = update_time.replace(tzinfo=timezone.utc)
 
             return {
                 "timestamp": epoch_time(update_time),
@@ -532,8 +532,8 @@ async def historical_wind_day_chart(
         )
         day_end_local = day_start_local + timedelta(days=1)
 
-        day_start_utc = day_start_local.astimezone(UTC)
-        day_end_utc = day_end_local.astimezone(UTC)
+        day_start_utc = day_start_local.astimezone(timezone.utc)
+        day_end_utc = day_end_local.astimezone(timezone.utc)
 
         return templates.TemplateResponse(
             request=request,
@@ -564,7 +564,7 @@ async def health_check(pool: Annotated[asyncpg.Pool, Depends(get_db_pool)]):
     """Health check endpoint for monitoring and load balancers"""
     health_status = {
         "status": "healthy",
-        "timestamp": datetime.now(UTC).isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "database": "unknown",
         "websocket": "unknown",
         "postgresql_listener": "unknown",
@@ -610,7 +610,7 @@ async def health_check(pool: Annotated[asyncpg.Pool, Depends(get_db_pool)]):
     return health_status
 
 
-@router.get("/health/stack", response_class=PlainTextResponse)
+@router.get("/health/stack", response_class=PlainTextResponse)  # pragma: no cover
 async def get_health_stack():
     """Returns the stack of the monitoring task"""
     if manager.monitor_task:
@@ -631,17 +631,17 @@ async def get_wind_data(
 
     if from_time and to_time:
         # Parse datetime strings as UTC (no timezone conversion)
-        start_time = datetime.strptime(from_time, ISO_FORMAT).replace(tzinfo=UTC)
-        end_time = datetime.strptime(to_time, ISO_FORMAT).replace(tzinfo=UTC)
+        start_time = datetime.strptime(from_time, ISO_FORMAT).replace(tzinfo=timezone.utc)
+        end_time = datetime.strptime(to_time, ISO_FORMAT).replace(tzinfo=timezone.utc)
 
     elif hours:
         # For relative time queries, use current UTC time
-        now_utc = datetime.now(UTC)
+        now_utc = datetime.now(timezone.utc)
         start_time = now_utc - timedelta(hours=hours)
         end_time = now_utc
     else:
         # Default: last 24 hours in UTC
-        now_utc = datetime.now(UTC)
+        now_utc = datetime.now(timezone.utc)
         start_time = now_utc - timedelta(hours=24)
         end_time = now_utc
 

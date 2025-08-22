@@ -555,6 +555,11 @@ def test_client(mock_test_db_manager):
 
 
 @pytest.fixture
+async def set_env_database_url():
+    os.environ["DATABASE_URL"] = os.environ["TEST_DATABASE_URL"]
+
+
+@pytest.fixture
 async def persistent_connection():
     """Provide a persistent database connection for the listener."""
     import asyncpg
@@ -628,7 +633,7 @@ async def integration_client_with_bulk_data(app_with_bulk_data):
 
 
 @pytest.fixture
-async def ws_integration_client(app_with_bulk_data):
+async def ws_integration_client(set_env_database_url, app_with_bulk_data):
     """Create a test client with real database for integration tests."""
     async with AsyncClient(
         transport=ASGIWebSocketTransport(app=app_with_bulk_data), base_url="http://testserver"

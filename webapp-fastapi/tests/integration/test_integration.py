@@ -1,5 +1,5 @@
-from time import sleep
 import pytest
+from asyncio import sleep
 from datetime import datetime, timezone
 from httpx import AsyncClient
 from httpx_ws import aconnect_ws
@@ -97,7 +97,7 @@ class TestIntegration:
             assert latest_wind_obs["gust_kts"] == check_latest_wind_obs["gust_kts"]
 
             # Test live update
-            sleep(1)
+            await sleep(1)
             new_obs_time = datetime.now(timezone.utc)
             await test_db_with_bulk_data.insert_new_wind_obs(
                 station_name="CYTZ",
@@ -126,3 +126,45 @@ class TestIntegration:
         # Response should be reasonably fast
         response_time = (end_time - start_time).total_seconds()
         assert response_time < 0.1  # Basic performance check
+
+    @pytest.mark.slow
+    @pytest.mark.anyio
+    async def test_listener_reconnection(
+        self, ws_integration_client, test_db_with_bulk_data, persistent_connection):
+        """Test listener reconnection."""
+        check_latest_wind_obs = test_db_with_bulk_data.latest_wind_obs
+        async with aconnect_ws("/ws/CYTZ", ws_integration_client) as websocket:
+            #  The first message should be the latest wind observation
+            latest_wind_obs = await websocket.receive_json()
+            assert isinstance(latest_wind_obs, dict)
+            # Should receive some JSON data structure
+            update_time = datetime.fromtimestamp(latest_wind_obs["timestamp"], tz=timezone.utc).replace(tzinfo=None)
+            assert update_time == check_latest_wind_obs["update_time"]
+            assert latest_wind_obs["direction"] == check_latest_wind_obs["direction"]
+            assert latest_wind_obs["speed_kts"] == check_latest_wind_obs["speed_kts"]
+            assert latest_wind_obs["gust_kts"] == check_latest_wind_obs["gust_kts"]
+
+            # Close the listener Connection
+            await persistent_connection.close()
+
+            # Ensure enough time has passed for the listener to reconnect
+            await sleep(35)
+            # Ignore the ping message
+            ping = await websocket.receive_json()
+            assert ping["type"] == "ping"
+
+            # Test live updates continue
+            new_obs_time = datetime.now(timezone.utc)
+            await test_db_with_bulk_data.insert_new_wind_obs(
+                station_name="CYTZ",
+                direction=180,
+                speed_kts=10,
+                gust_kts=None,
+                obs_time=new_obs_time.replace(tzinfo=None))
+
+            updated_wind_obs = await websocket.receive_json()
+            assert isinstance(updated_wind_obs, dict)
+            assert updated_wind_obs["timestamp"] == new_obs_time.timestamp()
+            assert updated_wind_obs["direction"] == 180
+            assert updated_wind_obs["speed_kts"] == 10
+            assert updated_wind_obs["gust_kts"] is None
