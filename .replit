@@ -14,3 +14,15 @@ deploymentTarget = "cloudrun"
 [[ports]]
 localPort = 5000
 externalPort = 80
+
+[workflows]
+runButton = "Run FastAPI App"
+
+[[workflows.workflow]]
+name = "Run FastAPI App"
+author = 25356697
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd webapp-fastapi && poetry run python main.py"
