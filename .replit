@@ -5,7 +5,6 @@ run = "sh start.sh"
 
 [nix]
 channel = "stable-25_05"
-packages = ["postgresql"]
 
 [env]
 REPLIT_PYTHON_PACKAGE_LAYER = "1"
@@ -13,11 +12,7 @@ REPLIT_PYTHON_PACKAGE_LAYER = "1"
 [deployment]
 run = ["sh", "start.sh"]
 deploymentTarget = "cloudrun"
-build = [
-    "sh",
-    "-c",
-    "cd webapp-fastapi && poetry lock && poetry install --no-root",
-]
+build = ["sh", "-c", "cd webapp-fastapi && poetry install -v"]
 
 
 [[ports]]
