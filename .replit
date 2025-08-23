@@ -7,9 +7,18 @@ run = "sh start.sh"
 channel = "stable-25_05"
 packages = ["postgresql"]
 
+[env]
+REPLIT_PYTHON_PACKAGE_LAYER = "1"
+
 [deployment]
 run = ["sh", "start.sh"]
 deploymentTarget = "cloudrun"
+build = [
+    "sh",
+    "-c",
+    "cd webapp-fastapi && poetry lock && poetry install --no-root",
+]
+
 
 [[ports]]
 localPort = 5000
