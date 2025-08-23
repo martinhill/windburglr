@@ -124,11 +124,15 @@ async def test_db_manager():
                     )  # Gradual direction changes
 
                     # Simulate realistic wind speeds with some variation
-                    base_speed = 8 + (hour_of_day % 12)  # Varies by time of day
+                    base_speed = 5 + (hour_of_day % 12)  # Varies by time of day
                     speed_kts = max(0, base_speed + (i % 7) - 3)  # Add some randomness
+                    if speed_kts == 0:
+                        direction = None
                     gust_kts = speed_kts + max(
-                        1, (i % 5)
+                        speed_kts + 2, speed_kts + (i % 5)
                     )  # Gust is typically 1-5 kts above speed
+                    if gust_kts == speed_kts + 2:
+                        gust_kts = None
 
                     await conn.execute(
                         """
