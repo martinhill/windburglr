@@ -5,6 +5,7 @@ run = "sh start.sh"
 
 [nix]
 channel = "stable-25_05"
+packages = ["postgresql"]
 
 [deployment]
 run = ["sh", "start.sh"]
