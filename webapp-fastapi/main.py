@@ -2,10 +2,12 @@ import asyncio
 import json
 import logging
 import os
+import time
 import zoneinfo
+from bisect import bisect_left
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
-from typing import Annotated, Optional
+from typing import Annotated, Optional, List, Tuple
 
 import asyncpg
 from async_lru import alru_cache
@@ -46,12 +48,16 @@ logger.setLevel(log_level_value)
 logger.debug(f"Logger configured with level: {log_level} ({log_level_value})")
 logger.info(f"WindBurglr logger initialized at level: {log_level}")
 
+app_globals = {}
 
 def make_app(pg_connection: Optional[asyncpg.Connection] = None):
     global router
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        # Create fresh ConnectionManager instance for this app
+        manager = app_globals["manager"] = ConnectionManager()
+
         # Startup
         logger.info("Starting WindBurglr application")
 
@@ -83,13 +89,9 @@ ISO_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
 GTAG_ID = os.environ.get("GOOGLE_TAG_MANAGER_ID", "")
 
-
-class WindObservation(BaseModel):
-    station: str
-    direction: float | None
-    speed_kts: float | None
-    gust_kts: float | None
-    update_time: datetime
+# Cache configuration
+DATA_CACHE_HOURS = int(os.environ.get("DATA_CACHE_HOURS", "24"))
+CACHE_DURATION = timedelta(hours=DATA_CACHE_HOURS)
 
 
 class WindDataPoint(BaseModel):
@@ -120,6 +122,190 @@ class ConnectionManager:
         self.db_pool: asyncpg.Pool | None = None
         self.monitor_task: asyncio.Task | None = None
         self._is_pg_listener_healthy = False
+
+        # Initialize cache storage for wind data
+        self._init_cache()
+
+    def _init_cache(self):
+        """Initialize cache attributes"""
+        self.wind_data_cache: dict[
+            str, list[tuple]
+        ] = {}  # station -> list of (timestamp, direction, speed_kts, gust_kts)
+        self.cache_oldest_time: dict[
+            str, datetime
+        ] = {}  # station -> oldest cached timestamp
+        self.cache_lock: asyncio.Lock = (
+            asyncio.Lock()
+        )  # For thread-safe cache operations
+        self.cache_hit_count = 0
+        self.cache_miss_count = 0
+
+    async def _add_to_cache(self, station: str, data: tuple):
+        """Add new observation to cache"""
+        async with self.cache_lock:
+            if station not in self.wind_data_cache:
+                self.wind_data_cache[station] = []
+                self.cache_oldest_time[station] = data[0]  # timestamp is first element
+
+            # Add new data point (data is already a tuple: (timestamp, direction, speed_kts, gust_kts))
+            self.wind_data_cache[station].append(data)
+
+            # Update oldest time if this is the oldest
+            if data[0] < self.cache_oldest_time[station]:
+                self.cache_oldest_time[station] = data[0]
+
+            # Prune old data beyond cache duration
+            await self._prune_cache(station)
+
+            logger.debug(
+                f"Added data to cache for station {station}, cache size: {len(self.wind_data_cache[station])}"
+            )
+
+    async def _prune_cache(self, station: str):
+        """Remove data older than cache duration"""
+        if station not in self.wind_data_cache:
+            return
+
+        cutoff_time = datetime.now(timezone.utc) - CACHE_DURATION
+        cutoff_timestamp = cutoff_time.timestamp()
+
+        # Find insertion point for cutoff time (data is sorted by timestamp)
+        cache_data = self.wind_data_cache[station]
+        if not cache_data:
+            return
+
+        # Use bisect to find where to trim
+        from bisect import bisect_left
+
+        insert_point = bisect_left([item[0] for item in cache_data], cutoff_timestamp)
+
+        if insert_point > 0:
+            # Remove old data
+            self.wind_data_cache[station] = cache_data[insert_point:]
+            if self.wind_data_cache[station]:
+                self.cache_oldest_time[station] = self.wind_data_cache[station][0][0]
+            else:
+                # No data left, remove station from cache
+                del self.wind_data_cache[station]
+                del self.cache_oldest_time[station]
+
+            logger.debug(
+                f"Pruned cache for station {station}, removed {insert_point} old entries"
+            )
+
+    async def _is_cache_hit(
+        self, station: str, start_time: datetime, end_time: datetime
+    ) -> bool:
+        """Check if cache covers the requested time range"""
+        if station not in self.cache_oldest_time or station not in self.wind_data_cache:
+            return False
+
+        # Convert times to UTC if needed
+        if start_time.tzinfo is not None:
+            start_time = start_time.astimezone(timezone.utc)
+        if end_time.tzinfo is not None:
+            end_time = end_time.astimezone(timezone.utc)
+
+        start_ts = start_time.timestamp()
+        end_ts = end_time.timestamp()
+        oldest_ts = float(self.cache_oldest_time[station])
+
+        # Quick check: requested range must be within cached range
+        if start_ts < oldest_ts:
+            logger.debug(
+                f"Cache miss: start_time {start_time} is before oldest cached time"
+            )
+            return False
+
+        cache_data = self.wind_data_cache[station]
+        if not cache_data:
+            return False
+
+        # Check if there's any overlap between requested range and cached range
+        newest_ts = cache_data[-1][0]  # Last item has the newest timestamp
+
+        # Check for overlap: requested range [start_ts, end_ts] overlaps with cached range [oldest_ts, newest_ts]
+        has_overlap = max(start_ts, oldest_ts) < min(end_ts, newest_ts)
+
+        if not has_overlap:
+            logger.debug(
+                f"Cache miss: no overlap between requested range {start_time} to {end_time} and cached range"
+            )
+            return False
+
+        logger.debug(
+            f"Cache hit: found overlap between requested range {start_time} to {end_time} and cached range"
+        )
+        return True
+
+    async def _get_cached_data(
+        self, station: str, start_time: datetime, end_time: datetime
+    ) -> list[tuple]:
+        """Get cached data for the specified time range"""
+        if station not in self.wind_data_cache:
+            return []
+
+        cache_data = self.wind_data_cache[station]
+        if not cache_data:
+            return []
+
+        # Convert times to UTC timestamps
+        if start_time.tzinfo is not None:
+            start_time = start_time.astimezone(timezone.utc)
+        if end_time.tzinfo is not None:
+            end_time = end_time.astimezone(timezone.utc)
+
+        start_ts = start_time.timestamp()
+        end_ts = end_time.timestamp()
+
+        # Find data in range using binary search
+        from bisect import bisect_left, bisect_right
+
+        timestamps = [item[0] for item in cache_data]
+        start_idx = bisect_left(timestamps, start_ts)
+        end_idx = bisect_right(timestamps, end_ts)
+
+        return cache_data[start_idx:end_idx]
+
+    async def _update_cache_with_data(
+        self,
+        station: str,
+        start_time: datetime,
+        end_time: datetime,
+        wind_data: List[Tuple],
+    ):
+        """Populate cache with data from database"""
+        try:
+            start_ts = start_time.replace(tzinfo=timezone.utc).timestamp()
+            # Sort data by timestamp to maintain chronological order
+            sorted_data = sorted(wind_data, key=lambda x: x[0])  # Sort by timestamp
+
+            async with self.cache_lock:
+                if station not in self.wind_data_cache:
+                    self.wind_data_cache[station] = []
+                    self.cache_oldest_time[station] = (
+                        sorted_data[0][0] if sorted_data else 0
+                    )
+
+                # Add all data points at once to maintain chronological order
+                self.wind_data_cache[station].extend(sorted_data)
+
+                # Update oldest time if this data is older
+                if sorted_data and sorted_data[0][0]:
+                    start_ts = min(sorted_data[0][0], start_ts)
+                if start_ts < self.cache_oldest_time[station]:
+                    self.cache_oldest_time[station] = start_ts
+
+                # Prune old data after adding new data
+                await self._prune_cache(station)
+
+            logger.debug(
+                f"Updated cache for station {station} with {len(sorted_data)} new entries"
+            )
+        except Exception as e:
+            logger.error(
+                f"Error updating cache from database for station {station}: {e}"
+            )
 
     def set_pg_listener(self, connection: asyncpg.Connection):
         """Inject an asyncpg connection to be used as the pg_listener"""
@@ -392,13 +578,22 @@ class ConnectionManager:
                 )
 
                 await self.broadcast_to_station(json.dumps(wind_data), station_name)
+
+                # Add new observation to cache
+                data_tuple = (
+                    wind_data["timestamp"],
+                    wind_data["direction"],
+                    wind_data["speed_kts"],
+                    wind_data["gust_kts"],
+                )
+                await self._add_to_cache(station_name, data_tuple)
             else:
                 logger.warning("No station name found in notification data")
         except Exception as e:
             logger.error(f"Error handling notification: {e}", exc_info=True)
 
 
-manager = ConnectionManager()
+# manager = ConnectionManager()
 
 
 def get_database_url(pooled: bool = False) -> str:  # pragma: no cover
@@ -407,7 +602,14 @@ def get_database_url(pooled: bool = False) -> str:  # pragma: no cover
     return os.environ.get("DATABASE_URL", "")
 
 
-async def get_db_pool() -> asyncpg.Pool:  # pragma: no cover
+async def get_manager() -> ConnectionManager:
+    """Dependency to get the ConnectionManager instance from app.state"""
+    return app_globals.get("manager")
+
+
+async def get_db_pool(
+    manager: Annotated[ConnectionManager, Depends(get_manager)],
+) -> asyncpg.Pool:  # pragma: no cover
     """Get database pool with proper error handling"""
     try:
         return await manager.get_db_pool()
@@ -419,10 +621,12 @@ async def get_db_pool() -> asyncpg.Pool:  # pragma: no cover
 @alru_cache(maxsize=10)
 async def get_station_timezone(station_name: str, pool: asyncpg.Pool) -> str:
     """Get the timezone for a given station"""
+    # logger.debug(f"get_station_timezone called for {station_name}")
     async with pool.acquire() as conn:
         result = await conn.fetchval(
             "SELECT get_station_timezone_name($1)", station_name
         )
+        logger.debug(f"get_station_timezone result for {station_name}: {result}")
         return result or "UTC"
 
 
@@ -454,7 +658,8 @@ async def query_wind_data(
                 speed_kts=row["speed_kts"],
                 gust_kts=row["gust_kts"],
             )
-            for row in rows)
+            for row in rows
+        )
 
 
 async def get_latest_wind_data(station: str, pool: asyncpg.Pool):
@@ -560,7 +765,10 @@ async def historical_wind_day_chart(
 
 
 @router.get("/health")
-async def health_check(pool: Annotated[asyncpg.Pool, Depends(get_db_pool)]):
+async def health_check(
+    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+    manager: Annotated[ConnectionManager, Depends(get_manager)],
+):
     """Health check endpoint for monitoring and load balancers"""
     health_status = {
         "status": "healthy",
@@ -602,6 +810,28 @@ async def health_check(pool: Annotated[asyncpg.Pool, Depends(get_db_pool)]):
         else "no_task"
     )
 
+    # Add cache statistics
+    health_status["cache"] = {
+        "cache_hit_count": manager.cache_hit_count,
+        "cache_miss_count": manager.cache_miss_count,
+        "cache_hit_ratio": (
+            manager.cache_hit_count
+            / (manager.cache_hit_count + manager.cache_miss_count)
+            if (manager.cache_hit_count + manager.cache_miss_count) > 0
+            else 0
+        ),
+        "stations_cached": len(manager.wind_data_cache),
+        "total_cached_entries": sum(
+            len(entries) for entries in manager.wind_data_cache.values()
+        ),
+        "oldest_cache_entry": datetime.fromtimestamp(
+            min(manager.cache_oldest_time.values()), tz=timezone.utc
+        )
+        if manager.cache_oldest_time
+        else None,
+        "cache_duration_hours": DATA_CACHE_HOURS,
+    }
+
     # Determine overall status
     if (
         health_status["database"] == "connected"
@@ -625,11 +855,12 @@ async def get_health_stack():
 @router.get("/api/wind")
 async def get_wind_data(
     pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+    manager: Annotated[ConnectionManager, Depends(get_manager)],
     stn: str = DEFAULT_STATION,
     from_time: str | None = None,
     to_time: str | None = None,
     hours: int | None = None,
-):
+) -> dict:
     # Get station timezone for metadata only
     station_tz_name = await get_station_timezone(stn, pool)
 
@@ -651,17 +882,47 @@ async def get_wind_data(
         start_time = now_utc - timedelta(hours=24)
         end_time = now_utc
 
-    # Convert generator of WindDataPoint objects to list of tuples
-    winddata = [
-        (point.timestamp, point.direction, point.speed_kts, point.gust_kts)
-        for point in await query_wind_data(stn, start_time, end_time, pool)
-    ]
+    # Try cache-first approach
+    is_cache_hit = await manager._is_cache_hit(stn, start_time, end_time)
+    logger.debug(
+        f"Cache check for station {stn}: hit={is_cache_hit}, start_time={start_time}, cache_oldest={manager.cache_oldest_time.get(stn, 'None')}, cache_size={len(manager.wind_data_cache.get(stn, []))}"
+    )
+
+    if is_cache_hit:
+        # Cache hit - get data from cache
+        cached_data = await manager._get_cached_data(stn, start_time, end_time)
+        manager.cache_hit_count += 1
+        logger.debug(
+            f"Cache hit for station {stn}, returned {len(cached_data)} data points"
+        )
+        winddata = cached_data
+    else:
+        # Cache miss - query database and update cache
+        manager.cache_miss_count += 1
+        logger.debug(f"Cache miss for station {stn}, querying database")
+
+        # Query database
+        winddata = [
+            (point.timestamp, point.direction, point.speed_kts, point.gust_kts)
+            for point in await query_wind_data(stn, start_time, end_time, pool)
+        ]
+
+        # Update cache with fresh data
+        logger.debug(
+            f"Updating cache for station {stn} with data from {start_time} to {end_time}"
+        )
+        await manager._update_cache_with_data(stn, start_time, end_time, winddata)
+        logger.debug(
+            f"Cache updated for station {stn}, cache size now: {len(manager.wind_data_cache.get(stn, []))}"
+        )
+
     return {
         "station": stn,
         "winddata": winddata,
         "timezone": station_tz_name,
         "start_time": start_time.isoformat(),
         "end_time": end_time.isoformat(),
+        "cache_hit": is_cache_hit,
     }
 
 
@@ -670,6 +931,7 @@ async def websocket_endpoint(
     websocket: WebSocket,
     station: str,
     pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+    manager: Annotated[ConnectionManager, Depends(get_manager)],
 ):
     await manager.connect(websocket, station)
     try:

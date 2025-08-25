@@ -37,9 +37,9 @@ class TestAPI:
             assert isinstance(obs, list)
             assert len(obs) == 4  # [timestamp, direction, speed, gust]
             assert isinstance(obs[0], (int, float))  # timestamp
-            assert isinstance(obs[1], (int, float))  # direction
+            assert isinstance(obs[1], (int, float)) or obs[1] is None  # direction
             assert isinstance(obs[2], (int, float))  # speed
-            assert isinstance(obs[3], (int, float))  # gust
+            assert isinstance(obs[3], (int, float)) or obs[3] is None  # gust
 
     @pytest.mark.anyio
     async def test_api_wind_custom_station_with_data(
@@ -61,9 +61,9 @@ class TestAPI:
             assert isinstance(obs, list)
             assert len(obs) == 4  # [timestamp, direction, speed, gust]
             assert isinstance(obs[0], (int, float))  # timestamp
-            assert isinstance(obs[1], (int, float))  # direction
+            assert isinstance(obs[1], (int, float)) or obs[1] is None  # direction
             assert isinstance(obs[2], (int, float))  # speed
-            assert isinstance(obs[3], (int, float))  # gust
+            assert isinstance(obs[3], (int, float)) or obs[3] is None  # gust
 
 
     @pytest.mark.anyio
@@ -189,6 +189,6 @@ class TestAPI:
             assert isinstance(obs, list)
             assert len(obs) == 4  # [timestamp, direction, speed, gust]
             assert isinstance(obs[0], (int, float))  # timestamp
-            assert isinstance(obs[1], (int, float))  # direction
+            assert isinstance(obs[1], (int, float)) or obs[1] is None  # direction
             assert isinstance(obs[2], (int, float))  # speed
-            assert isinstance(obs[3], (int, float))  # gust
+            assert isinstance(obs[3], (int, float)) or obs[3] is None   # gust

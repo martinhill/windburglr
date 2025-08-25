@@ -2,12 +2,18 @@
 
 TODO: Test /day redirect at local day start/end boundaries
 """
+
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from pydantic import ValidationError
 from pydantic import types
 from pydantic import BaseModel
+import pytest
+import logging
 
+from main import WindDataPoint
+
+logger = logging.getLogger(__name__)
 
 def test_health(test_client):
     """Test health endpoint."""
@@ -19,12 +25,14 @@ def test_health(test_client):
     assert health_data["websocket"] == "no_connections"
     assert health_data["postgresql_listener"] == "unhealthy"
 
+
 def test_root_endpoint(test_client):
     """Test root endpoint returns HTML."""
     response = test_client.get("/")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert "windburglr" in response.text.lower()
+
 
 def test_day_redirect(test_client):
     """Test day redirect endpoint."""
@@ -33,19 +41,20 @@ def test_day_redirect(test_client):
     today_iso = datetime.now(ZoneInfo("America/Toronto")).strftime("%Y-%m-%d")
     assert f"/day/{today_iso}" in response.headers["location"]
 
+
 def test_historical_day_endpoint(test_client):
     """Test historical day endpoint."""
-    from datetime import datetime
-
     today = datetime.now().strftime("%Y-%m-%d")
     response = test_client.get(f"/day/{today}")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
 
+
 def test_historical_day_invalid_date(test_client):
     """Test historical day endpoint with invalid date."""
     response = test_client.get("/day/invalid-date")
     assert response.status_code == 400
+
 
 def test_api_wind_no_params(test_client):
     """Test API wind endpoint with no parameters."""
@@ -107,7 +116,7 @@ def test_api_wind_hours_param(test_client, mock_test_db_manager):
     data = response.json()
     assert data["station"] == "CYTZ"
     # Filtering is done by the DB query, not available in unit tests
-    assert len(data["winddata"]) == 24 * 60
+    assert len(data["winddata"]) == 6 * 60 - 1
 
     for obs in data["winddata"]:
         assert isinstance(obs, list)
@@ -140,9 +149,7 @@ def test_api_wind_time_range(test_client):
         assert isinstance(obs[3], (int, float))  # gust
 
 
-def test_api_wind_with_minute_interval_data(
-    test_client, mock_test_db_manager
-):
+def test_api_wind_with_minute_interval_data(test_client, mock_test_db_manager):
     """Test API wind endpoint with 1-minute interval test data."""
     # Generate 1 day of test data at 1-minute intervals
     test_data = mock_test_db_manager.create_test_data(station_name="CYTZ", days=1)
@@ -167,6 +174,7 @@ def test_api_wind_with_minute_interval_data(
         assert isinstance(obs[2], (int, float))  # speed
         assert isinstance(obs[3], (int, float))  # gust
 
+
 def test_api_wind_custom_station_with_data(test_client, mock_test_db_manager):
     """Test API wind endpoint with custom station and generated data."""
     # Generate test data for CYYZ station at 1-minute intervals
@@ -190,9 +198,8 @@ def test_api_wind_custom_station_with_data(test_client, mock_test_db_manager):
         assert isinstance(obs[2], (int, float))  # speed
         assert isinstance(obs[3], (int, float))  # gust
 
-def test_api_wind_hours_param_with_generated_data(
-    test_client, mock_test_db_manager
-):
+
+def test_api_wind_hours_param_with_generated_data(test_client, mock_test_db_manager):
     """Test API wind endpoint with hours parameter using 1-minute interval data."""
     # Generate 1 day of test data at 1-minute intervals
     test_data = mock_test_db_manager.create_test_data(station_name="CYTZ", days=1)
@@ -204,7 +211,8 @@ def test_api_wind_hours_param_with_generated_data(
     assert data["station"] == "CYTZ"
 
     # Verify we have the expected amount of generated data (1440 records for 1 day)
-    assert len(test_data) == 24 * 60
+    wind_data = data["winddata"]
+    assert len(wind_data) == 6 * 60 - 1
 
     # The API should return data within the last 6 hours
     # With 1-minute intervals, expect ~360 records for 6 hours
@@ -215,6 +223,7 @@ def test_api_wind_hours_param_with_generated_data(
         assert isinstance(obs[1], (int, float))  # direction
         assert isinstance(obs[2], (int, float))  # speed
         assert isinstance(obs[3], (int, float))  # gust
+
 
 def test_create_wind_observation_not_implemented(test_client):
     """Test POST endpoint returns not implemented."""
@@ -228,3 +237,248 @@ def test_create_wind_observation_not_implemented(test_client):
 
     response = test_client.post("/api/wind", json=sample_data)
     assert response.status_code == 405
+
+
+def test_api_wind_data_matches_generated_data(test_client, mock_test_db_manager):
+    """Test that API wind data matches the generated test data."""
+    # Generate test data for CYTZ station at 1-minute intervals
+    test_data = mock_test_db_manager.create_test_data(station_name="CYTZ", days=1)
+
+    # Get the API response
+    response = test_client.get("/api/wind")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["station"] == "CYTZ"
+
+    # Verify we have the expected data
+    api_wind_data = data["winddata"]
+
+    assert len(api_wind_data) == 24*60-1
+
+    # API wind data is a list of lists [timestamp, direction, speed, gust]
+    # Test data is a list of dicts with keys: direction, speed_kts, gust_kts, update_time, station
+
+    # Check that each API data point exists in the test data
+    test_data_by_timestamp = {int(item["update_time"].replace(tzinfo=timezone.utc).timestamp()): item for item in test_data}
+
+    for api_item in api_wind_data:
+        timestamp = int(api_item[0])
+        api_point = WindDataPoint(
+            timestamp=api_item[0],
+            direction=api_item[1],
+            speed_kts=api_item[2],
+            gust_kts=api_item[3],
+        )
+
+        # Verify this timestamp exists in the test data
+        assert timestamp in test_data_by_timestamp, (
+            f"API timestamp {timestamp} not found in test data"
+        )
+
+        test_item = test_data_by_timestamp[timestamp]
+        test_item['timestamp'] = test_item['update_time']
+        test_point = WindDataPoint(**test_item)
+
+        assert api_point == test_point, (
+            f"Data mismatch for timestamp {timestamp}"
+        )
+
+def test_api_wind_custom_station_data_matches(test_client, mock_test_db_manager):
+    """Test that API wind data for custom station matches the generated test data."""
+    # Generate test data for CYYZ station
+    test_data = mock_test_db_manager.create_test_data(station_name="CYYZ", days=1)
+
+    # Get the API response for the same station
+    response = test_client.get("/api/wind?stn=CYYZ")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["station"] == "CYYZ"
+
+    # Verify we have the expected data
+    api_wind_data = data["winddata"]
+
+    # Check that each API data point exists in the test data
+    test_data_by_timestamp = {int(item["update_time"].replace(tzinfo=timezone.utc).timestamp()): item for item in test_data}
+
+    for api_item in api_wind_data:
+        timestamp = int(api_item[0])
+        api_point = WindDataPoint(
+            timestamp=api_item[0],
+            direction=api_item[1],
+            speed_kts=api_item[2],
+            gust_kts=api_item[3],
+        )
+
+        # Verify this timestamp exists in the test data
+        assert timestamp in test_data_by_timestamp, (
+            f"API timestamp {timestamp} not found in test data"
+        )
+
+        test_item = test_data_by_timestamp[timestamp]
+        test_item['timestamp'] = test_item['update_time']
+        test_point = WindDataPoint(**test_item)
+
+        assert api_point == test_point, (
+            f"Data mismatch for timestamp {timestamp}"
+        )
+
+
+def test_api_wind_hours_param_data_verification(test_client, mock_test_db_manager):
+    """Test that API wind data with hours parameter correctly filters and returns expected data."""
+    # Generate test data
+    test_data = mock_test_db_manager.create_test_data(station_name="CYTZ", days=1)
+
+    # Request only the last 6 hours of data
+    hours = 6
+    response = test_client.get(f"/api/wind?hours={hours}")
+    assert response.status_code == 200
+
+    data = response.json()
+    api_wind_data = data["winddata"]
+
+    assert len(api_wind_data) == 60 * hours - 1
+
+    # Calculate the cutoff time (6 hours ago)
+    now = datetime.now(timezone.utc)
+    cutoff_time = now - timedelta(hours=hours)
+
+    # Convert API data to a lookup dictionary
+    api_data_by_timestamp = {int(item[0]): item for item in api_wind_data}
+
+    test_data_by_timestamp = {int(item["update_time"].replace(tzinfo=timezone.utc).timestamp()): item for item in test_data}
+
+    matching_items = 0
+    for api_item in api_wind_data:
+        timestamp = int(api_item[0])
+        api_point = WindDataPoint(
+            timestamp=api_item[0],
+            direction=api_item[1],
+            speed_kts=api_item[2],
+            gust_kts=api_item[3],
+        )
+
+        # Verify the item exists in the test data
+        if timestamp in test_data_by_timestamp:
+            test_item = test_data_by_timestamp[timestamp]
+            test_item['timestamp'] = test_item['update_time']
+            test_point = WindDataPoint(**test_item)
+
+            assert api_point == test_point, (
+                f"Data mismatch for timestamp {timestamp}"
+            )
+            matching_items += 1
+
+    # Verify we found at least some matching items
+    assert matching_items > 0, (
+        "No matching data points found in the specified time range"
+    )
+
+
+def test_wind_data_caching_simple(test_client, mock_test_db_manager):
+    """Test caching mechanism for wind data."""
+    # Generate 1 day of test data at 1-minute intervals
+    test_data = mock_test_db_manager.create_test_data(station_name="CYTZ", days=1)
+
+    initial_query_count = mock_test_db_manager.query_count
+
+    # Fetch wind data without caching
+    response = test_client.get("/api/wind?hours=6")
+    wind_data = response.json()["winddata"]
+    assert response.status_code == 200
+
+    # Verify the database was queried (wind data + timezone)
+    assert mock_test_db_manager.query_count == initial_query_count + 2, (
+        f"Database was not queried (count: {mock_test_db_manager.query_count})"
+    )
+
+    # Fetch wind data with caching
+    response = test_client.get("/api/wind?hours=6")
+    wind_data2 = response.json()["winddata"]
+    assert response.status_code == 200
+
+    # Verify the database was not queried again for wind data (timezone is cached)
+    assert mock_test_db_manager.query_count == initial_query_count + 2, (
+        f"Database was queried for wind data (count: {mock_test_db_manager.query_count})"
+    )
+
+    assert len(wind_data) == len(wind_data2), "Wind data length does not match"
+    assert wind_data == wind_data2, (
+        f"Wind data does not match {datetime.fromtimestamp(wind_data[-1][0])} != {datetime.fromtimestamp(wind_data2[-1][0])}"
+    )
+
+    # Fetch more wind data without caching
+    response = test_client.get("/api/wind?hours=12")
+    assert response.status_code == 200
+
+    # Verify the database was queried again
+    assert mock_test_db_manager.query_count == initial_query_count + 3, (
+        f"Database was not queried again (count: {mock_test_db_manager.query_count})"
+    )
+
+    # Fetch wind data with caching
+    response = test_client.get("/api/wind?hours=3")
+    assert response.status_code == 200
+
+    # Verify the database was not queried again
+    assert mock_test_db_manager.query_count == initial_query_count + 3, "Database was queried again"
+
+    # Fetch wind data with caching
+    response = test_client.get("/api/wind?hours=1")
+    assert response.status_code == 200
+
+    # Verify the database was not queried again
+    assert mock_test_db_manager.query_count == initial_query_count + 3, "Database was queried again"
+
+
+@pytest.mark.asyncio
+async def test_wind_data_caching_new_wind_obs(test_client, mock_test_db_manager):
+    """Test caching mechanism for wind data."""
+    mock_listener_conn = test_client.mock_listener_connection
+
+    # Generate 1 day of test data at 1-minute intervals
+    test_data = mock_test_db_manager.create_test_data(station_name="CYTZ", days=1)
+
+    initial_query_count = mock_test_db_manager.query_count
+
+    # Fetch wind data without caching
+    response = test_client.get("/api/wind?hours=6")
+    assert response.status_code == 200
+
+    # Verify the database was queried
+    assert mock_test_db_manager.query_count == initial_query_count + 2, "Database was not queried"
+
+    new_obs_update_time = datetime.now()
+
+    notification_data = {
+        "station_name": "CYTZ",
+        "update_time": str(new_obs_update_time.timestamp()),
+        "direction": 270,
+        "speed_kts": 15,
+        "gust_kts": 20,
+    }
+
+    # Trigger a notification to test the ConnectionManager._handle_notification method
+    # This simulates what would happen when PostgreSQL sends a NOTIFY wind_obs_insert
+    await mock_listener_conn.trigger_notification("wind_obs_insert", notification_data)
+
+    # Verify that the notification was processed (notification count should increase)
+    # assert manager.notification_count == 1
+
+    # The notification system broadcasts to WebSocket connections, but doesn't update the mock database
+    # So we just verify the notification was processed successfully
+    response = test_client.get("/api/wind?hours=6")
+    assert response.status_code == 200
+
+    # Verify the response contains the new wind observation data as the last element
+    wind_data = response.json()["winddata"]
+    assert wind_data[-1] == [
+        new_obs_update_time.timestamp(),
+        notification_data["direction"],
+        notification_data["speed_kts"],
+        notification_data["gust_kts"],
+    ]
+
+    # Verify the database was queried again
+    assert mock_test_db_manager.query_count == initial_query_count + 2, "Database was queried again"

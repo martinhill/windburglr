@@ -1,4 +1,5 @@
 import os
+import logging
 import pytest
 from fastapi.testclient import TestClient
 from httpx import AsyncClient, ASGITransport
@@ -8,6 +9,8 @@ from typing import List, Dict, Any
 from contextlib import asynccontextmanager
 from asgi_lifespan import LifespanManager
 
+
+logger = logging.getLogger(__name__)
 
 @pytest.fixture
 def sample_stations():
@@ -39,7 +42,7 @@ async def test_db_manager():
         @property
         def latest_wind_obs(self):
             # Find item in self.test_wind_data with the maximum value in key "update_time"
-            return max(self.test_wind_data, key=lambda x: x['update_time'])
+            return max(self.test_wind_data, key=lambda x: x["update_time"])
 
         async def setup(self, database_url):
             """Initialize database connection pool."""
@@ -147,12 +150,12 @@ async def test_db_manager():
                     )
 
                     obs = {
-                            "station_name": station_name,
-                            "direction": direction,
-                            "speed_kts": speed_kts,
-                            "gust_kts": gust_kts,
-                            "update_time": obs_time,
-                        }
+                        "station_name": station_name,
+                        "direction": direction,
+                        "speed_kts": speed_kts,
+                        "gust_kts": gust_kts,
+                        "update_time": obs_time,
+                    }
                     self.test_wind_data.append(obs)
                     data.append(obs)
 
@@ -213,13 +216,15 @@ async def test_db_manager():
                         data_rows.append(
                             (station_id, obs_time, direction, speed_kts, gust_kts)
                         )
-                        self.test_wind_data.append({
-                            'station_name': station_name,
-                            'update_time': obs_time,
-                            'direction': direction,
-                            'speed_kts': speed_kts,
-                            'gust_kts': gust_kts
-                        })
+                        self.test_wind_data.append(
+                            {
+                                "station_name": station_name,
+                                "update_time": obs_time,
+                                "direction": direction,
+                                "speed_kts": speed_kts,
+                                "gust_kts": gust_kts,
+                            }
+                        )
 
                     # Bulk insert all data at once
                     await conn.executemany(
@@ -325,15 +330,17 @@ def mock_test_db_manager():
     class MockTestDatabaseManager:
         def __init__(self):
             self.test_data = []
+            # Add a list to store recorded queries
+            self.recorded_queries = []
 
         def create_test_data(self, station_name="CYTZ", days=1):
             """Create mock test data at 1-minute intervals."""
-            base_time = datetime.now(timezone.utc)
+            base_time = datetime.now(timezone.utc) - timedelta(days=days)
             data = []
             total_minutes = days * 24 * 60
 
             for i in range(total_minutes):
-                obs_time = base_time - timedelta(minutes=i)
+                obs_time = base_time + timedelta(minutes=i)
                 hour_of_day = obs_time.hour
 
                 # Create more realistic wind patterns
@@ -347,7 +354,9 @@ def mock_test_db_manager():
                         "direction": direction,
                         "speed_kts": speed_kts,
                         "gust_kts": gust_kts,
-                        "update_time": obs_time,
+                        "update_time": obs_time.replace(
+                            tzinfo=None
+                        ),  # Make timezone-naive like real DB
                         "station": station_name,
                     }
                 )
@@ -358,8 +367,50 @@ def mock_test_db_manager():
             """Mock station data."""
             return {"name": station_name, "timezone": "America/Toronto"}
 
+        def record_query(self, method, query, args):
+            """Record a query execution with its parameters."""
+            self.recorded_queries.append(
+                {
+                    "method": method,
+                    "query": query,
+                    "args": args,
+                    "timestamp": datetime.now(timezone.utc),
+                }
+            )
+
+        def get_recorded_queries(self, method=None, contains=None):
+            """
+            Get recorded queries with optional filtering.
+
+            Args:
+                method: Filter by method name (fetch, fetchrow, fetchval)
+                contains: Filter queries containing this string
+
+            Returns:
+                List of matching query records
+            """
+            result = self.recorded_queries
+
+            if method:
+                result = [q for q in result if q["method"] == method]
+
+            if contains:
+                result = [q for q in result if contains in q["query"]]
+
+            return result
+
+        def clear_recorded_queries(self):
+            """Clear all recorded queries."""
+            self.recorded_queries = []
+
+        @property
+        def query_count(self):
+            """Get the total number of recorded queries."""
+            return len(self.recorded_queries)
+
         def cleanup(self):
             self.test_data = None
+            self.recorded_queries = []
 
     manager = MockTestDatabaseManager()
 
@@ -470,7 +521,42 @@ class WindDataGenerator:
 @pytest.fixture
 def test_client(mock_test_db_manager):
     """Create a test client for unit tests that uses mock_test_db_manager."""
-    from main import app, get_db_pool
+    from main import make_app, get_db_pool
+    import json
+    import asyncio
+
+    class MockListenerConnection:
+        """Mock asyncpg.Connection that supports listeners for testing."""
+
+        def __init__(self, mock_manager):
+            self.mock_manager = mock_manager
+            self._listeners = {}
+            self._closed = False
+
+        def is_closed(self):
+            return self._closed
+
+        async def close(self):
+            # Don't actually close for testing purposes
+            # self._closed = True
+            pass
+
+        async def fetchval(self, query, *args):
+            """Mock fetchval for health checks."""
+            if query == "SELECT 1":
+                return 1
+            return None
+
+        async def add_listener(self, channel, callback):
+            """Mock add_listener to register notification handlers."""
+            self._listeners[channel] = callback
+
+        async def trigger_notification(self, channel, payload_data):
+            """Test helper to trigger notifications to registered listeners."""
+            if channel in self._listeners:
+                # Simulate the asyncpg notification format
+                payload = json.dumps(payload_data)
+                await self._listeners[channel](self, 12345, channel, payload)
 
     class MockConnection:
         """Mock database connection that uses mock_test_db_manager data."""
@@ -480,11 +566,16 @@ def test_client(mock_test_db_manager):
 
         async def fetch(self, query, *args):
             """Mock fetch method that returns data from mock_test_db_manager."""
+            # Record the query
+            self.mock_manager.record_query("fetch", query, args)
+
             from datetime import datetime, timezone, timedelta
 
             if "get_wind_data_by_station_range" in query.lower():
                 # Return data from mock_test_db_manager
                 station = args[0] if len(args) > 0 else "CYTZ"
+                start_time = args[1] if len(args) > 1 else None
+                end_time = args[2] if len(args) > 2 else None
 
                 # Use the mock manager's test data
                 test_data = self.mock_manager.test_data
@@ -493,6 +584,23 @@ def test_client(mock_test_db_manager):
                 filtered_data = []
                 for obs in test_data:
                     if obs.get("station", station) == station:
+                        # Filter by time range if provided
+                        if start_time and end_time:
+                            # Convert timezone-aware start_time and end_time to timezone-naive for comparison
+                            start_time_naive = (
+                                start_time.replace(tzinfo=None)
+                                if start_time.tzinfo
+                                else start_time
+                            )
+                            end_time_naive = (
+                                end_time.replace(tzinfo=None)
+                                if end_time.tzinfo
+                                else end_time
+                            )
+                            if not (
+                                start_time_naive <= obs["update_time"] <= end_time_naive
+                            ):
+                                continue
                         filtered_data.append(
                             {
                                 "update_time": obs["update_time"],
@@ -501,6 +609,8 @@ def test_client(mock_test_db_manager):
                                 "gust_kts": obs["gust_kts"],
                             }
                         )
+                logger.debug("Mocking fetch (%s, %s, %s): %d", station, start_time, end_time, len(filtered_data))
+
                 return filtered_data
 
             if "station" in query.lower():
@@ -512,6 +622,8 @@ def test_client(mock_test_db_manager):
 
         async def fetchrow(self, query, *args):
             """Mock fetchrow method for single row queries."""
+            # Record the query
+            self.mock_manager.record_query("fetchrow", query, args)
 
             if "get_latest_wind_observation" in query.lower():
                 station = args[0] if args else "CYTZ"
@@ -534,6 +646,9 @@ def test_client(mock_test_db_manager):
 
         async def fetchval(self, query, *args):
             """Mock fetchval method for single value queries."""
+            # Record the query
+            self.mock_manager.record_query("fetchval", query, args)
+
             if "get_station_timezone_name" in query.lower():
                 return "America/Toronto"
             return None
@@ -550,12 +665,26 @@ def test_client(mock_test_db_manager):
             yield MockConnection(self.mock_manager)
 
     mock_pool = MockPool(mock_test_db_manager)
+    mock_listener_conn = MockListenerConnection(mock_test_db_manager)
 
     async def get_mock_data_source():
         return mock_pool
 
+    # Create app with injected mock listener connection
+    app = make_app(pg_connection=mock_listener_conn)
     app.dependency_overrides[get_db_pool] = get_mock_data_source
-    yield TestClient(app)
+
+    # Use LifespanManager to properly start the app and register listeners
+    async def start_app():
+        async with LifespanManager(app) as manager_app:
+            # Create test client with the actual FastAPI app from the manager
+            client = TestClient(manager_app.app)
+            # Store reference to the mock connection for direct access
+            client.mock_listener_connection = mock_listener_conn
+            return client
+
+    # Run the async startup and return the client
+    return asyncio.run(start_app())
 
 
 @pytest.fixture
@@ -640,7 +769,8 @@ async def integration_client_with_bulk_data(app_with_bulk_data):
 async def ws_integration_client(set_env_database_url, app_with_bulk_data):
     """Create a test client with real database for integration tests."""
     async with AsyncClient(
-        transport=ASGIWebSocketTransport(app=app_with_bulk_data), base_url="http://testserver"
+        transport=ASGIWebSocketTransport(app=app_with_bulk_data),
+        base_url="http://testserver",
     ) as client:
         yield client
 

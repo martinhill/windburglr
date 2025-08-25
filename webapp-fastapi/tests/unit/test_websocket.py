@@ -1,4 +1,5 @@
 import pytest
+from datetime import datetime
 
 
 def test_websocket_connection(test_client, mock_test_db_manager):
@@ -41,6 +42,44 @@ def test_websocket_different_stations(test_client, mock_test_db_manager):
         assert isinstance(data2["gust_kts"], int)
         assert 0 <= data2["direction"] <= 360
 
+
+@pytest.mark.asyncio
+async def test_websocket_new_wind_observation(test_client, mock_test_db_manager):
+    """Test websocket wind observation"""
+    # Get the mock listener connection from the test client
+    mock_listener_conn = test_client.mock_listener_connection
+    mock_test_db_manager.create_test_data("CYYZ")
+    with test_client.websocket_connect("/ws/CYTZ") as websocket:
+        # Connection should be established
+        assert websocket is not None
+        data = websocket.receive_json()
+        assert isinstance(data["timestamp"], float)
+        assert isinstance(data["direction"], int)
+        assert isinstance(data["speed_kts"], int)
+        assert isinstance(data["gust_kts"], int)
+        assert 0 <= data["direction"] <= 360
+
+
+        # Triger notification
+        new_wind_obs_update_time = datetime.now()
+        notification_data = {
+            "station_name": "CYTZ",
+            "update_time": new_wind_obs_update_time.timestamp(),
+            "direction": 270,
+            "speed_kts": 15,
+            "gust_kts": None
+        }
+
+        # Trigger a notification to test the ConnectionManager._handle_notification method
+        # This simulates what would happen when PostgreSQL sends a NOTIFY wind_obs_insert
+        await mock_listener_conn.trigger_notification("wind_obs_insert", notification_data)
+
+        # Verify the new wind observation was broadcasted
+        data = websocket.receive_json()
+        assert data["timestamp"] == new_wind_obs_update_time.timestamp()
+        assert data["direction"] == notification_data["direction"]
+        assert data["speed_kts"] == notification_data["speed_kts"]
+        assert data["gust_kts"] == notification_data["gust_kts"]
 
 def test_websocket_ping_pong(test_client):
     """Test websocket ping"""
