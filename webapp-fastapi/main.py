@@ -845,7 +845,7 @@ async def health_check(
 
 
 @router.get("/health/stack", response_class=PlainTextResponse)  # pragma: no cover
-async def get_health_stack():
+async def get_health_stack(manager: Annotated[ConnectionManager, Depends(get_manager)]):
     """Returns the stack of the monitoring task"""
     if manager.monitor_task:
         return "\n".join(str(s) for s in manager.monitor_task.get_stack())
