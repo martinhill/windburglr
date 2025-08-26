@@ -45,8 +45,8 @@ logger = logging.getLogger("windburglr")
 logger.setLevel(log_level_value)
 
 # Test that debug logging is working
-logger.debug(f"Logger configured with level: {log_level} ({log_level_value})")
-logger.info(f"WindBurglr logger initialized at level: {log_level}")
+logger.debug("Logger configured with level: %s (%s)", log_level, log_level_value)
+logger.info("WindBurglr logger initialized at level: %s", log_level)
 
 app_globals = {}
 
@@ -159,7 +159,9 @@ class ConnectionManager:
             await self._prune_cache(station)
 
             logger.debug(
-                f"Added data to cache for station {station}, cache size: {len(self.wind_data_cache[station])}"
+                "Added data to cache for station %s, cache size: %d",
+                station,
+                len(self.wind_data_cache[station]),
             )
 
     async def _prune_cache(self, station: str):
@@ -191,7 +193,9 @@ class ConnectionManager:
                 del self.cache_oldest_time[station]
 
             logger.debug(
-                f"Pruned cache for station {station}, removed {insert_point} old entries"
+                "Pruned cache for station %s, removed %d old entries",
+                station,
+                insert_point,
             )
 
     async def _is_cache_hit(self, station: str, start_time: datetime) -> bool:
@@ -212,7 +216,7 @@ class ConnectionManager:
         # Quick check: requested range must be within cached range
         if start_ts < oldest_ts:
             logger.debug(
-                f"Cache miss: start_time {start_time} is before oldest cached time"
+                "Cache miss: start_time %s is before oldest cached time", start_time
             )
             return False
 
@@ -232,12 +236,18 @@ class ConnectionManager:
 
         if not within_bounds:
             logger.debug(
-                f"Cache miss: requested range {start_ts}, cached range {oldest_ts} to {newest_ts}"
+                "Cache miss: requested range %s, cached range %s to %s",
+                start_ts,
+                oldest_ts,
+                newest_ts,
             )
             return False
 
         logger.debug(
-            f"Cache hit: requested range {start_ts}, cached range {oldest_ts} to {newest_ts}"
+            "Cache hit: requested range %s, cached range %s to %s",
+            start_ts,
+            oldest_ts,
+            newest_ts,
         )
         return True
 
@@ -283,7 +293,7 @@ class ConnectionManager:
             # Adding this data would leave a gap in the cache
             oldest_update_time = self.cache_oldest_time.get(station, 0)
             if end_time.timestamp() < oldest_update_time:
-                logger.debug(f"End time {end_time} is before oldest data in cache")
+                logger.debug("End time %s is before oldest data in cache", end_time)
                 return
 
             # Sort new data by timestamp to maintain chronological order
@@ -325,7 +335,9 @@ class ConnectionManager:
                     # Update oldest time based on the earliest timestamp in the cache
                     if deduplicated_data:
                         start_ts = start_time.timestamp()
-                        self.cache_oldest_time[station] = min(deduplicated_data[0][0], start_ts)
+                        self.cache_oldest_time[station] = min(
+                            deduplicated_data[0][0], start_ts
+                        )
                     else:
                         # No data left, remove station from cache
                         del self.wind_data_cache[station]
@@ -341,11 +353,14 @@ class ConnectionManager:
                 await self._prune_cache(station)
 
             logger.debug(
-                f"Updated cache for station {station} with {len(sorted_new_data)} new entries, cache size: {len(self.wind_data_cache.get(station, []))}"
+                "Updated cache for station %s with %s new entries, cache size: %s",
+                station,
+                len(sorted_new_data),
+                len(self.wind_data_cache.get(station, [])),
             )
         except Exception as e:
             logger.error(
-                f"Error updating cache from database for station {station}: {e}"
+                "Error updating cache from database for station %s: %s", station, e
             )
 
     def set_pg_listener(self, connection: asyncpg.Connection):
@@ -358,7 +373,7 @@ class ConnectionManager:
             database_url = get_database_url(True)
             if database_url:
                 logger.info(
-                    f"Creating PostgreSQL connection pool: {database_url[:50]}..."
+                    "Creating PostgreSQL connection pool: %s...", database_url[:50]
                 )
                 self.db_pool = await asyncpg.create_pool(
                     database_url, min_size=2, max_size=10, command_timeout=60
@@ -385,7 +400,9 @@ class ConnectionManager:
             self.active_connections[station] = []
         self.active_connections[station].append(websocket)
         logger.info(
-            f"WebSocket connected for station {station}. Total connections: {len(self.active_connections[station])}"
+            "WebSocket connected for station %s. Total connections: %s",
+            station,
+            len(self.active_connections[station]),
         )
 
     def disconnect(self, websocket: WebSocket, station: str):
@@ -394,38 +411,46 @@ class ConnectionManager:
                 self.active_connections[station].remove(websocket)
                 if not self.active_connections[station]:
                     del self.active_connections[station]
-                    logger.info(f"All connections for station {station} disconnected")
+                    logger.info("All connections for station %s disconnected", station)
                 else:
                     logger.info(
-                        f"WebSocket disconnected for station {station}. Remaining connections: {len(self.active_connections[station])}"
+                        "WebSocket disconnected for station %s. Remaining connections: %s",
+                        station,
+                        len(self.active_connections[station]),
                     )
             except ValueError:
                 logger.warning(
-                    f"Failed to remove WebSocket connection for station {station}"
+                    "Failed to remove WebSocket connection for station %s", station
                 )
 
     async def broadcast_to_station(self, message: str, station: str):
         if station in self.active_connections:
             logger.debug(
-                f"Broadcasting to {len(self.active_connections[station])} connections for station {station}"
+                "Broadcasting to %s connections for station %s",
+                len(self.active_connections[station]),
+                station,
             )
             disconnected = []
             for connection in self.active_connections[station]:
                 try:
                     await connection.send_text(message)
                     logger.debug(
-                        f"Successfully sent message {message} to connection for station {station}"
+                        "Successfully sent message %s to connection for station %s",
+                        message,
+                        station,
                     )
                 except Exception as e:
                     logger.warning(
-                        f"Failed to send message to connection for station {station}: {e}"
+                        "Failed to send message to connection for station %s: %s",
+                        station,
+                        e,
                     )
                     disconnected.append(connection)
 
             for conn in disconnected:
                 self.disconnect(conn, station)
         else:
-            logger.debug(f"No active connections for station {station}")
+            logger.debug("No active connections for station %s", station)
 
     async def start_pg_listener(self):
         # If a connection was already injected, use it directly
@@ -443,12 +468,13 @@ class ConnectionManager:
             try:
                 # Create separate connection for notifications
                 logger.info(
-                    f"Connecting to PostgreSQL for notifications: {database_url[:50]}..."
+                    "Connecting to PostgreSQL for notifications: %s...",
+                    database_url[:50],
                 )
                 self.pg_listener = await asyncpg.connect(database_url)
             except Exception as e:
                 logger.error(
-                    f"Failed to create PostgreSQL connection: {e}", exc_info=True
+                    "Failed to create PostgreSQL connection: %s", e, exc_info=True
                 )
                 self._is_pg_listener_healthy = False
                 return
@@ -457,7 +483,7 @@ class ConnectionManager:
             # Test the connection
             if self.pg_listener:
                 result = await self.pg_listener.fetchval("SELECT 1")
-                logger.debug(f"PostgreSQL connection test result: {result}")
+                logger.debug("PostgreSQL connection test result: %s", result)
 
                 await self.pg_listener.add_listener(
                     "wind_obs_insert", self._handle_notification
@@ -473,7 +499,7 @@ class ConnectionManager:
             logger.info("PostgreSQL connection monitoring started")
 
         except Exception as e:
-            logger.error(f"Failed to start PostgreSQL listener: {e}", exc_info=True)
+            logger.error("Failed to start PostgreSQL listener: %s", e, exc_info=True)
             self._is_pg_listener_healthy = False
 
     async def stop_pg_listener(self):
@@ -489,21 +515,21 @@ class ConnectionManager:
             except asyncio.CancelledError:
                 logger.info("PostgreSQL connection monitor task cancelled")
             except Exception as e:
-                logger.error(f"Error cancelling monitor task: {e}")
+                logger.error("Error cancelling monitor task: %s", e)
 
         if self.pg_listener:
             try:
                 await self.pg_listener.close()
                 logger.info("PostgreSQL listener stopped")
             except Exception as e:
-                logger.error(f"Error stopping PostgreSQL listener: {e}", exc_info=True)
+                logger.error("Error stopping PostgreSQL listener: %s", eexc_info=True)
 
         if self.db_pool:
             try:
                 await self.db_pool.close()
                 logger.info("PostgreSQL connection pool closed")
             except Exception as e:
-                logger.error(f"Error closing PostgreSQL pool: {e}", exc_info=True)
+                logger.error("Error closing PostgreSQL pool: %s", eexc_info=True)
 
         self._is_pg_listener_healthy = False
 
@@ -519,7 +545,7 @@ class ConnectionManager:
             self._is_pg_listener_healthy = True
             return True
         except Exception as e:
-            logger.error(f"PostgreSQL connection health check failed: {e}")
+            logger.error("PostgreSQL connection health check failed: %s", e)
             self._is_pg_listener_healthy = False
             return False
 
@@ -531,7 +557,9 @@ class ConnectionManager:
         for attempt in range(max_retries):
             try:
                 logger.info(
-                    f"Attempting PostgreSQL listener reconnection (attempt {attempt + 1}/{max_retries})"
+                    "Attempting PostgreSQL listener reconnection (attempt %s/%s)",
+                    attempt + 1,
+                    max_retries,
                 )
 
                 # Clean up existing connection
@@ -556,7 +584,7 @@ class ConnectionManager:
 
             except Exception as e:
                 delay = base_delay * (2**attempt)  # Exponential backoff
-                logger.error(f"Reconnection attempt {attempt + 1} failed: {e}")
+                logger.error("Reconnection attempt %s failed: %s", attempt + 1, e)
 
                 if attempt < max_retries - 1:
                     await asyncio.sleep(delay)
@@ -586,22 +614,25 @@ class ConnectionManager:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Error in PostgreSQL connection monitor: {e}")
+                logger.error("Error in PostgreSQL connection monitor: %s", e)
                 await asyncio.sleep(5)  # Shorter wait on error
 
     async def _handle_notification(self, connection, pid, channel, payload):
         try:
             self.notification_count += 1
             logger.info(
-                f"🔔 Received notification #{self.notification_count} on channel '{channel}' from PID {pid}"
+                "🔔 Received notification #%s on channel '%s' from PID %s",
+                self.notification_count,
+                channel,
+                pid,
             )
-            logger.debug(f"Raw payload: {payload}")
+            logger.debug("Raw payload: %s", payload)
 
             data = json.loads(payload)
-            logger.debug(f"Parsed notification data: {data}")
+            logger.debug("Parsed notification data: %s", data)
 
             station_name = data.get("station_name")
-            logger.debug(f"Station name from notification: {station_name}")
+            logger.debug("Station name from notification: %s", station_name)
 
             if station_name:
                 # Use Pydantic model for data validation and conversion
@@ -612,10 +643,14 @@ class ConnectionManager:
                     gust_kts=data.get("gust_kts"),
                 ).model_dump()
                 logger.info(
-                    f"📡 Broadcasting wind data to station {station_name}: {wind_data}"
+                    "📡 Broadcasting wind data to station %s: %s",
+                    station_name,
+                    wind_data,
                 )
                 logger.debug(
-                    f"Active connections for {station_name}: {len(self.active_connections.get(station_name, []))}"
+                    "Active connections for %s: %s",
+                    station_name,
+                    len(self.active_connections.get(station_name, [])),
                 )
 
                 await self.broadcast_to_station(json.dumps(wind_data), station_name)
@@ -631,7 +666,7 @@ class ConnectionManager:
             else:
                 logger.warning("No station name found in notification data")
         except Exception as e:
-            logger.error(f"Error handling notification: {e}", exc_info=True)
+            logger.error("Error handling notification: %s", eexc_info=True)
 
 
 # manager = ConnectionManager()
@@ -655,19 +690,19 @@ async def get_db_pool(
     try:
         return await manager.get_db_pool()
     except Exception as e:
-        logger.error(f"Error getting database pool: {e}", exc_info=True)
+        logger.error("Error getting database pool: %s", eexc_info=True)
         raise HTTPException(status_code=503, detail="Database not available")
 
 
 @alru_cache(maxsize=10)
 async def get_station_timezone(station_name: str, pool: asyncpg.Pool) -> str:
     """Get the timezone for a given station"""
-    # logger.debug(f"get_station_timezone called for {station_name}")
+    # logger.debug("get_station_timezone called for %s", station_name)
     async with pool.acquire() as conn:
         result = await conn.fetchval(
             "SELECT get_station_timezone_name($1)", station_name
         )
-        logger.debug(f"get_station_timezone result for {station_name}: {result}")
+        logger.debug("get_station_timezone result for %s: %s", station_name, result)
         return result or "UTC"
 
 
@@ -926,7 +961,12 @@ async def get_wind_data(
     # Try cache-first approach
     is_cache_hit = await manager._is_cache_hit(stn, start_time)
     logger.debug(
-        f"Cache check for station {stn}: hit={is_cache_hit}, start_time={start_time}, cache_oldest={manager.cache_oldest_time.get(stn, 'None')}, cache_size={len(manager.wind_data_cache.get(stn, []))}"
+        "Cache check for station %s: hit=%s, start_time=%s, cache_oldest=%s, cache_size=%s",
+        stn,
+        is_cache_hit,
+        start_time,
+        manager.cache_oldest_time.get(stn, "None"),
+        len(manager.wind_data_cache.get(stn, [])),
     )
 
     if is_cache_hit:
@@ -934,13 +974,13 @@ async def get_wind_data(
         cached_data = await manager._get_cached_data(stn, start_time, end_time)
         manager.cache_hit_count += 1
         logger.debug(
-            f"Cache hit for station {stn}, returned {len(cached_data)} data points"
+            "Cache hit for station %s, returned %s data points", stn, len(cached_data)
         )
         winddata = cached_data
     else:
         # Cache miss - query database and update cache
         manager.cache_miss_count += 1
-        logger.debug(f"Cache miss for station {stn}, querying database")
+        logger.debug("Cache miss for station %s, querying database", stn)
 
         # Query database
         winddata = [
@@ -950,11 +990,16 @@ async def get_wind_data(
 
         # Update cache with fresh data
         logger.debug(
-            f"Updating cache for station {stn} with data from {start_time} to {end_time}"
+            "Updating cache for station %s with data from %s to %s",
+            stn,
+            start_time,
+            end_time,
         )
         await manager._update_cache_with_data(stn, start_time, end_time, winddata)
         logger.debug(
-            f"Cache updated for station {stn}, cache size now: {len(manager.wind_data_cache.get(stn, []))}"
+            "Cache updated for station %s, cache size now: %s",
+            stn,
+            len(manager.wind_data_cache.get(stn, [])),
         )
 
     return {
