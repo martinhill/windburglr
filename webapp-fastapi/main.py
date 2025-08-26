@@ -91,7 +91,7 @@ ISO_FORMAT = "%Y-%m-%dT%H:%M:%S"
 GTAG_ID = os.environ.get("GOOGLE_TAG_MANAGER_ID", "")
 
 # Cache configuration
-DATA_CACHE_HOURS = int(os.environ.get("DATA_CACHE_HOURS", "24"))
+DATA_CACHE_HOURS = int(os.environ.get("DATA_CACHE_HOURS", "48"))
 CACHE_DURATION = timedelta(hours=DATA_CACHE_HOURS)
 
 
@@ -279,6 +279,13 @@ class ConnectionManager:
     ):
         """Populate cache with data from database"""
         try:
+            # Abort if end_time is before oldest data in cache
+            # Adding this data would leave a gap in the cache
+            oldest_update_time = self.cache_oldest_time.get(station, 0)
+            if end_time.timestamp() < oldest_update_time:
+                logger.debug(f"End time {end_time} is before oldest data in cache")
+                return
+
             # Sort new data by timestamp to maintain chronological order
             sorted_new_data = sorted(wind_data, key=lambda x: x[0])  # Sort by timestamp
 

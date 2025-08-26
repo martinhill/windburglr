@@ -595,3 +595,44 @@ async def test_wind_data_caching_new_wind_obs(test_client, mock_test_db_manager)
     assert len(wind_data) == hours * 60, "Wind data length does not match"
     status, reason = is_wind_data_ok(wind_data, test_data, start_time)
     assert status == True, reason
+
+
+def test_wind_data_caching_different_time_ranges(test_client, mock_test_db_manager):
+    """Test caching mechanism with different time ranges."""
+    # Generate test data
+    test_data = mock_test_db_manager.create_test_data(station_name="CYTZ", days=7)
+
+    initial_query_count = mock_test_db_manager.query_count
+
+    # First request: 6 hours of data
+    hours = 12
+    response = test_client.get(f"/api/wind?hours={hours}")
+    assert response.status_code == 200
+
+    # Verify the database was queried (wind data + timezone)
+    assert mock_test_db_manager.query_count == initial_query_count + 2, (
+        f"Database was not queried for initial request (count: {mock_test_db_manager.query_count})"
+    )
+
+    # Second request: data from 2 days ago - should not be cached
+    two_days_ago = datetime.now(timezone.utc) - timedelta(days=2)
+    two_days_ago.replace(hour=0, minute=0, second=0, microsecond=0)
+    from_time = two_days_ago.strftime("%Y-%m-%dT%H:%M:%S")
+    to_time = (two_days_ago + timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S")
+
+    response = test_client.get(f"/api/wind?from_time={from_time}&to_time={to_time}")
+    assert response.status_code == 200
+
+    # Verify the database was queried again for different time range
+    assert mock_test_db_manager.query_count == initial_query_count + 3, (
+        f"Database was not queried for 2 days ago request (count: {mock_test_db_manager.query_count})"
+    )
+
+    # Third request: repeat the 6 hours request (should hit cache)
+    response = test_client.get(f"/api/wind?hours={hours}")
+    assert response.status_code == 200
+
+    # Verify the database was NOT queried again (cache hit)
+    assert mock_test_db_manager.query_count == initial_query_count + 3, (
+        f"Database was queried when it should have hit cache (count: {mock_test_db_manager.query_count})"
+    )
