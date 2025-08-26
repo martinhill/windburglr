@@ -12,7 +12,7 @@ REPLIT_PYTHON_PACKAGE_LAYER = "1"
 [deployment]
 run = ["sh", "-c", "cd webapp-fastapi && poetry install -v && poetry run -v python -v main.py"]
 deploymentTarget = "cloudrun"
-build = ["sh", "-c", "cd webapp-fastapi && poetry install -v"]
+build = ["sh", "-c", "cd webapp-fastapi && poetry lock && poetry install -v"]
 
 
 [[ports]]
