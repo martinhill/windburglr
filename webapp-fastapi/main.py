@@ -50,6 +50,7 @@ logger.info(f"WindBurglr logger initialized at level: {log_level}")
 
 app_globals = {}
 
+
 def make_app(pg_connection: Optional[asyncpg.Connection] = None):
     global router
 
@@ -193,9 +194,7 @@ class ConnectionManager:
                 f"Pruned cache for station {station}, removed {insert_point} old entries"
             )
 
-    async def _is_cache_hit(
-        self, station: str, start_time: datetime, end_time: datetime
-    ) -> bool:
+    async def _is_cache_hit(self, station: str, start_time: datetime) -> bool:
         """Check if cache covers the requested time range"""
         if station not in self.cache_oldest_time or station not in self.wind_data_cache:
             return False
@@ -203,11 +202,11 @@ class ConnectionManager:
         # Convert times to UTC if needed
         if start_time.tzinfo is not None:
             start_time = start_time.astimezone(timezone.utc)
-        if end_time.tzinfo is not None:
-            end_time = end_time.astimezone(timezone.utc)
+        # if end_time.tzinfo is not None:
+        #     end_time = end_time.astimezone(timezone.utc)
 
         start_ts = start_time.timestamp()
-        end_ts = end_time.timestamp()
+        # end_ts = end_time.timestamp()
         oldest_ts = float(self.cache_oldest_time[station])
 
         # Quick check: requested range must be within cached range
@@ -225,16 +224,20 @@ class ConnectionManager:
         newest_ts = cache_data[-1][0]  # Last item has the newest timestamp
 
         # Check for overlap: requested range [start_ts, end_ts] overlaps with cached range [oldest_ts, newest_ts]
-        has_overlap = max(start_ts, oldest_ts) < min(end_ts, newest_ts)
+        # Check request vs cached range
+        # Ignore the end_time, since the cache contains the most recent data
+        within_bounds = (
+            oldest_ts <= start_ts <= newest_ts
+        )  # and oldest_ts <= end_ts <= newest_ts
 
-        if not has_overlap:
+        if not within_bounds:
             logger.debug(
-                f"Cache miss: no overlap between requested range {start_time} to {end_time} and cached range"
+                f"Cache miss: requested range {start_ts}, cached range {oldest_ts} to {newest_ts}"
             )
             return False
 
         logger.debug(
-            f"Cache hit: found overlap between requested range {start_time} to {end_time} and cached range"
+            f"Cache hit: requested range {start_ts}, cached range {oldest_ts} to {newest_ts}"
         )
         return True
 
@@ -276,31 +279,62 @@ class ConnectionManager:
     ):
         """Populate cache with data from database"""
         try:
-            start_ts = start_time.replace(tzinfo=timezone.utc).timestamp()
-            # Sort data by timestamp to maintain chronological order
-            sorted_data = sorted(wind_data, key=lambda x: x[0])  # Sort by timestamp
+            # Sort new data by timestamp to maintain chronological order
+            sorted_new_data = sorted(wind_data, key=lambda x: x[0])  # Sort by timestamp
 
             async with self.cache_lock:
                 if station not in self.wind_data_cache:
                     self.wind_data_cache[station] = []
                     self.cache_oldest_time[station] = (
-                        sorted_data[0][0] if sorted_data else 0
+                        sorted_new_data[0][0] if sorted_new_data else 0
                     )
 
-                # Add all data points at once to maintain chronological order
-                self.wind_data_cache[station].extend(sorted_data)
+                # Get existing cache data
+                existing_data = self.wind_data_cache[station]
 
-                # Update oldest time if this data is older
-                if sorted_data and sorted_data[0][0]:
-                    start_ts = min(sorted_data[0][0], start_ts)
-                if start_ts < self.cache_oldest_time[station]:
-                    self.cache_oldest_time[station] = start_ts
+                # Combine existing and new data, then sort and deduplicate
+                combined_data = existing_data + sorted_new_data
+                if combined_data:
+                    # Sort by timestamp
+                    combined_data.sort(key=lambda x: x[0])
+
+                    # Remove duplicates based on timestamp (keep the last occurrence for each timestamp)
+                    deduplicated_data = []
+                    seen_timestamps = set()
+
+                    # Iterate in reverse to keep the most recent data for duplicate timestamps
+                    for item in reversed(combined_data):
+                        timestamp = item[0]
+                        if timestamp not in seen_timestamps:
+                            seen_timestamps.add(timestamp)
+                            deduplicated_data.append(item)
+
+                    # Reverse back to chronological order
+                    deduplicated_data.reverse()
+
+                    # Update cache with deduplicated data
+                    self.wind_data_cache[station] = deduplicated_data
+
+                    # Update oldest time based on the earliest timestamp in the cache
+                    if deduplicated_data:
+                        start_ts = start_time.timestamp()
+                        self.cache_oldest_time[station] = min(deduplicated_data[0][0], start_ts)
+                    else:
+                        # No data left, remove station from cache
+                        del self.wind_data_cache[station]
+                        del self.cache_oldest_time[station]
+                else:
+                    # No data at all, ensure station is removed from cache
+                    if station in self.wind_data_cache:
+                        del self.wind_data_cache[station]
+                    if station in self.cache_oldest_time:
+                        del self.cache_oldest_time[station]
 
                 # Prune old data after adding new data
                 await self._prune_cache(station)
 
             logger.debug(
-                f"Updated cache for station {station} with {len(sorted_data)} new entries"
+                f"Updated cache for station {station} with {len(sorted_new_data)} new entries, cache size: {len(self.wind_data_cache.get(station, []))}"
             )
         except Exception as e:
             logger.error(
@@ -883,7 +917,7 @@ async def get_wind_data(
         end_time = now_utc
 
     # Try cache-first approach
-    is_cache_hit = await manager._is_cache_hit(stn, start_time, end_time)
+    is_cache_hit = await manager._is_cache_hit(stn, start_time)
     logger.debug(
         f"Cache check for station {stn}: hit={is_cache_hit}, start_time={start_time}, cache_oldest={manager.cache_oldest_time.get(stn, 'None')}, cache_size={len(manager.wind_data_cache.get(stn, []))}"
     )

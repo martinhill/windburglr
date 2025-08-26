@@ -4,6 +4,7 @@ TODO: Test /day redirect at local day start/end boundaries
 """
 
 from datetime import datetime, timedelta, timezone
+from typing import List, Tuple
 from zoneinfo import ZoneInfo
 from pydantic import ValidationError
 from pydantic import types
@@ -14,6 +15,48 @@ import logging
 from main import WindDataPoint
 
 logger = logging.getLogger(__name__)
+
+
+def is_wind_data_ok(
+    wind_data: List[Tuple], test_input_data: List[dict], start_time: datetime) -> Tuple[bool, str]:
+    """Check if the wind data is valid."""
+    if not wind_data:
+        return False, "No wind data"
+    test_data_by_timestamp = {
+        int(item["update_time"].replace(tzinfo=timezone.utc).timestamp()): item for item in test_input_data
+    }
+    prev_ts = start_time.replace(tzinfo=timezone.utc).timestamp()
+    data_len = len(wind_data)
+    for i, data in enumerate(wind_data):
+        if len(data) != 4:
+            return False, "Invalid wind data format"
+        data_point : WindDataPoint = WindDataPoint(
+            timestamp=data[0],
+            direction=data[1],
+            speed_kts=data[2],
+            gust_kts=data[3],
+        )
+        ts : float = data[0]
+        if not isinstance(ts, float):
+            return False, f"Invalid timestamp {data_point} at index {i}/{data_len}"
+        # Check expected ordering
+        if ts < prev_ts:
+            return False, f"Timestamps not in ascending order: {data_point} at index {i}/{data_len}"
+
+        if int(ts) not in test_data_by_timestamp:
+            return False, f"Timestamp not found in test data: {data_point} at index {i}/{data_len}"
+
+        test_item : dict = test_data_by_timestamp[int(ts)]
+        test_item['timestamp'] = test_item['update_time']
+        test_point : WindDataPoint = WindDataPoint(**test_item)
+
+        if data_point != test_point:
+            return False, f"Data point mismatch: {data_point} != {test_point} at index {i}/{data_len}"
+
+        prev_ts = ts
+
+    return True, "Test passed"
+
 
 def test_health(test_client):
     """Test health endpoint."""
@@ -384,7 +427,9 @@ def test_wind_data_caching_simple(test_client, mock_test_db_manager):
     initial_query_count = mock_test_db_manager.query_count
 
     # Fetch wind data without caching
-    response = test_client.get("/api/wind?hours=6")
+    hours = 6
+    start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+    response = test_client.get(f"/api/wind?hours={hours}")
     wind_data = response.json()["winddata"]
     assert response.status_code == 200
 
@@ -393,8 +438,13 @@ def test_wind_data_caching_simple(test_client, mock_test_db_manager):
         f"Database was not queried (count: {mock_test_db_manager.query_count})"
     )
 
+    assert len(wind_data) == hours * 60 -1, "Wind data length does not match"
+    status, reason = is_wind_data_ok(wind_data, test_data, start_time)
+    assert status == True, reason
+
     # Fetch wind data with caching
-    response = test_client.get("/api/wind?hours=6")
+    start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+    response = test_client.get(f"/api/wind?hours={hours}")
     wind_data2 = response.json()["winddata"]
     assert response.status_code == 200
 
@@ -409,7 +459,10 @@ def test_wind_data_caching_simple(test_client, mock_test_db_manager):
     )
 
     # Fetch more wind data without caching
-    response = test_client.get("/api/wind?hours=12")
+    hours = 12
+    start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+    response = test_client.get(f"/api/wind?hours={hours}")
+    wind_data = response.json()["winddata"]
     assert response.status_code == 200
 
     # Verify the database was queried again
@@ -417,19 +470,65 @@ def test_wind_data_caching_simple(test_client, mock_test_db_manager):
         f"Database was not queried again (count: {mock_test_db_manager.query_count})"
     )
 
+    assert len(wind_data) == hours * 60 -1, "Wind data length does not match"
+    status, reason = is_wind_data_ok(wind_data, test_data, start_time)
+    assert status == True, reason
+
     # Fetch wind data with caching
-    response = test_client.get("/api/wind?hours=3")
+    hours = 24
+    start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+    response = test_client.get(f"/api/wind?hours={hours}")
+    wind_data = response.json()["winddata"]
     assert response.status_code == 200
 
     # Verify the database was not queried again
-    assert mock_test_db_manager.query_count == initial_query_count + 3, "Database was queried again"
+    assert mock_test_db_manager.query_count == initial_query_count + 4, "Cache hit"
+
+    assert len(wind_data) == hours * 60 -1, "Wind data length does not match"
+    status, reason = is_wind_data_ok(wind_data, test_data, start_time)
+    assert status == True, reason
 
     # Fetch wind data with caching
-    response = test_client.get("/api/wind?hours=1")
+    hours = 3
+    start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+    response = test_client.get(f"/api/wind?hours={hours}")
+    wind_data = response.json()["winddata"]
     assert response.status_code == 200
 
     # Verify the database was not queried again
-    assert mock_test_db_manager.query_count == initial_query_count + 3, "Database was queried again"
+    assert mock_test_db_manager.query_count == initial_query_count + 4, "Cache miss"
+
+    assert len(wind_data) == hours * 60 -1, "Wind data length does not match"
+    status, reason = is_wind_data_ok(wind_data, test_data, start_time)
+    assert status == True, reason
+
+    # Fetch wind data with caching
+    hours = 1
+    start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+    response = test_client.get(f"/api/wind?hours={hours}")
+    wind_data = response.json()["winddata"]
+    assert response.status_code == 200
+
+    # Verify the database was not queried again
+    assert mock_test_db_manager.query_count == initial_query_count + 4, "Cache miss"
+
+    assert len(wind_data) == hours * 60 -1, "Wind data length does not match"
+    status, reason = is_wind_data_ok(wind_data, test_data, start_time)
+    assert status == True, reason
+
+    # Fetch wind data with caching
+    hours = 1
+    start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+    response = test_client.get(f"/api/wind?hours={hours}")
+    wind_data = response.json()["winddata"]
+    assert response.status_code == 200
+
+    # Verify the database was not queried again
+    assert mock_test_db_manager.query_count == initial_query_count + 4, "Cache miss"
+
+    assert len(wind_data) == hours * 60 -1, "Wind data length does not match"
+    status, reason = is_wind_data_ok(wind_data, test_data, start_time)
+    assert status == True, reason
 
 
 @pytest.mark.asyncio
@@ -443,13 +542,14 @@ async def test_wind_data_caching_new_wind_obs(test_client, mock_test_db_manager)
     initial_query_count = mock_test_db_manager.query_count
 
     # Fetch wind data without caching
-    response = test_client.get("/api/wind?hours=6")
+    hours = 6
+    response = test_client.get(f"/api/wind?hours={hours}")
     assert response.status_code == 200
 
     # Verify the database was queried
-    assert mock_test_db_manager.query_count == initial_query_count + 2, "Database was not queried"
+    assert mock_test_db_manager.query_count == initial_query_count + 2, "Cache hit"
 
-    new_obs_update_time = datetime.now()
+    new_obs_update_time = datetime.now(timezone.utc)
 
     notification_data = {
         "station_name": "CYTZ",
@@ -468,7 +568,9 @@ async def test_wind_data_caching_new_wind_obs(test_client, mock_test_db_manager)
 
     # The notification system broadcasts to WebSocket connections, but doesn't update the mock database
     # So we just verify the notification was processed successfully
-    response = test_client.get("/api/wind?hours=6")
+    hours = 6
+    start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+    response = test_client.get(f"/api/wind?hours={hours}")
     assert response.status_code == 200
 
     # Verify the response contains the new wind observation data as the last element
@@ -481,4 +583,15 @@ async def test_wind_data_caching_new_wind_obs(test_client, mock_test_db_manager)
     ]
 
     # Verify the database was queried again
-    assert mock_test_db_manager.query_count == initial_query_count + 2, "Database was queried again"
+    assert mock_test_db_manager.query_count == initial_query_count + 2, "Cache miss"
+
+    test_data.append({
+        "station_name": notification_data['station_name'],
+        "update_time": new_obs_update_time,
+        "direction": notification_data['direction'],
+        "speed_kts": notification_data['speed_kts'],
+        "gust_kts": notification_data['gust_kts'],
+    })
+    assert len(wind_data) == hours * 60, "Wind data length does not match"
+    status, reason = is_wind_data_ok(wind_data, test_data, start_time)
+    assert status == True, reason
