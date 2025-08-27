@@ -12,7 +12,7 @@ from pydantic import BaseModel
 import pytest
 import logging
 
-from main import WindDataPoint
+from app.models import WindDataPoint
 
 logger = logging.getLogger(__name__)
 

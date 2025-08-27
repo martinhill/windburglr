@@ -315,7 +315,7 @@ async def test_db_manager():
     manager = TestDatabaseManager()
     setup_success = await manager.setup(database_url)
     if not setup_success:
-        pytest.skip("Could not connect to test database")
+        pytest.skip(f"Could not connect to test database {database_url}")
 
     try:
         yield manager
@@ -521,7 +521,8 @@ class WindDataGenerator:
 @pytest.fixture
 def test_client(mock_test_db_manager):
     """Create a test client for unit tests that uses mock_test_db_manager."""
-    from main import make_app, get_db_pool
+    from main import make_app
+    from app.dependencies import get_db_pool
     import json
     import asyncio
 
@@ -720,7 +721,8 @@ async def test_db_with_bulk_data(test_db_manager):
 
 @pytest.fixture
 async def app(test_db_manager, persistent_connection):
-    from main import make_app, get_db_pool
+    from main import make_app
+    from app.dependencies import get_db_pool
 
     async def get_test_db_pool():
         return test_db_manager.pool
@@ -735,7 +737,8 @@ async def app(test_db_manager, persistent_connection):
 @pytest.fixture
 async def app_with_bulk_data(test_db_with_bulk_data, persistent_connection):
     """App fixture with pre-loaded bulk test data to avoid notification spam."""
-    from main import make_app, get_db_pool
+    from main import make_app
+    from app.dependencies import get_db_pool
 
     async def get_test_db_pool():
         return test_db_with_bulk_data.pool

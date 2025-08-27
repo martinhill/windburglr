@@ -62,6 +62,7 @@ addopts = [
     "--strict-markers",
     "--strict-config",
     "--cov=main",
+    "--cov=app",
     "--cov-report=term-missing",
     "--cov-report=html",
     "--cov-report=xml",

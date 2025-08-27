@@ -50,6 +50,6 @@ data.bz2
 attic/
 
 # Replit
-.pythonlibs
+/.pythonlibs/
 logs
-cache
+/cache/
