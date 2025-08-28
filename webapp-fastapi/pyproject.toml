@@ -10,7 +10,7 @@ authors = [{ name = "Martin Hill" }]
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "fastapi>=0.104.0",
+    "fastapi[standard]>=0.116",
     "uvicorn[standard]>=0.24.0",
     "asyncpg>=0.30.0",
     "python-dotenv>=1.0.0",
@@ -19,6 +19,16 @@ dependencies = [
     "aiofiles>=23.0.0",
     "async-lru>=2.0.5",
 ]
+
+[tool.poetry.dependencies]
+python = "^3.13"
+fastapi = { version = "^0.116", extras = ["standard"] }
+uvicorn = { version = "^0.24.0", extras = ["standard"] }
+asyncpg = "^0.30"
+python-dotenv = "^1.0"
+jinja2 = "^3.1"
+aiofiles = "^23.0"
+async-lru = "^2.0"
 
 [project.optional-dependencies]
 dev = [
@@ -33,6 +43,9 @@ dev = [
     "playwright>=1.40.0",
     "httpx-ws>=0.7.2",
 ]
+
+[project.scripts]
+start = "uvicorn main:app --host 0.0.0.0 --port 8000"
 
 [tool.ruff]
 target-version = "py313"
