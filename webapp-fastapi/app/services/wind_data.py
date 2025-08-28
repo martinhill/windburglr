@@ -58,12 +58,8 @@ class WindDataService:
             )
             if row:
                 # Ensure update_time is timezone-aware before processing
-                update_time = row["update_time"]
-                if update_time.tzinfo is None:
-                    update_time = update_time.replace(tzinfo=timezone.utc)
-
                 return WindDataPoint(
-                    timestamp=update_time,
+                    timestamp=row['update_time'],
                     direction=row["direction"],
                     speed_kts=row["speed_kts"],
                     gust_kts=row["gust_kts"],
