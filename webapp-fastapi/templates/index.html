@@ -6,6 +6,20 @@
         <title>windburglr - {{ station }}</title>
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+        <script
+            src="https://browser.sentry-cdn.com/10.8.0/bundle.tracing.min.js"
+            integrity="sha384-TR8N680qOm0pCmrHg2oG0fjpZYcpLanuLrMZck1DTR0NnaJjnqAPuCPI7pMJRmFp"
+            crossorigin="anonymous"
+        ></script>
+        <script>
+            Sentry.init({
+                dsn: "https://3120a70d778a187a20276c2c8a9cb4f9@o4509923794878464.ingest.us.sentry.io/4509923795140608",
+                environment:
+                    "{{ 'production' if request.url.hostname != 'localhost' else 'development' }}",
+                integrations: [Sentry.browserTracingIntegration()],
+                tracesSampleRate: 1.0,
+            });
+        </script>
         <link rel="stylesheet" href="/static/style.css" />
         <link rel="icon" href="/static/favicon.ico" sizes="32x32" />
         <link
@@ -687,15 +701,16 @@
                         const data = await response.json();
                         windData = data.winddata;
                         updateCharts(windData);
-                    } catch (error) {
-                        console.error('Error loading historical data:', error);
+                     } catch (error) {
+                         console.error('Error loading historical data:', error);
+                         Sentry.captureException(error);
 
-                        // Hide loading indicator even on error
-                        const loadingIndicator = document.getElementById('loading-indicator');
-                        if (loadingIndicator) {
-                            loadingIndicator.style.display = 'none';
-                        }
-                    }
+                         // Hide loading indicator even on error
+                         const loadingIndicator = document.getElementById('loading-indicator');
+                         if (loadingIndicator) {
+                             loadingIndicator.style.display = 'none';
+                         }
+                     }
                 }
 
                 async function fillDataGap() {
@@ -755,9 +770,10 @@
                         } else {
                             console.log('No gap data retrieved');
                         }
-                    } catch (error) {
-                        console.error('Error filling data gap:', error);
-                    }
+                     } catch (error) {
+                         console.error('Error filling data gap:', error);
+                         Sentry.captureException(error);
+                     }
                 }
 
                 function updateConnectionStatus(status, text) {
@@ -831,9 +847,10 @@
                             } else {
                                 console.log('Received unknown message type:', data);
                             }
-                        } catch (error) {
-                            console.error('Error parsing WebSocket message:', error);
-                        }
+                         } catch (error) {
+                             console.error('Error parsing WebSocket message:', error);
+                             Sentry.captureException(error);
+                         }
                     };
 
                     websocket.onclose = function(event) {

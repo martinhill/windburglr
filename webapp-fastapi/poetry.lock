@@ -1999,4 +1999,4 @@ dev = ["asgi-lifespan", "fastapi", "httpx-ws", "playwright", "pyright", "pytest"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.13"
-content-hash = "db091fcab256cb94fee2efbe63a1ba3cb5d555e53a866c119f7627e2599d63fc"
+content-hash = "402d6a32d9bf6243b2d59d206cc4138d40bf38dc6121d3c2994c6ddd5b54c59f"

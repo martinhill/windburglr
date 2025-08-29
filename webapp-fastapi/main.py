@@ -1,27 +1,45 @@
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import Optional
 
 import asyncpg
+import sentry_sdk
 import uvicorn
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from sentry_sdk.integrations.asyncpg import AsyncPGIntegration
+from sentry_sdk.integrations.fastapi import FastApiIntegration
 
 from app.cache import create_cache_from_config
-from app.config import get_cache_config, LOG_LEVEL
+from app.config import LOG_LEVEL, get_cache_config, get_sentry_config
 from app.database import create_db_pool
 from app.dependencies import (
     set_cache_backend,
     set_db_pool,
-    set_websocket_manager,
     set_pg_manager,
+    set_websocket_manager,
     set_wind_service,
 )
-from app.routers import api, web, websocket, health
-from app.services.websocket import WebSocketManager
+from app.routers import api, health, web, websocket
 from app.services.notifications import PostgresNotificationManager
+from app.services.websocket import WebSocketManager
 from app.services.wind_data import WindDataService
+
+# Initialize Sentry
+sentry_config = get_sentry_config()
+if sentry_config["dsn"]:
+    sentry_sdk.init(
+        dsn=sentry_config["dsn"],
+        integrations=[
+            FastApiIntegration(),
+            AsyncPGIntegration(),
+        ],
+        environment=sentry_config["environment"],
+        traces_sample_rate=1.0,
+        profiles_sample_rate=1.0,
+    )
+    logger = logging.getLogger("windburglr")
+    logger.info("Sentry initialized with DSN: %s", sentry_config["dsn"][:50] + "...")
 
 # Configure logging
 log_level_value = getattr(logging, LOG_LEVEL, logging.INFO)
@@ -37,7 +55,7 @@ logger = logging.getLogger("windburglr")
 logger.info("WindBurglr logger initialized at level: %s", LOG_LEVEL)
 
 
-def make_app(pg_connection: Optional[asyncpg.Connection] = None):
+def make_app(pg_connection: asyncpg.Connection | None = None):
     """Create FastAPI application with proper dependency injection."""
 
     @asynccontextmanager

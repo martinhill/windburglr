@@ -30,3 +30,10 @@ def get_cache_config() -> Dict[str, Any]:
             "cache_duration_hours": DATA_CACHE_HOURS,
         },
     }
+
+def get_sentry_config() -> Dict[str, Any]:
+    """Get Sentry configuration from environment."""
+    return {
+        "dsn": os.environ.get("SENTRY_DSN", ""),
+        "environment": os.environ.get("SENTRY_ENVIRONMENT", "development"),
+    }
