@@ -10,9 +10,9 @@ channel = "stable-25_05"
 REPLIT_PYTHON_PACKAGE_LAYER = "1"
 
 [deployment]
-run = ["sh", "-c", "cd webapp-fastapi && poetry install -v && poetry run -v python main.py"]
+run = ["sh", "-c", "cd webapp && poetry install -v && poetry run -v python main.py"]
 deploymentTarget = "cloudrun"
-build = ["sh", "-c", "cd webapp-fastapi && poetry lock && poetry install -v"]
+build = ["sh", "-c", "cd webapp && poetry lock && poetry install -v"]
 
 
 [[ports]]
@@ -29,4 +29,4 @@ mode = "sequential"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd webapp-fastapi && poetry run python main.py"
+args = "cd webapp && poetry run python main.py"
