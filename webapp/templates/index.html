@@ -10,7 +10,9 @@
         <script type="module" src="http://localhost:5173/src/main.js"></script>
         {% else %}
         <!-- Production mode - use built assets -->
-        <script type="module" src="/dist/js/main-fzyiApRZ.js"></script>
+        {% for js_file in dist_js_files %}
+        <script type="module" src="/dist/js/{{ js_file }}"></script>
+        {% endfor %}
         {% endif %}
         <script
             src="https://browser.sentry-cdn.com/10.8.0/bundle.tracing.min.js"

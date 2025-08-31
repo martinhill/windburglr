@@ -3,7 +3,9 @@ Dependency providers for FastAPI application.
 Manages application state and provides dependencies to routes.
 """
 
-from typing import Optional
+import os
+import glob
+from typing import List, Optional
 
 import asyncpg
 
@@ -80,3 +82,9 @@ async def get_wind_service() -> WindDataService:
     if _wind_service is None:
         raise RuntimeError("Wind service not initialized")
     return _wind_service
+
+
+def get_dist_js_files() -> List[str]:
+    """Get list of JS filenames in dist/js directory."""
+    js_files = glob.glob("dist/js/main-*.js")
+    return [os.path.basename(f) for f in js_files]
