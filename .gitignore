@@ -54,3 +54,5 @@ attic/
 /.pythonlibs/
 logs
 /cache/
+
+.env.sentry-build-plugin

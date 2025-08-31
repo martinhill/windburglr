@@ -19,6 +19,9 @@
 * improve mobile responsiveness
 * configure better chart animation
 * accessibility improvements
+* current conditions details in title attributes
+  * full time string in update last-update
+  * degrees in direction
 
 ## Features
 * shared cache (redis, litefs)

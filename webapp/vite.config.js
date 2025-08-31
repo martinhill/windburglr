@@ -1,10 +1,13 @@
+import { sentryVitePlugin } from "@sentry/vite-plugin";
 import { defineConfig } from 'vite'
 
 export default defineConfig({
   root: '.',
+
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+
     rollupOptions: {
       input: 'src/main.js',
       output: {
@@ -12,8 +15,11 @@ export default defineConfig({
         chunkFileNames: 'js/[name]-[hash].js',
         assetFileNames: 'assets/[name]-[hash].[ext]'
       }
-    }
+    },
+
+    sourcemap: true
   },
+
   server: {
     proxy: {
       '/api': 'http://localhost:8000',
@@ -22,5 +28,10 @@ export default defineConfig({
         ws: true
       }
     }
-  }
+  },
+
+  plugins: [sentryVitePlugin({
+    org: "martin-hill",
+    project: "windburglr"
+  })]
 })
