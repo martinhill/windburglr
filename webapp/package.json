@@ -1,0 +1,20 @@
+{
+  "name": "windburglr-frontend",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "python -m http.server 3000",
+    "test:store": "npm run test & sleep 2 && open http://localhost:3000/test-store.html",
+    "test:nav": "npm run test & sleep 2 && open http://localhost:3000/test-navigation.html"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  },
+  "dependencies": {
+    "chart.js": "^4.4.0",
+    "chartjs-adapter-date-fns": "^3.0.0"
+  }
+}

@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Standalone Navigation Test</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #f5f5f5; }
+        .test-container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .test-output { background: #000; color: #0f0; padding: 15px; border-radius: 4px; white-space: pre-wrap; font-family: monospace; }
+        .test-button { padding: 10px; margin: 5px; border: none; border-radius: 4px; cursor: pointer; background: #007acc; color: white; }
+        .test-button:hover { opacity: 0.8; }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>🔧 Navigation Functions Test</h1>
+        <p>Testing if global navigation functions are available and working</p>
+        
+        <div>
+            <button class="test-button" onclick="testGlobalFunctions()">Test Global Function Availability</button>
+            <button class="test-button" onclick="testNavigateToDate()">Test navigateToDate</button>
+            <button class="test-button" onclick="testDismissPopup()">Test dismissOrientationPopup</button>
+        </div>
+        
+        <div id="test-output" class="test-output">Ready for testing...\n</div>
+    </div>
+    
+    <!-- Template globals (simulate what template provides) -->
+    <script>
+        window.STATION = 'TST';
+        window.IS_LIVE = false;
+        window.HOURS = 24;
+        window.DATE_START = '2025-08-30T00:00:00Z';
+        window.DATE_END = '2025-08-30T23:59:59Z';
+        
+        // Output function
+        const outputDiv = document.getElementById('test-output');
+        function log(message) {
+            console.log(message);
+            outputDiv.textContent += message + '\n';
+        }
+        
+        function testGlobalFunctions() {
+            log('\n=== Testing Global Function Availability ===');
+            
+            log('Window object keys with "navigate": ' + Object.keys(window).filter(k => k.includes('navigate')));
+            log('Window object keys with "dismiss": ' + Object.keys(window).filter(k => k.includes('dismiss')));
+            
+            log('typeof window.navigateToDate: ' + typeof window.navigateToDate);
+            log('typeof window.dismissOrientationPopup: ' + typeof window.dismissOrientationPopup);
+            
+            if (typeof window.navigateToDate === 'function') {
+                log('✓ navigateToDate function is available globally');
+            } else {
+                log('❌ navigateToDate function NOT available globally');
+            }
+            
+            if (typeof window.dismissOrientationPopup === 'function') {
+                log('✓ dismissOrientationPopup function is available globally');
+            } else {
+                log('❌ dismissOrientationPopup function NOT available globally');
+            }
+        }
+        
+        function testNavigateToDate() {
+            log('\n=== Testing navigateToDate Function ===');
+            
+            if (typeof window.navigateToDate !== 'function') {
+                log('❌ navigateToDate not available - cannot test');
+                return;
+            }
+            
+            try {
+                log('Attempting to call navigateToDate("2025-08-30")...');
+                // Don't actually navigate, just test that function can be called
+                const originalLocation = window.location.href;
+                log('Current location: ' + originalLocation);
+                
+                // This will try to navigate, but we can catch any errors
+                window.navigateToDate('2025-08-30');
+                log('✓ navigateToDate function executed without errors');
+                
+            } catch (error) {
+                log('❌ Error calling navigateToDate: ' + error.message);
+            }
+        }
+        
+        function testDismissPopup() {
+            log('\n=== Testing dismissOrientationPopup Function ===');
+            
+            if (typeof window.dismissOrientationPopup !== 'function') {
+                log('❌ dismissOrientationPopup not available - cannot test');
+                return;
+            }
+            
+            try {
+                log('Attempting to call dismissOrientationPopup()...');
+                window.dismissOrientationPopup();
+                log('✓ dismissOrientationPopup function executed successfully');
+                
+            } catch (error) {
+                log('❌ Error calling dismissOrientationPopup: ' + error.message);
+            }
+        }
+        
+        // Test when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            log('DOM loaded, waiting for modules to load...');
+            
+            // Give modules time to load and set up global functions
+            setTimeout(() => {
+                log('Running automatic tests after module load...');
+                testGlobalFunctions();
+            }, 500);
+        });
+    </script>
+    
+    <!-- Load main application -->
+    <script type="module" src="./dist/js/main-4B6-5TCC.js"></script>
+</body>
+</html>

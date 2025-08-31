@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Minimal Test</title>
+</head>
+<body>
+    <h1>Minimal Test</h1>
+    <button onclick="testFunctions()">Test Functions</button>
+    <div id="result"></div>
+    
+    <!-- Template globals -->
+    <script>
+        window.STATION = 'TEST';
+        window.IS_LIVE = false;
+        
+        function testFunctions() {
+            const result = document.getElementById('result');
+            result.innerHTML = '';
+            
+            setTimeout(() => {
+                result.innerHTML += '<p>navigateToDate type: ' + typeof window.navigateToDate + '</p>';
+                result.innerHTML += '<p>dismissOrientationPopup type: ' + typeof window.dismissOrientationPopup + '</p>';
+                
+                if (typeof window.navigateToDate === 'function') {
+                    result.innerHTML += '<p>✓ navigateToDate is available</p>';
+                } else {
+                    result.innerHTML += '<p>❌ navigateToDate NOT available</p>';
+                }
+                
+                if (typeof window.dismissOrientationPopup === 'function') {
+                    result.innerHTML += '<p>✓ dismissOrientationPopup is available</p>';
+                } else {
+                    result.innerHTML += '<p>❌ dismissOrientationPopup NOT available</p>';
+                }
+            }, 100);
+        }
+    </script>
+    
+    <script type="module" src="./dist/js/main-4B6-5TCC.js"></script>
+</body>
+</html>

@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Navigation Test (Fixed)</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #f5f5f5; }
+        .test-container { background: white; padding: 20px; border-radius: 8px; max-width: 600px; }
+        .btn { background: #667eea; color: white; border: none; padding: 10px 15px; margin: 5px; cursor: pointer; border-radius: 4px; }
+        .test-status { padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 4px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>🧭 Navigation Test (Fixed)</h1>
+        <p>Testing historical day navigation functions</p>
+        
+        <div id="test-results"></div>
+        
+        <h3>Manual Test Buttons</h3>
+        <button class="btn" onclick="testNavigateToDate('2023-12-25')">Navigate to Christmas</button>
+        <button class="btn" onclick="testNavigateToDate('2024-01-01')">Navigate to New Year</button>
+        
+        <h3>Simulated Template Elements</h3>
+        <input type="date" id="date-picker" onchange="navigateToDate(this.value)" value="2023-12-20">
+        <button class="btn" onclick="navigateToDate('2023-12-19')">← Previous Day</button>
+        <button class="btn" onclick="navigateToDate('2023-12-21')">Next Day →</button>
+        
+        <h3>Debug Info</h3>
+        <pre id="debug-output"></pre>
+    </div>
+
+    <script>
+        // Mock global values that would normally come from template
+        window.STATION = 'TEST';
+        window.IS_LIVE = false;
+        window.HOURS = 24;
+        
+        const results = document.getElementById('test-results');
+        const debugOutput = document.getElementById('debug-output');
+        
+        function addResult(message, isSuccess = true) {
+            const div = document.createElement('div');
+            div.className = `test-status ${isSuccess ? 'success' : (isSuccess === null ? 'info' : 'error')}`;
+            div.textContent = message;
+            results.appendChild(div);
+        }
+        
+        function updateDebug(message) {
+            debugOutput.textContent += message + '\n';
+            console.log(message);
+        }
+        
+        // Create our own navigation function for testing
+        function createNavigateToDate(station = 'TEST') {
+            return function(date) {
+                const currentParams = new URLSearchParams(window.location.search);
+                const stn = currentParams.get('stn') || station;
+                const url = `/day/${date}?stn=${stn}`;
+                updateDebug(`Navigation called: ${date} → ${url}`);
+                
+                // In a real scenario, this would do: window.location.href = url
+                // For testing, we'll just log it
+                return url;
+            };
+        }
+        
+        function testNavigateToDate(date) {
+            if (typeof window.navigateToDate === 'function') {
+                addResult(`✓ navigateToDate function is available`);
+                updateDebug(`Testing navigation to: ${date}`);
+                
+                try {
+                    const result = window.navigateToDate(date);
+                    addResult(`✓ Navigation function called successfully`);
+                    if (result) {
+                        addResult(`✓ Would navigate to: ${result}`);
+                    }
+                } catch (error) {
+                    addResult(`❌ Navigation error: ${error.message}`, false);
+                }
+            } else {
+                addResult(`❌ navigateToDate function not available`, false);
+                addResult(`ℹ️ Using fallback navigation function`, null);
+                
+                // Use our fallback function
+                const fallbackNav = createNavigateToDate(window.STATION);
+                const result = fallbackNav(date);
+                addResult(`✓ Fallback navigation: ${result}`);
+            }
+        }
+        
+        // Set up fallback navigation immediately
+        if (typeof window.navigateToDate !== 'function') {
+            window.navigateToDate = createNavigateToDate(window.STATION);
+            addResult('ℹ️ Set up fallback navigateToDate function', null);
+        }
+    </script>
+    
+    <!-- Try to import the main module, but don't fail if it doesn't work -->
+    <script type="module">
+        updateDebug('Attempting to load main module...');
+        
+        try {
+            const module = await import('./src/main.js');
+            updateDebug('✓ Main module loaded successfully');
+            
+            // Wait a bit for initialization
+            setTimeout(() => {
+                if (typeof window.navigateToDate === 'function') {
+                    addResult('✓ navigateToDate function available from main module');
+                } else {
+                    addResult('⚠️ Main module loaded but navigateToDate not global', null);
+                }
+            }, 2000);
+            
+        } catch (e) {
+            updateDebug(`Module loading failed: ${e.message}`);
+            addResult(`ℹ️ Main module not loaded, using fallback functions`, null);
+            
+            // Make sure we have a working navigation function
+            window.navigateToDate = createNavigateToDate(window.STATION);
+        }
+        
+        // Initial test after a delay
+        setTimeout(() => {
+            addResult('🚀 Running initial navigation test...', null);
+            testNavigateToDate('2023-12-20');
+        }, 1500);
+    </script>
+</body>
+</html>

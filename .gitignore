@@ -37,6 +37,7 @@ coverage.xml
 
 tags
 
+node_modules/
 
 scraper/manifest_hp.yml
 ga.html

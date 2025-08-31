@@ -107,6 +107,7 @@ def make_app(pg_connection: asyncpg.Connection | None = None):
 
     # Mount static files
     app.mount("/static", StaticFiles(directory="static"), name="static")
+    app.mount("/dist", StaticFiles(directory="dist"), name="dist")
 
     return app
 

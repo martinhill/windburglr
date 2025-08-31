@@ -1,0 +1,31 @@
+# TODO
+
+## Issues
+
+## Code quality and robustness
+* modular JS
+* modern vite-based build process for front-end
+
+## Testing
+* have claude make more unit tests
+* populate test db for e2e testing, make some assertions
+* front end unit tests
+* multi-modal LLM visual front-end checking
+* consider parameterized tests
+
+## UI/UX
+* optional wind direction arrows in place of right axis point plot
+* dark mode
+* improve mobile responsiveness
+* configure better chart animation
+* accessibility improvements
+
+## Features
+* shared cache (redis, litefs)
+* /api/wind pagination by date
+* Progressive Web App (PWA) support
+  * Service Worker registration
+  * App Shell architecture
+  * Push notifications
+  * Background sync
+  * Offline support

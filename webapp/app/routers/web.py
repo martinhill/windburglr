@@ -1,3 +1,4 @@
+import os
 import zoneinfo
 from datetime import datetime, timedelta, timezone
 
@@ -27,6 +28,7 @@ async def live_wind_chart(
             "hours": hours,
             "minutes": minutes,
             "is_live": True,
+            "dev_mode": os.getenv("DEV_MODE", "false").lower() == "true",
         },
     )
 
@@ -86,6 +88,7 @@ async def historical_wind_day_chart(
                 "date_start": day_start_utc.strftime("%Y-%m-%dT%H:%M:%S"),
                 "date_end": day_end_utc.strftime("%Y-%m-%dT%H:%M:%S"),
                 "station_timezone": station_tz_name,
+                "dev_mode": os.getenv("DEV_MODE", "false").lower() == "true",
             },
         )
     except ValueError as err:

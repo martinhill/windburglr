@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Navigation Debug</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #f5f5f5; }
+        .container { background: white; padding: 20px; border-radius: 8px; max-width: 800px; margin: 0 auto; }
+        .section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 4px; }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .info { background: #d1ecf1; color: #0c5460; }
+        .btn { background: #667eea; color: white; border: none; padding: 8px 12px; margin: 2px; cursor: pointer; border-radius: 4px; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 4px; font-size: 12px; }
+        .log { max-height: 300px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Navigation Debug</h1>
+        <p>Detailed debugging of the navigation function issue</p>
+        
+        <div class="section">
+            <h3>Step 1: Check Module Loading</h3>
+            <div id="module-status">Loading...</div>
+            <pre id="module-log" class="log"></pre>
+        </div>
+        
+        <div class="section">
+            <h3>Step 2: Check Global Functions</h3>
+            <div id="global-status">Checking...</div>
+            <button class="btn" onclick="checkGlobals()">Refresh Global Check</button>
+            <pre id="global-log" class="log"></pre>
+        </div>
+        
+        <div class="section">
+            <h3>Step 3: Test Navigation</h3>
+            <button class="btn" onclick="testNav('2023-12-25')">Test Date Navigation</button>
+            <button class="btn" onclick="navigateToDate('2024-01-01')">Direct Call Test</button>
+            <input type="date" value="2023-12-20" onchange="navigateToDate(this.value)">
+            <pre id="nav-log" class="log"></pre>
+        </div>
+        
+        <div class="section">
+            <h3>Debug Console</h3>
+            <pre id="console-log" class="log"></pre>
+        </div>
+    </div>
+
+    <script>
+        // Set up template globals
+        window.STATION = 'DEBUG_TEST';
+        window.IS_LIVE = false;  
+        window.HOURS = 24;
+        
+        const moduleLog = document.getElementById('module-log');
+        const globalLog = document.getElementById('global-log');
+        const navLog = document.getElementById('nav-log');
+        const consoleLog = document.getElementById('console-log');
+        
+        function log(target, message) {
+            target.textContent += new Date().toLocaleTimeString() + ': ' + message + '\n';
+            target.scrollTop = target.scrollHeight;
+        }
+        
+        // Capture console logs
+        const originalLog = console.log;
+        const originalError = console.error;
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            log(consoleLog, 'LOG: ' + args.join(' '));
+        };
+        console.error = function(...args) {
+            originalError.apply(console, args);
+            log(consoleLog, 'ERROR: ' + args.join(' '));
+        };
+        
+        function checkGlobals() {
+            globalLog.textContent = '';
+            const globalStatus = document.getElementById('global-status');
+            
+            const globals = ['STATION', 'IS_LIVE', 'HOURS', 'navigateToDate', 'dismissOrientationPopup'];
+            let foundCount = 0;
+            
+            globals.forEach(name => {
+                const exists = window.hasOwnProperty(name) || (name in window);
+                const type = typeof window[name];
+                log(globalLog, `${name}: ${exists ? '✓' : '❌'} (${type})`);
+                if (exists) foundCount++;
+            });
+            
+            globalStatus.className = foundCount >= 4 ? 'success' : 'error';
+            globalStatus.textContent = `Found ${foundCount}/${globals.length} expected globals`;
+        }
+        
+        function testNav(date) {
+            navLog.textContent = '';
+            log(navLog, `Testing navigation to: ${date}`);
+            
+            if (typeof window.navigateToDate === 'function') {
+                try {
+                    log(navLog, 'navigateToDate function found, calling...');
+                    window.navigateToDate(date);
+                    log(navLog, 'Function call completed successfully');
+                } catch (error) {
+                    log(navLog, `Error calling function: ${error.message}`);
+                }
+            } else {
+                log(navLog, 'navigateToDate function not found!');
+                log(navLog, `Available window properties: ${Object.keys(window).filter(k => k.includes('nav') || k.includes('Nav')).join(', ')}`);
+            }
+        }
+        
+        // Initial global check
+        setTimeout(checkGlobals, 100);
+    </script>
+    
+    <!-- Load the main module with detailed error reporting -->
+    <script type="module">
+        const moduleStatus = document.getElementById('module-status');
+        
+        try {
+            log(moduleLog, 'Starting module import...');
+            const startTime = Date.now();
+            
+            // Try to import main module
+            await import('./src/main.js');
+            
+            const loadTime = Date.now() - startTime;
+            log(moduleLog, `✓ Module imported successfully in ${loadTime}ms`);
+            moduleStatus.className = 'success';
+            moduleStatus.textContent = 'Module loaded successfully';
+            
+            // Check if global function was set up
+            setTimeout(() => {
+                if (typeof window.navigateToDate === 'function') {
+                    log(moduleLog, '✓ navigateToDate global function available');
+                } else {
+                    log(moduleLog, '❌ navigateToDate global function NOT available');
+                }
+                checkGlobals();
+            }, 500);
+            
+        } catch (error) {
+            log(moduleLog, `❌ Module import failed: ${error.message}`);
+            log(moduleLog, `Error stack: ${error.stack}`);
+            moduleStatus.className = 'error';
+            moduleStatus.textContent = 'Module failed to load';
+            
+            // Set up fallback function
+            window.navigateToDate = function(date) {
+                log(navLog, `Fallback navigation called: ${date}`);
+                const url = `/day/${date}?stn=${window.STATION}`;
+                log(navLog, `Would navigate to: ${url}`);
+            };
+            log(moduleLog, '✓ Fallback navigation function created');
+            checkGlobals();
+        }
+    </script>
+</body>
+</html>
