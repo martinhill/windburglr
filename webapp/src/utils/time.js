@@ -7,15 +7,18 @@ export function getDirectionText(degrees) {
 }
 
 export function formatTime(timestamp, isLive = true, stationTimezone = null) {
-    const date = new Date(timestamp * 1000);
-    if (!isLive && stationTimezone) {
-        return date.toLocaleTimeString('en-US', {
-            timeZone: stationTimezone,
-            hour12: false
-        });
-    } else {
-        return date.toLocaleTimeString();
-    }
+  const date = new Date(timestamp * 1000);
+  if (!isLive && stationTimezone) {
+    return date.toLocaleTimeString([], {
+      timeZone: stationTimezone,
+      hour12: false,
+    });
+  } else {
+    return date.toLocaleTimeString([], {
+      hour12: false,
+      timeStyle: "short",
+    });
+  }
 }
 
 export function formatDateTime(timestamp, isLive = true, stationTimezone = null) {
