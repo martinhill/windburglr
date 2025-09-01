@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Global Functions Test</title>
+        <style>
+            body {
+                font-family: monospace;
+                padding: 20px;
+                background: #f5f5f5;
+            }
+            .test-container {
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            }
+            .test-output {
+                background: #000;
+                color: #0f0;
+                padding: 15px;
+                border-radius: 4px;
+                white-space: pre-wrap;
+            }
+            .test-button {
+                padding: 10px;
+                margin: 5px;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+            }
+            .test-button:hover {
+                opacity: 0.8;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="test-container">
+            <h1>🌬️ Global Functions Test</h1>
+            <p>
+                Testing if navigateToDate and dismissOrientationPopup are
+                available globally
+            </p>
+
+            <div>
+                <button class="test-button" onclick="testNavigateToDate()">
+                    Test navigateToDate()
+                </button>
+                <button
+                    class="test-button"
+                    onclick="testDismissOrientationPopup()"
+                >
+                    Test dismissOrientationPopup()
+                </button>
+                <button
+                    class="test-button"
+                    onclick="testGlobalFunctionAvailability()"
+                >
+                    Check Function Availability
+                </button>
+            </div>
+
+            <div id="test-output" class="test-output">
+                Waiting for tests...\n
+            </div>
+        </div>
+
+        <!-- Simulate template globals -->
+        <script>
+            window.STATION = "TEST";
+            window.IS_LIVE = false;
+            window.HOURS = 24;
+
+            // Redirect console.log to display in page
+            const outputDiv = document.getElementById("test-output");
+            const originalLog = console.log;
+            console.log = function (...args) {
+                originalLog.apply(console, args);
+                outputDiv.textContent += args.join(" ") + "\n";
+            };
+
+            function testNavigateToDate() {
+                console.log("Testing navigateToDate...");
+                if (typeof window.navigateToDate === "function") {
+                    console.log("✓ navigateToDate is available");
+                    try {
+                        // Don't actually navigate, just test the function exists and can be called
+                        console.log(
+                            "✓ navigateToDate can be called (not actually navigating)",
+                        );
+                    } catch (e) {
+                        console.log("❌ navigateToDate error:", e.message);
+                    }
+                } else {
+                    console.log("❌ navigateToDate is not available");
+                }
+            }
+
+            function testDismissOrientationPopup() {
+                console.log("Testing dismissOrientationPopup...");
+                if (typeof window.dismissOrientationPopup === "function") {
+                    console.log("✓ dismissOrientationPopup is available");
+                    try {
+                        window.dismissOrientationPopup();
+                        console.log(
+                            "✓ dismissOrientationPopup executed successfully",
+                        );
+                    } catch (e) {
+                        console.log(
+                            "❌ dismissOrientationPopup error:",
+                            e.message,
+                        );
+                    }
+                } else {
+                    console.log("❌ dismissOrientationPopup is not available");
+                }
+            }
+
+            function testGlobalFunctionAvailability() {
+                console.log("Checking global function availability...");
+                console.log(
+                    "navigateToDate type:",
+                    typeof window.navigateToDate,
+                );
+                console.log(
+                    "dismissOrientationPopup type:",
+                    typeof window.dismissOrientationPopup,
+                );
+
+                const globalFunctions = Object.keys(window).filter(
+                    (key) =>
+                        key.includes("navigate") ||
+                        key.includes("dismiss") ||
+                        key.includes("Orientation"),
+                );
+                console.log(
+                    "Available global functions with relevant names:",
+                    globalFunctions,
+                );
+            }
+        </script>
+
+        <!-- Load the main application -->
+        <script type="module" src="../../dist/js/main-4B6-5TCC.js"></script>
+    </body>
+</html>

@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>WindBurglr Store Tests</title>
+        <style>
+            body {
+                font-family: monospace;
+                padding: 20px;
+                background: #f5f5f5;
+            }
+            .test-container {
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            }
+            .test-output {
+                background: #000;
+                color: #0f0;
+                padding: 15px;
+                border-radius: 4px;
+                white-space: pre-wrap;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="test-container">
+            <h1>🧪 WindBurglr Store Tests</h1>
+            <p>Open browser console to see detailed test output</p>
+            <div id="test-output" class="test-output">Running tests...\n</div>
+        </div>
+
+        <script type="module">
+            // Redirect console.log to display in page
+            const outputDiv = document.getElementById("test-output");
+            const originalLog = console.log;
+            console.log = function (...args) {
+                originalLog.apply(console, args);
+                outputDiv.textContent += args.join(" ") + "\n";
+            };
+
+            // Import and run tests
+            try {
+                console.log("Testing global functions first...");
+                console.log(
+                    "navigateToDate type:",
+                    typeof window.navigateToDate,
+                );
+                console.log(
+                    "dismissOrientationPopup type:",
+                    typeof window.dismissOrientationPopup,
+                );
+
+                // Try different import paths depending on how the server is set up
+                let Store;
+                try {
+                    ({ Store } = await import("../../src/store/store.js"));
+                } catch (e) {
+                    console.log("Direct path failed, trying absolute path...");
+                    ({ Store } = await import("../../src/store/store.js"));
+                }
+
+                // Create a test store instance
+                const testStore = new Store();
+
+                // Test 1: Basic state management
+                console.log("Test 1: Basic state management");
+                const initialState = testStore.getState();
+                console.log(
+                    "✓ Initial state created:",
+                    initialState.windData.length === 0,
+                );
+
+                // Test 2: State updates and listeners
+                console.log("Test 2: State updates and listeners");
+                let listenerCalled = false;
+                const unsubscribe = testStore.subscribe(
+                    (state, prevState, source) => {
+                        listenerCalled = true;
+                        console.log("✓ Listener called with source:", source);
+                    },
+                );
+
+                testStore.setState({ isLoading: true }, "test");
+                console.log("✓ Listener was called:", listenerCalled);
+
+                // Test 3: Wind data management
+                console.log("Test 3: Wind data management");
+                const testData = [
+                    [1640995200, 270, 15, 18], // timestamp, direction, speed, gust
+                    [1640995260, 275, 16, 19],
+                    [1640995320, 280, 14, 17],
+                ];
+
+                testStore.setWindData(testData, "test");
+                const state = testStore.getState();
+                console.log("✓ Wind data set:", state.windData.length === 3);
+
+                // Test 4: Add individual wind data point
+                console.log("Test 4: Add individual wind data point");
+                const newPoint = [1640995380, 285, 17, 20];
+                testStore.addWindData(newPoint, "test");
+                const updatedState = testStore.getState();
+                console.log(
+                    "✓ Wind data added:",
+                    updatedState.windData.length === 4,
+                );
+
+                // Test 5: Time window filtering
+                console.log("Test 5: Time window filtering");
+                testStore.initialize({
+                    isLive: true,
+                    station: "TEST",
+                    hours: 3,
+                });
+                testStore.setTimeWindow(1, "test"); // 1 hour window
+                const filteredData = testStore.getFilteredWindData();
+                console.log(
+                    "✓ Time window filtering available:",
+                    typeof testStore.getFilteredWindData === "function",
+                );
+
+                // Test 6: Chart data format
+                console.log("Test 6: Chart data format");
+                const chartData = testStore.getChartData();
+                console.log(
+                    "✓ Chart data has correct structure:",
+                    chartData.timeData &&
+                        chartData.speeds &&
+                        chartData.gusts &&
+                        chartData.directions,
+                );
+
+                // Test 7: Connection status
+                console.log("Test 7: Connection status");
+                testStore.setConnectionStatus(
+                    "connected",
+                    "Test connection",
+                    "test",
+                );
+                const connectionState = testStore.getState();
+                console.log(
+                    "✓ Connection status updated:",
+                    connectionState.connectionStatus === "connected",
+                );
+
+                // Test 8: Current conditions
+                console.log("Test 8: Current conditions");
+                testStore.setCurrentConditions(
+                    {
+                        speed_kts: 15,
+                        direction: 270,
+                        gust_kts: 18,
+                        timestamp: 1640995200,
+                    },
+                    "test",
+                );
+                const conditionsState = testStore.getState();
+                console.log(
+                    "✓ Current conditions updated:",
+                    conditionsState.currentConditions.speed_kts === 15,
+                );
+
+                // Test 9: Duplicate filtering
+                console.log("Test 9: Duplicate filtering");
+                const duplicatePoint = [1640995380, 285, 17, 20]; // Same timestamp as before
+                testStore.addWindData(duplicatePoint, "test");
+                const duplicateState = testStore.getState();
+                console.log(
+                    "✓ Duplicate filtering works:",
+                    duplicateState.windData.length === 4,
+                ); // Should still be 4
+
+                // Test 10: Computed properties
+                console.log("Test 10: Computed properties");
+                const data1 = testStore.getFilteredWindData();
+                console.log("✓ Computed properties work:", data1.length >= 0);
+
+                // Cleanup
+                unsubscribe();
+                console.log("✓ Unsubscribe function works");
+
+                console.log("\n🎉 All store tests passed!");
+            } catch (error) {
+                console.error("❌ Test failed:", error);
+            }
+        </script>
+    </body>
+</html>

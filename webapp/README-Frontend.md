@@ -81,15 +81,15 @@ Due to CORS restrictions, test files cannot be opened directly in browsers. Use 
 **Method 1: Python HTTP Server (Recommended)**
 ```bash
 python -m http.server 3000
-# Then open: http://localhost:3000/test-store.html
-# Or: http://localhost:3000/test-navigation.html
+# Then open: http://localhost:3000/tests/html/test-store.html
+# Or: http://localhost:3000/tests/html/test-navigation.html
 ```
 
 **Method 2: Vite Dev Server**
 ```bash
 npm run dev
-# Then open: http://localhost:5173/test-store.html
-# Or: http://localhost:5173/test-navigation.html
+# Then open: http://localhost:5173/tests/html/test-store.html
+# Or: http://localhost:5173/tests/html/test-navigation.html
 ```
 
 **Method 3: Quick Test Commands**
@@ -102,7 +102,7 @@ npm run test:nav      # Opens navigation tests
 
 ### Code Organization
 - **Separation of Concerns**: Each module handles a specific responsibility
-- **Reusable Components**: Functions can be imported and used across modules  
+- **Reusable Components**: Functions can be imported and used across modules
 - **Clear Dependencies**: Import/export statements make dependencies explicit
 - **Easier Testing**: Individual modules can be tested in isolation
 
