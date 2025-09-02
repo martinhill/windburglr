@@ -2,24 +2,26 @@
 
 ## Issues
 
+## CI/CD
+* nix development environment
+* github actions
+
 ## Code quality and robustness
-* modular JS
-* modern vite-based build process for front-end
 
 ## Testing
 * have claude make more unit tests
 * populate test db for e2e testing, make some assertions
-* front end unit tests
 * multi-modal LLM visual front-end checking
 * consider parameterized tests
 
 ## UI/UX
-* optional wind direction arrows in place of right axis point plot
 * dark mode
+* optional wind direction arrows in place of right axis point plot
 * improve mobile responsiveness
 * configure better chart animation
-* accessibility improvements
-* current conditions details in title attributes
+* accessibility testing/improvements
+* update time clock/minutes-ago modes with click/touch toggle
+* current conditions details in span title attribute + tooltip
   * full time string in update last-update
   * degrees in direction
 

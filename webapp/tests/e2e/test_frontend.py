@@ -1,6 +1,6 @@
 import pytest
 from playwright.sync_api import sync_playwright, Page
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 class TestFrontend:
@@ -62,10 +62,19 @@ class TestFrontend:
         # Change time range to 6 hours - skip URL check due to mock database
         page.select_option("#time-range", "6")
 
+        # Wait for chart to update
+        page.wait_for_selector("#windChart", timeout=10000)
+
     def test_historical_page(self, page: Page, test_server_url):
         """Test historical page functionality."""
-        today = datetime.now().strftime("%Y-%m-%d")
-        page.goto(f"{test_server_url}/day/{today}")
+        page.goto(f"{test_server_url}/")
+
+        page.wait_for_selector("#view-yesterday", timeout=10000)
+        page.click("#view-yesterday")
+
+        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+        assert page.url.startswith(f"{test_server_url}/day/{yesterday}")
 
         # Check page loads
         page.wait_for_selector("body", timeout=10000)
