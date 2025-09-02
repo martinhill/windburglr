@@ -3,7 +3,7 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Navigation Test (Fixed)</title>
+        <title>Navigation Test (Vite Compatible)</title>
         <style>
             body {
                 font-family: monospace;
@@ -163,10 +163,9 @@
 
         <!-- Try to import the main module, but don't fail if it doesn't work -->
         <script type="module">
-            updateDebug("Attempting to load main module...");
-
+            console.log("Trying to load main module for global functions...");
             try {
-                const module = await import("../../src/main.js");
+                const module = await import("../main.js");
                 updateDebug("✓ Main module loaded successfully");
 
                 // Wait a bit for initialization
@@ -192,12 +191,6 @@
                 // Make sure we have a working navigation function
                 window.navigateToDate = createNavigateToDate(window.STATION);
             }
-
-            // Initial test after a delay
-            setTimeout(() => {
-                addResult("🚀 Running initial navigation test...", null);
-                testNavigateToDate("2023-12-20");
-            }, 1500);
         </script>
     </body>
 </html>

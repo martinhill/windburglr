@@ -4,6 +4,13 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   root: '.',
 
+  // Resolve src/test/ files correctly
+  resolve: {
+    alias: {
+      '@': '/src'
+    }
+  },
+
   build: {
     outDir: 'dist',
     emptyOutDir: true,

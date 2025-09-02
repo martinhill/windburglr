@@ -142,6 +142,8 @@
         </script>
 
         <!-- Load the main application -->
-        <script type="module" src="../../dist/js/main-4B6-5TCC.js"></script>
+        <script type="module">
+            const { main } = await import("../main.js");
+        </script>
     </body>
 </html>

@@ -11,8 +11,8 @@
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:legacy": "python -m http.server 3000",
-    "test:store": "npm run test:legacy & sleep 2 && open http://localhost:3000/test-store.html",
-    "test:nav": "npm run test:legacy & sleep 2 && open http://localhost:3000/test-navigation.html"
+    "test:store": "npm run dev & sleep 3 && open http://localhost:5173/src/test/test-store.html",
+    "test:nav": "npm run dev & sleep 3 && open http://localhost:5173/src/test/test-navigation.html"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^3.2.4",

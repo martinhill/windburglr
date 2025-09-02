@@ -3,7 +3,7 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>WindBurglr Store Tests</title>
+        <title>WindBurglr Store Tests (Vite Compatible)</title>
         <style>
             body {
                 font-family: monospace;
@@ -28,6 +28,10 @@
     <body>
         <div class="test-container">
             <h1>🧪 WindBurglr Store Tests</h1>
+            <p>
+                ✅ Now works with Vite dev server! Visit:
+                http://localhost:5173/src/test/test-store.html
+            </p>
             <p>Open browser console to see detailed test output</p>
             <div id="test-output" class="test-output">Running tests...\n</div>
         </div>
@@ -53,14 +57,9 @@
                     typeof window.dismissOrientationPopup,
                 );
 
-                // Try different import paths depending on how the server is set up
-                let Store;
-                try {
-                    ({ Store } = await import("../../src/store/store.js"));
-                } catch (e) {
-                    console.log("Direct path failed, trying absolute path...");
-                    ({ Store } = await import("../../src/store/store.js"));
-                }
+                // Import Store - works with Vite dev server module resolution
+                console.log("Loading Store module...");
+                const { Store } = await import("../store/store.js");
 
                 // Create a test store instance
                 const testStore = new Store();
