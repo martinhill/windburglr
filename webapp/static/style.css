@@ -398,8 +398,21 @@ input[type="date"]:focus {
         padding: 0.5rem;
     }
 
+    .container {
+        height: unset;
+    }
+
     .chart-section {
+        min-height: 75vh;
         padding: 0.5rem;
+    }
+
+    /*.chart-section canvas {
+        min-height: 60vh;
+    }*/
+
+    .controls {
+        position: relative;
     }
 }
 
@@ -408,24 +421,6 @@ input[type="date"]:focus {
         flex-wrap: wrap;
         flex-direction: row;
         align-items: flex-start;
-    }
-}
-
-@media (max-width: 480px) {
-    .container {
-        height: unset;
-    }
-
-    .chart-section {
-        min-height: 100vh;
-    }
-
-    .chart-section canvas {
-        min-height: 100vh;
-    }
-
-    .controls {
-        position: relative;
     }
 }
 

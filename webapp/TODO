@@ -17,6 +17,7 @@
 * consider parameterized tests
 
 ## UI/UX
+* live/date in title
 * optional wind direction arrows in place of right axis point plot
 * improve mobile responsiveness
 * configure better chart animation
