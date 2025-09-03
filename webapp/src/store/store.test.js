@@ -46,6 +46,25 @@ describe('Store', () => {
   })
 
   describe('Configuration', () => {
+    beforeEach(() => {
+      // Mock DOM methods for all configuration tests
+      Object.defineProperty(window, 'matchMedia', {
+        writable: true,
+        value: vi.fn().mockImplementation(query => ({
+          matches: false, // Default to light theme
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        })),
+      })
+      
+      Object.defineProperty(document, 'documentElement', {
+        writable: true,
+        value: {
+          setAttribute: vi.fn(),
+        },
+      })
+    })
+
     it('should initialize with configuration', () => {
       const config = {
         station: 'CYYZ',
@@ -134,6 +153,23 @@ describe('Store', () => {
 
   describe('Time Window Management', () => {
     beforeEach(() => {
+      // Mock DOM methods for time window tests
+      Object.defineProperty(window, 'matchMedia', {
+        writable: true,
+        value: vi.fn().mockImplementation(query => ({
+          matches: false,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        })),
+      })
+      
+      Object.defineProperty(document, 'documentElement', {
+        writable: true,
+        value: {
+          setAttribute: vi.fn(),
+        },
+      })
+      
       // Set up live mode
       store.initialize({ isLive: true, station: 'TEST' })
     })
@@ -223,6 +259,128 @@ describe('Store', () => {
       const state = store.getState()
 
       expect(state.currentConditions).toEqual(conditions)
+    })
+  })
+
+  describe('Theme Management', () => {
+    beforeEach(() => {
+      // Mock DOM methods
+      Object.defineProperty(window, 'matchMedia', {
+        writable: true,
+        value: vi.fn().mockImplementation(query => ({
+          matches: false, // Default to light theme
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        })),
+      })
+      
+      // Mock document.documentElement
+      Object.defineProperty(document, 'documentElement', {
+        writable: true,
+        value: {
+          setAttribute: vi.fn(),
+        },
+      })
+    })
+
+    it('should initialize with system theme preference', () => {
+      const config = { station: 'TEST', isLive: true }
+      store.initialize(config)
+      
+      const state = store.getState()
+      expect(state.theme).toBe('light') // Default mock is light
+      expect(document.documentElement.setAttribute).toHaveBeenCalledWith('data-theme', 'light')
+    })
+
+    it('should initialize with dark theme when system prefers dark', () => {
+      // Override mock for dark preference
+      window.matchMedia.mockReturnValueOnce({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })
+
+      const config = { station: 'TEST', isLive: true }
+      store.initialize(config)
+      
+      const state = store.getState()
+      expect(state.theme).toBe('dark')
+      expect(document.documentElement.setAttribute).toHaveBeenCalledWith('data-theme', 'dark')
+    })
+
+    it('should set theme to light', () => {
+      store.setTheme('light', 'user')
+      
+      const state = store.getState()
+      expect(state.theme).toBe('light')
+      expect(document.documentElement.setAttribute).toHaveBeenCalledWith('data-theme', 'light')
+    })
+
+    it('should set theme to dark', () => {
+      store.setTheme('dark', 'user')
+      
+      const state = store.getState()
+      expect(state.theme).toBe('dark')
+      expect(document.documentElement.setAttribute).toHaveBeenCalledWith('data-theme', 'dark')
+    })
+
+    it('should ignore invalid theme values', () => {
+      const originalState = store.getState()
+      
+      store.setTheme('invalid', 'user')
+      
+      const newState = store.getState()
+      expect(newState.theme).toBe(originalState.theme)
+    })
+
+    it('should notify listeners when theme changes', () => {
+      const listener = vi.fn()
+      store.subscribe(listener)
+
+      store.setTheme('dark', 'user')
+
+      expect(listener).toHaveBeenCalledWith(
+        expect.objectContaining({ theme: 'dark' }),
+        expect.objectContaining({ theme: 'light' }),
+        'user'
+      )
+    })
+
+    it('should set up system theme change listener on initialize', () => {
+      const mockAddEventListener = vi.fn()
+      window.matchMedia.mockReturnValue({
+        matches: false,
+        addEventListener: mockAddEventListener,
+        removeEventListener: vi.fn(),
+      })
+
+      const config = { station: 'TEST', isLive: true }
+      store.initialize(config)
+
+      expect(mockAddEventListener).toHaveBeenCalledWith('change', expect.any(Function))
+    })
+
+    it('should handle system theme changes', () => {
+      let changeCallback
+      const mockAddEventListener = vi.fn((event, callback) => {
+        if (event === 'change') changeCallback = callback
+      })
+      
+      window.matchMedia.mockReturnValue({
+        matches: false,
+        addEventListener: mockAddEventListener,
+        removeEventListener: vi.fn(),
+      })
+
+      const config = { station: 'TEST', isLive: true }
+      store.initialize(config)
+
+      // Simulate system theme change to dark
+      changeCallback({ matches: true })
+
+      const state = store.getState()
+      expect(state.theme).toBe('dark')
+      expect(document.documentElement.setAttribute).toHaveBeenCalledWith('data-theme', 'dark')
     })
   })
 

@@ -3,6 +3,7 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta name="color-scheme" content="light dark" />
         <title>windburglr - {{ station }}</title>
         {% if dev_mode %}
         <!-- Development mode - use Vite dev server -->
@@ -70,6 +71,14 @@
         {% endif %}
     </head>
     <body>
+        <script>
+            // Synchronous theme application to prevent flash
+            (function() {
+                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                const theme = prefersDark ? 'dark' : 'light';
+                document.documentElement.setAttribute('data-theme', theme);
+            })();
+        </script>
         <!-- Mobile orientation popup -->
         <div id="orientation-popup" class="orientation-popup hidden">
             <div class="orientation-popup-content">

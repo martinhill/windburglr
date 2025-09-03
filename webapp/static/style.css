@@ -1,3 +1,65 @@
+:root {
+    /* Light theme colors */
+    --bg-primary: #f5f7fa;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #f8fafc;
+    --text-primary: #1a202c;
+    --text-secondary: #4a5568;
+    --text-muted: #718096;
+    --border-color: #e2e8f0;
+    --shadow-color: rgba(0, 0, 0, 0.1);
+    --accent-color: #667eea;
+    --accent-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    --success-color: #10b981;
+    --warning-color: #f59e0b;
+    --error-color: #ef4444;
+    --input-bg: #ffffff;
+    --input-border: #d1d5db;
+    --input-focus: #667eea;
+}
+
+/* CSS-only theme detection using prefers-color-scheme */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg-primary: #0f172a;
+        --bg-secondary: #1e293b;
+        --bg-tertiary: #334155;
+        --text-primary: #f1f5f9;
+        --text-secondary: #cbd5e1;
+        --text-muted: #94a3b8;
+        --border-color: #475569;
+        --shadow-color: rgba(0, 0, 0, 0.3);
+        --accent-color: #53598f;
+        --accent-gradient: linear-gradient(135deg, #818cf8 0%, #a78bfa 100%);
+        --success-color: #34d399;
+        --warning-color: #fbbf24;
+        --error-color: #f87171;
+        --input-bg: #1e293b;
+        --input-border: #475569;
+        --input-focus: #818cf8;
+    }
+}
+
+/* Manual override via data-theme attribute takes precedence */
+[data-theme="dark"] {
+    --bg-primary: #0f172a;
+    --bg-secondary: #1e293b;
+    --bg-tertiary: #334155;
+    --text-primary: #f1f5f9;
+    --text-secondary: #cbd5e1;
+    --text-muted: #94a3b8;
+    --border-color: #475569;
+    --shadow-color: rgba(0, 0, 0, 0.3);
+    --accent-color: #53598f;
+    --accent-gradient: linear-gradient(135deg, #818cf8 0%, #a78bfa 100%);
+    --success-color: #34d399;
+    --warning-color: #fbbf24;
+    --error-color: #f87171;
+    --input-bg: #1e293b;
+    --input-border: #475569;
+    --input-focus: #818cf8;
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -5,11 +67,15 @@
 }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
-        Ubuntu, Cantarell, sans-serif;
-    background-color: #f5f7fa;
-    color: #333;
+    font-family:
+        -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
+        Cantarell, sans-serif;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
     line-height: 1.6;
+    transition:
+        background-color 0.3s ease,
+        color 0.3s ease;
 }
 
 .container {
@@ -30,7 +96,7 @@ body {
 }
 
 header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: var(--accent-color);
     color: white;
     padding: 0.75rem 1rem;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
@@ -108,20 +174,20 @@ header h1 {
 }
 
 .connection-indicator.connecting {
-    background-color: #3b82f6;
+    background-color: var(--accent-color);
     animation: pulse 2s infinite;
 }
 
 .connection-indicator.connected {
-    background-color: #10b981;
+    background-color: var(--success-color);
 }
 
 .connection-indicator.disconnected {
-    background-color: #ef4444;
+    background-color: var(--error-color);
 }
 
 .connection-indicator.error {
-    background-color: #f59e0b;
+    background-color: var(--warning-color);
 }
 
 @keyframes pulse {
@@ -142,18 +208,19 @@ header h1 {
 }
 
 .chart-section {
-    background: white;
+    background: var(--bg-secondary);
     padding: 1rem;
     flex: 1;
     display: flex;
     flex-direction: column;
     min-height: 0;
     position: relative;
+    border-bottom: 1px solid var(--border-color);
 }
 
 .chart-section h3 {
     margin: 0 0 0.5rem 0;
-    color: #374151;
+    color: var(--text-secondary);
     font-weight: 500;
     font-size: 1rem;
     flex-shrink: 0;
@@ -212,14 +279,17 @@ header h1 {
     align-items: center;
     gap: 1rem;
     flex-wrap: wrap;
-    background: white;
+    background: var(--bg-secondary);
     padding: 0.75rem;
-    border-top: 1px solid #e2e8f0;
+    border-top: 1px solid var(--border-color);
     flex-shrink: 0;
+    transition:
+        background-color 0.3s ease,
+        border-color 0.3s ease;
 }
 
 .btn {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: var(--accent-color);
     color: white;
     border: none;
     padding: 0.75rem 1.5rem;
@@ -232,7 +302,7 @@ header h1 {
 
 .btn:hover {
     transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 4px 8px var(--shadow-color);
 }
 
 a.btn {
@@ -242,16 +312,21 @@ a.btn {
 
 select {
     padding: 0.75rem 1rem;
-    border: 1px solid #d1d5db;
+    border: 1px solid var(--input-border);
     border-radius: 6px;
-    background: white;
+    background: var(--input-bg);
+    color: var(--text-primary);
     font-size: 0.9rem;
     cursor: pointer;
+    transition:
+        background-color 0.3s ease,
+        border-color 0.3s ease,
+        color 0.3s ease;
 }
 
 select:focus {
     outline: none;
-    border-color: #667eea;
+    border-color: var(--input-focus);
     box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
@@ -271,16 +346,21 @@ select:focus {
 
 input[type="date"] {
     padding: 0.75rem 1rem;
-    border: 1px solid #d1d5db;
+    border: 1px solid var(--input-border);
     border-radius: 6px;
-    background: white;
+    background: var(--input-bg);
+    color: var(--text-primary);
     font-size: 0.9rem;
     cursor: pointer;
+    transition:
+        background-color 0.3s ease,
+        border-color 0.3s ease,
+        color 0.3s ease;
 }
 
 input[type="date"]:focus {
     outline: none;
-    border-color: #667eea;
+    border-color: var(--input-focus);
     box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
@@ -365,35 +445,36 @@ input[type="date"]:focus {
 }
 
 .orientation-popup-content {
-    background: white;
+    background: var(--bg-secondary);
     border-radius: 12px;
     padding: 2rem;
     text-align: center;
     max-width: 320px;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 10px 25px var(--shadow-color);
+    border: 1px solid var(--border-color);
 }
 
 .orientation-popup h3 {
     margin: 0 0 1rem 0;
-    color: #374151;
+    color: var(--text-secondary);
     font-size: 1.2rem;
     font-weight: 600;
 }
 
 .orientation-popup p {
     margin: 0 0 1.5rem 0;
-    color: #6b7280;
+    color: var(--text-muted);
     line-height: 1.5;
 }
 
 .orientation-popup .rotate-icon {
     font-size: 2rem;
     margin: 0 0 1rem 0;
-    color: #667eea;
+    color: var(--accent-color);
 }
 
 .orientation-popup .btn {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: var(--accent-color);
     color: white;
     border: none;
     padding: 0.75rem 1.5rem;
@@ -406,7 +487,7 @@ input[type="date"]:focus {
 
 .orientation-popup .btn:hover {
     transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 4px 8px var(--shadow-color);
 }
 
 .orientation-popup.hidden {

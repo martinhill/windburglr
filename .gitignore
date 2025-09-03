@@ -4,6 +4,8 @@ venv*
 .*.swo
 .*.swp
 .env*
+.vite/
+.zed/
 
 *.py[co]
 

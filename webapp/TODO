@@ -1,6 +1,8 @@
 # TODO
 
 ## Issues
+* Historical day view starts at 7am?
+* Chart label enable/disable click location is displaced above the label
 
 ## CI/CD
 * nix development environment
@@ -15,7 +17,6 @@
 * consider parameterized tests
 
 ## UI/UX
-* dark mode
 * optional wind direction arrows in place of right axis point plot
 * improve mobile responsiveness
 * configure better chart animation

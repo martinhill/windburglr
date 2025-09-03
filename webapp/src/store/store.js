@@ -40,6 +40,7 @@ class Store {
             
             // UI state
             isLoading: false,
+            theme: 'light', // 'light' or 'dark'
             
             // Current conditions
             currentConditions: {
@@ -104,9 +105,27 @@ class Store {
      * Initialize store with configuration
      */
     initialize(config) {
+        // Detect theme from prefers-color-scheme
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const initialTheme = prefersDark ? 'dark' : 'light';
+        
+        // Apply initial theme
+        document.documentElement.setAttribute('data-theme', initialTheme);
+        
+        // Listen for system theme changes
+        try {
+            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+                const newTheme = e.matches ? 'dark' : 'light';
+                this.setTheme(newTheme, 'system');
+            });
+        } catch (error) {
+            console.warn('Failed to set up theme change listener:', error);
+        }
+        
         this.setState({
             config: { ...this.state.config, ...config },
-            currentTimeWindowHours: config.hours || 3
+            currentTimeWindowHours: config.hours || 3,
+            theme: initialTheme
         }, 'initialize');
     }
     
@@ -271,11 +290,24 @@ class Store {
     
     // === UI Actions ===
     
-    /**
+/**
      * Set loading state
      */
     setLoading(isLoading, source = 'ui') {
         this.setState({ isLoading }, source);
+    }
+
+    /**
+     * Set theme (light/dark)
+     */
+    setTheme(theme, source = 'user') {
+        if (theme !== 'light' && theme !== 'dark') {
+            console.warn('Invalid theme:', theme);
+            return;
+        }
+        
+        document.documentElement.setAttribute('data-theme', theme);
+        this.setState({ theme }, source);
     }
     
     // === Computed Properties ===
