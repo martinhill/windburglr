@@ -1,230 +1,52 @@
-<!doctype html>
-<html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <meta name="color-scheme" content="light dark" />
-        <title>windburglr - {{ station }}</title>
-        {% if dev_mode %}
-        <!-- Development mode - use Vite dev server -->
-        <script type="module" src="http://localhost:5173/@vite/client"></script>
-        <script type="module" src="http://localhost:5173/src/main.js"></script>
-        {% else %}
-        <!-- Production mode - use built assets -->
-        {% for js_file in dist_js_files %}
-        <script type="module" src="/dist/js/{{ js_file }}"></script>
-        {% endfor %}
-        {% endif %}
-        <script
-            src="https://browser.sentry-cdn.com/10.8.0/bundle.tracing.min.js"
-            integrity="sha384-TR8N680qOm0pCmrHg2oG0fjpZYcpLanuLrMZck1DTR0NnaJjnqAPuCPI7pMJRmFp"
-            crossorigin="anonymous"
-        ></script>
-        <script>
-            Sentry.init({
-                dsn: "https://3120a70d778a187a20276c2c8a9cb4f9@o4509923794878464.ingest.us.sentry.io/4509923795140608",
-                environment:
-                    "{{ 'production' if request.url.hostname != 'localhost' else 'development' }}",
-                integrations: [Sentry.browserTracingIntegration()],
-                tracesSampleRate: 1.0,
-            });
-        </script>
-        <link rel="stylesheet" href="/static/style.css" />
-        <link rel="icon" href="/static/favicon.ico" sizes="32x32" />
-        <link
-            rel="apple-touch-icon"
-            sizes="180x180"
-            href="/static/apple-touch-icon.png"
-        />
-        <link
-            rel="icon"
-            type="image/png"
-            sizes="32x32"
-            href="/static/favicon-32x32.png"
-        />
-        <link
-            rel="icon"
-            type="image/png"
-            sizes="16x16"
-            href="/static/favicon-16x16.png"
-        />
-        <link
-            rel="icon"
-            href="/static/favicon.svg"
-            type="image/svg+xml"
-            sizes="any"
-        />
-        <link rel="manifest" href="/static/site.webmanifest" />
-        {% if gtag_id %}
-        <script
-            async
-            src="https://www.googletagmanager.com/gtag/js?id={{ gtag_id }}"
-        ></script>
-        <script>
-            window.dataLayer = window.dataLayer || [];
-            function gtag() {
-                dataLayer.push(arguments);
-            }
-            gtag("js", new Date());
-            gtag("config", "{{ gtag_id }}");
-        </script>
-        {% endif %}
-    </head>
-    <body>
-        <script>
-            // Synchronous theme application to prevent flash
-            (function() {
-                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-                const theme = prefersDark ? 'dark' : 'light';
-                document.documentElement.setAttribute('data-theme', theme);
-            })();
-        </script>
-        <!-- Mobile orientation popup -->
-        <div id="orientation-popup" class="orientation-popup hidden">
-            <div class="orientation-popup-content">
-                <div class="rotate-icon">📱↻</div>
-                <h3>Better Experience</h3>
-                <p>
-                    For the best viewing experience of wind charts, please
-                    rotate your device to landscape orientation.
-                </p>
-                <button class="btn" onclick="dismissOrientationPopup()">
-                    Got it!
-                </button>
-            </div>
-        </div>
+{% extends "base.html" %}
 
-        <div class="container">
-            <header>
-                <div class="header-content-outer">
-                    <div class="header-content">
-                        <div class="title-section">
-                            {% if is_live %}
-                            <span class="station"
-                                >{{ station }} currently:</span
-                            >
-                            {% else %}
-                            <span class="station"
-                                >{{ station }} on
-                                <span id="formatted-date"
-                                    >{{ selected_date_obj }}</span
-                                ></span
-                            >
-                            {% endif %}
-                        </div>
-                        {% if is_live %}
-                        <div class="current-conditions-compact">
-                            <div class="condition-compact">
-                                <span class="value" id="current-speed">--</span>
-                                <span class="label">kts</span>
-                            </div>
-                            <div class="condition-compact">
-                                <span class="value" id="current-direction"
-                                    >--</span
-                                >
-                            </div>
-                            <div class="condition-compact">
-                                <span class="value" id="current-gust">--</span>
-                                <span class="label">gust</span>
-                            </div>
-                            <div class="condition-compact">
-                                <span class="value" id="last-update">--</span>
-                            </div>
-                        </div>
-                        {% endif %}
-                    </div>
-                    <div
-                        class="connection-indicator"
-                        id="connection-status"
-                        title="Connecting..."
-                    ></div>
-                </div>
-            </header>
+{% block title %}
+<title>{{ station }} live - windburglr</title>
+{% endblock %}
 
-            <div class="content-wrapper">
-                <div class="charts-container">
-                    <div class="chart-section">
-                        <!-- <h3>Wind Speed & Direction (Last {{ hours }} hours)</h3> -->
-                        <canvas id="windChart"></canvas>
-                        <div id="loading-indicator" class="loading-indicator">
-                            <img
-                                src="/static/windburglr.svg"
-                                alt="Loading..."
-                                class="loading-logo"
-                            />
-                        </div>
-                    </div>
-                </div>
+{% block header_content %}
+<div class="title-section">
+    <span class="station">{{ station }} currently:</span>
+</div>
+<div class="current-conditions-compact">
+    <div class="condition-compact">
+        <span class="value" id="current-speed">--</span>
+        <span class="label">kts</span>
+    </div>
+    <div class="condition-compact">
+        <span class="value" id="current-direction">--</span>
+    </div>
+    <div class="condition-compact">
+        <span class="value" id="current-gust">--</span>
+        <span class="label">gust</span>
+    </div>
+    <div class="condition-compact">
+        <span class="value" id="last-update">--</span>
+    </div>
+</div>
+{% endblock %}
 
-                <div class="controls">
-                    {% if is_live %}
-                    <select id="time-range">
-                        <option value="1">Last 1 hour</option>
-                        <option value="3" selected>Last 3 hours</option>
-                        <option value="6">Last 6 hours</option>
-                        <option value="12">Last 12 hours</option>
-                        <option value="24">Last 24 hours</option>
-                    </select>
-                    <button id="reset-zoom" class="btn" style="display: none">
-                        Reset Zoom
-                    </button>
-                    <button id="view-yesterday" class="btn">
-                        View Yesterday
-                    </button>
-                    {% else %}
-                    <div class="date-navigation">
-                        <input
-                            type="date"
-                            id="date-picker"
-                            value="{{ selected_date }}"
-                            onchange="navigateToDate(this.value)"
-                            required
-                        />
-                        <div class="prev-next-nav">
-                            <button
-                                id="prev-date"
-                                class="btn"
-                                onclick="navigateToDate('{{ prev_date }}')"
-                                title="Previous Day"
-                            >
-                                ←
-                            </button>
-                            <button
-                                id="next-date"
-                                class="btn"
-                                onclick="navigateToDate('{{ next_date }}')"
-                                title="Next Day"
-                            >
-                                →
-                            </button>
-                        </div>
-                        <button
-                            id="reset-zoom"
-                            class="btn"
-                            style="display: none"
-                        >
-                            Reset Zoom
-                        </button>
-                        <a href="/" class="btn">Back to Live</a>
-                    </div>
-                    {% endif %}
-                </div>
-            </div>
-        </div>
+{% block controls %}
+<select id="time-range">
+    <option value="1">Last 1 hour</option>
+    <option value="3" selected>Last 3 hours</option>
+    <option value="6">Last 6 hours</option>
+    <option value="12">Last 12 hours</option>
+    <option value="24">Last 24 hours</option>
+</select>
+<button id="reset-zoom" class="btn" style="display: none">
+    Reset Zoom
+</button>
+<button id="view-yesterday" class="btn">
+    View Yesterday
+</button>
+{% endblock %}
 
-        <script>
-            // Global configuration for the app
-            window.STATION = '{{ station }}';
-            window.IS_LIVE = {{ is_live|lower }};
-            window.HOURS = {{ hours }};
-            {% if not is_live %}
-            window.DATE_START = '{{ date_start }}';
-            window.DATE_END = '{{ date_end }}';
-            window.STATION_TIMEZONE = '{{ station_timezone }}';
-            {% endif %}
-        </script>
-
-
-        </script>
-    </body>
-</html>
+{% block extra_scripts %}
+<script>
+    // Global configuration for the app
+    window.STATION = '{{ station }}';
+    window.IS_LIVE = {{ is_live|lower }};
+    window.HOURS = {{ hours }};
+</script>
+{% endblock %}

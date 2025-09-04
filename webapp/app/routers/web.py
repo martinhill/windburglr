@@ -76,7 +76,7 @@ async def historical_wind_day_chart(
 
         return templates.TemplateResponse(
             request=request,
-            name="index.html",
+            name="day.html",
             context={
                 "gtag_id": GTAG_ID,
                 "station": stn,

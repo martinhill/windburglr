@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}
+<title>{{ station }} {{ selected_date }} - windburglr</title>
+{% endblock %}
+
+{% block header_content %}
+<div class="title-section">
+    <span class="station">{{ station }} on <span id="formatted-date">{{ selected_date_obj }}</span></span>
+</div>
+{% endblock %}
+
+{% block controls %}
+<div class="date-navigation">
+    <input
+        type="date"
+        id="date-picker"
+        value="{{ selected_date }}"
+        onchange="navigateToDate(this.value)"
+        required
+    />
+    <div class="prev-next-nav">
+        <button
+            id="prev-date"
+            class="btn"
+            onclick="navigateToDate('{{ prev_date }}')"
+            title="Previous Day"
+        >
+            ←
+        </button>
+        <button
+            id="next-date"
+            class="btn"
+            onclick="navigateToDate('{{ next_date }}')"
+            title="Next Day"
+        >
+            →
+        </button>
+    </div>
+    <button
+        id="reset-zoom"
+        class="btn"
+        style="display: none"
+    >
+        Reset Zoom
+    </button>
+    <a href="/" class="btn">Back to Live</a>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    // Global configuration for the app
+    window.STATION = '{{ station }}';
+    window.IS_LIVE = {{ is_live|lower }};
+    window.DATE_START = '{{ date_start }}';
+    window.DATE_END = '{{ date_end }}';
+    window.STATION_TIMEZONE = '{{ station_timezone }}';
+</script>
+{% endblock %}
