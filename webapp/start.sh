@@ -1,9 +1,9 @@
 #!/bin/bash
-
-# Use Poetry to run the application with proper environment
-# This ensures all Poetry-managed dependencies are available
+# Run a fastapi development server with live data
 
 # Load environment variables if .env file exists
+# This should be configured with read-only database credentials
+# and optionally SENTRY_DSN + SENTRY_ENVIRONMENT
 if [ -f .env ]; then
     export $(sed 's/#.*$//' .env | xargs)
 fi

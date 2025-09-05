@@ -12,6 +12,36 @@ A modern FastAPI-based wind observation web application with real-time WebSocket
 
 ## Installation
 
+### Using Nix (Recommended)
+
+For the best development experience, use Nix to set up a complete development environment:
+
+1. Install Nix: https://nixos.org/download.html
+
+2. Enable flakes (if not already enabled):
+```bash
+echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
+```
+
+3. Enter the development environment:
+```bash
+nix develop
+```
+or with direnv:
+```bash
+direnv allow
+```
+
+The Nix environment will automatically:
+- Set up Python 3.13 with all dependencies
+- Install Node.js 22 for frontend development
+- Initialize PostgreSQL 15
+- Configure development tools (pyright, ruff, etc.)
+- Create a Python virtual environment
+- Install all Python and Node.js dependencies
+
+### Traditional Installation
+
 1. Install dependencies:
 ```bash
 poetry install
@@ -61,6 +91,64 @@ Create new wind observation
 
 ### WebSocket /ws/{station}
 Real-time wind data stream for specified station
+
+## Development
+
+### Available Commands
+
+Once in the Nix development environment:
+
+```bash
+# Start the full application (backend + frontend)
+./start.sh
+
+# Backend development
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+# Frontend development
+npm run dev         # Start Vite dev server
+npm run build       # Build for production
+npm run preview     # Preview production build
+
+# Testing
+pytest                     # Run Python tests
+npm test                   # Run frontend tests
+npm run test:coverage      # Run tests with coverage
+
+# Code Quality
+ruff check .               # Lint Python code
+ruff format .              # Format Python code
+pyright                    # Type check Python code
+
+# Database Management
+make db-start              # Start PostgreSQL
+make db-stop               # Stop PostgreSQL
+make db-connect            # Connect to database
+make db-status             # Check database status
+```
+
+### Development Workflow
+
+1. Enter the Nix environment: `nix develop` (automatically starts database)
+2. Start the backend: `./start.sh`
+3. In another terminal, start the frontend: `npm run dev`
+4. Open http://localhost:5173 for the frontend dev server
+5. The backend API will be available at http://localhost:8000
+  6. Database is available at postgresql://$(whoami)@localhost:5432/windburglr
+
+### Testing
+
+Run the full test suite:
+```bash
+pytest -v
+npm run test:run
+```
+
+Run with coverage:
+```bash
+pytest --cov-report=html
+npm run test:coverage
+```
 
 ## Database Schema
 

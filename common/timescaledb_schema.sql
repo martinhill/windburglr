@@ -16,7 +16,16 @@ CREATE TABLE IF NOT EXISTS wind_obs (
   PRIMARY KEY (station_id, update_time)
 );
 
-SELECT create_hypertable('wind_obs','update_time');
+-- Conditionally create hypertable if TimescaleDB is available, otherwise create regular index
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
+        SELECT create_hypertable('wind_obs', 'update_time');
+    ELSE
+        -- Fallback for development environments without TimescaleDB
+        CREATE INDEX IF NOT EXISTS idx_wind_obs_update_time ON wind_obs (update_time);
+    END IF;
+END $$;
 
 -- WindBurglr PostgreSQL Stored Procedures
 -- These functions encapsulate common queries for better performance and maintainability

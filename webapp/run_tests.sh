@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# WindBurglr Test Runner Script
+# WindBurglr Test Runner Script for non-nix environment
 
 set -e
 
@@ -32,31 +32,42 @@ print_info() {
 }
 
 # Function to install Podman on macOS
-install_podman() {
+setup_podman() {
     print_info "Checking Podman installation..."
 
     if command -v podman &> /dev/null; then
         print_status "Podman is already installed"
-        return 0
+    else
+        # Detect operating system
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            print_warning "Podman not found. Installing via Homebrew on macOS..."
+
+            # Check if Homebrew is installed
+            if ! command -v brew &> /dev/null; then
+                print_error "Homebrew not found. Please install Homebrew first:"
+                echo "  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+                exit 1
+            fi
+
+            # Install Podman
+            brew install podman
+
+            print_status "Podman installation completed"
+        else
+            print_error "Podman not found and automatic installation is only supported on macOS."
+            print_info "Please install Podman manually for your platform:"
+            echo "  - Linux: Use your package manager (apt, dnf, etc.)"
+            echo "  - Windows: Download from https://podman.io/getting-started/installation"
+            echo "  - Or use Docker as an alternative"
+            exit 1
+        fi
     fi
 
-    print_warning "Podman not found. Installing via Homebrew..."
-
-    # Check if Homebrew is installed
-    if ! command -v brew &> /dev/null; then
-        print_error "Homebrew not found. Please install Homebrew first:"
-        echo "  /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
-        exit 1
+    # Initialize Podman machine (needed on all platforms that support it)
+    if command -v podman &> /dev/null; then
+        print_status "Initializing Podman machine..."
+        podman machine init --cpus 2 --memory 4096 --disk-size 20 2>/dev/null || print_info "Podman machine initialization skipped (may not be needed on this platform)"
     fi
-
-    # Install Podman
-    brew install podman
-
-    # Initialize Podman machine
-    print_status "Initializing Podman machine..."
-    podman machine init --cpus 2 --memory 4096 --disk-size 20
-
-    print_status "Podman installation completed"
 }
 
 # Function to setup TimescaleDB container
@@ -149,7 +160,7 @@ if [[ "$1" == "cleanup" ]]; then
 fi
 
 # Install Podman if needed
-install_podman
+setup_podman
 
 # Setup TimescaleDB container
 setup_timescaledb

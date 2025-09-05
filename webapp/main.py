@@ -25,6 +25,19 @@ from app.services.notifications import PostgresNotificationManager
 from app.services.websocket import WebSocketManager
 from app.services.wind_data import WindDataService
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)-8s - %(name)s - %(message)s",
+    datefmt='%m-%d %H:%M:%S',
+    handlers=[logging.StreamHandler()],
+    force=True,
+)
+
+logger = logging.getLogger("windburglr")
+logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
+logger.info("WindBurglr logger initialized at level: %s", LOG_LEVEL)
+
 # Initialize Sentry
 sentry_config = get_sentry_config()
 if sentry_config["dsn"]:
@@ -40,19 +53,6 @@ if sentry_config["dsn"]:
     )
     logger = logging.getLogger("windburglr")
     logger.info("Sentry initialized with DSN: %s", sentry_config["dsn"][:50] + "...")
-
-# Configure logging
-log_level_value = getattr(logging, LOG_LEVEL, logging.INFO)
-
-logging.basicConfig(
-    level=log_level_value,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
-    force=True,
-)
-
-logger = logging.getLogger("windburglr")
-logger.info("WindBurglr logger initialized at level: %s", LOG_LEVEL)
 
 
 def make_app(pg_connection: asyncpg.Connection | None = None):
