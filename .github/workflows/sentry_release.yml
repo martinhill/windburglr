@@ -1,4 +1,4 @@
-            - name: Sentry Release
+- name: Sentry Release
   # You may pin to the exact commit or the version.
   # uses: getsentry/action-release@526942b68292201ac6bbb99b9a0747d4abee354c
   uses: getsentry/action-release@v3.2.0
