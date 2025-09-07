@@ -1,14 +1,21 @@
+// Import CSS modules
+import './styles/index.css';
+
+// Use static asset path for reliable serving
+const windburglrLogo = '/static/windburglr.svg';
+
 import { store } from './store/store.js';
 import { ChartManager } from './chart/config.js';
 import { WebSocketManager } from './websocket/connection.js';
 import { loadHistoricalData } from './utils/data.js';
 import { getYesterdayDate, navigateToDate } from './utils/time.js';
 import { ConditionsManager } from './ui/conditions.js';
-import { 
-    checkOrientationPopup, 
+import {
+    checkOrientationPopup,
     setupOrientationHandlers,
     dismissOrientationPopup
 } from './ui/mobile.js';
+import { MemorialPopupManager } from './ui/ghostrider.js';
 
 // Set up global functions immediately when module loads
 // This ensures they're available for template inline handlers
@@ -20,33 +27,51 @@ function setupGlobalFunctions() {
         console.log(`Navigating to date: ${date} for station: ${station}`);
         navigateToDate(date, station);
     };
-    
+
     // Make dismissOrientationPopup globally available
     window.dismissOrientationPopup = dismissOrientationPopup;
-    
+
+    // Make logo URL globally available for templates
+    // Use static path for reliable serving in both dev and production
+    window.WINDBURGLR_LOGO_URL = windburglrLogo;
+
+    // Set loading logo src when available
+    const loadingLogoImg = document.getElementById('loading-logo-img');
+    if (loadingLogoImg) {
+        loadingLogoImg.src = windburglrLogo;
+    }
+
     console.log('✓ Global navigation functions set up');
 }
 
 // Set up global functions immediately
 setupGlobalFunctions();
 
-// Debug: Verify global functions are available
-setTimeout(() => {
-    console.log('[DEBUG] Global functions check:');
-    console.log('- navigateToDate type:', typeof window.navigateToDate);
-    console.log('- dismissOrientationPopup type:', typeof window.dismissOrientationPopup);
-    if (typeof window.navigateToDate === 'function' && typeof window.dismissOrientationPopup === 'function') {
-        console.log('✅ All global functions are properly set up');
-    } else {
-        console.error('❌ Global functions setup failed');
-    }
-}, 100);
+    // Debug: Verify global functions are available
+    setTimeout(() => {
+        console.log('[DEBUG] Global functions check:');
+        console.log('- navigateToDate type:', typeof window.navigateToDate);
+        console.log('- dismissOrientationPopup type:', typeof window.dismissOrientationPopup);
+        console.log('- showMemorialPopup type:', typeof window.showMemorialPopup);
+        console.log('- dismissMemorialPopup type:', typeof window.dismissMemorialPopup);
+        console.log('- WINDBURGLR_LOGO_URL:', typeof window.WINDBURGLR_LOGO_URL);
+        if (typeof window.navigateToDate === 'function' &&
+            typeof window.dismissOrientationPopup === 'function' &&
+            typeof window.showMemorialPopup === 'function' &&
+            typeof window.dismissMemorialPopup === 'function' &&
+            typeof window.WINDBURGLR_LOGO_URL === 'string') {
+            console.log('✅ All global functions and assets are properly set up');
+        } else {
+            console.error('❌ Global functions/assets setup failed');
+        }
+    }, 100);
 
 class WindBurglrApp {
     constructor() {
         this.chartManager = null;
         this.wsManager = null;
         this.conditionsManager = null;
+        this.memorialPopupManager = null;
         this.unsubscribeStore = null;
     }
 
@@ -61,20 +86,24 @@ class WindBurglrApp {
                 stationTimezone: window.STATION_TIMEZONE || null,
                 hours: window.HOURS || 3
             };
-            
+
             store.initialize(config);
-            
+
             // Subscribe to store changes
             this.unsubscribeStore = store.subscribe((state, prevState, source) => {
                 this.handleStoreChange(state, prevState, source);
             });
-            
+
             // Initialize chart manager
             this.chartManager = new ChartManager();
             this.chartManager.init();
 
             // Initialize conditions manager
             this.conditionsManager = new ConditionsManager();
+
+            // Initialize memorial popup manager
+            this.memorialPopupManager = new MemorialPopupManager();
+            this.memorialPopupManager.init();
 
             // Setup mobile orientation handling
             checkOrientationPopup();
@@ -103,7 +132,7 @@ class WindBurglrApp {
             }
         }
     }
-    
+
     /**
      * Handle store state changes
      */
@@ -112,11 +141,11 @@ class WindBurglrApp {
         if (state.currentTimeWindowHours !== prevState.currentTimeWindowHours) {
             console.log(`[App] Time window changed to ${state.currentTimeWindowHours} hours`);
         }
-        
+
         if (state.windData.length !== prevState.windData.length) {
             console.log(`[App] Wind data updated: ${state.windData.length} points`);
         }
-        
+
         if (state.connectionStatus !== prevState.connectionStatus) {
             console.log(`[App] Connection status changed to: ${state.connectionStatus}`);
         }
@@ -125,7 +154,7 @@ class WindBurglrApp {
     async loadInitialData() {
         try {
             store.setLoading(true, 'data-load');
-            
+
             const state = store.getState();
             const hoursToUse = state.config.isLive ? state.currentTimeWindowHours : state.config.hours;
 
@@ -153,7 +182,7 @@ class WindBurglrApp {
 
     setupEventListeners() {
         const state = store.getState();
-        
+
         // Time range selector for live view
         if (state.config.isLive) {
             const timeRangeSelect = document.getElementById('time-range');
@@ -174,12 +203,14 @@ class WindBurglrApp {
                 });
             }
         }
+
+
     }
 
     formatHistoricalDate() {
         const state = store.getState();
         const dateElement = document.getElementById('formatted-date');
-        
+
         if (dateElement && state.config.dateStart) {
             const date = new Date(state.config.dateStart.split('T')[0] + 'T00:00:00');
             const options = {
@@ -191,7 +222,7 @@ class WindBurglrApp {
             dateElement.textContent = date.toLocaleDateString('en-US', options);
         }
     }
-    
+
     /**
      * Cleanup method
      */
@@ -204,6 +235,9 @@ class WindBurglrApp {
         }
         if (this.conditionsManager) {
             this.conditionsManager.destroy();
+        }
+        if (this.memorialPopupManager) {
+            this.memorialPopupManager.destroy();
         }
         if (this.wsManager) {
             this.wsManager.disconnect();

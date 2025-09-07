@@ -11,6 +11,9 @@
         <script type="module" src="http://localhost:5173/src/main.js"></script>
         {% else %}
         <!-- Production mode - use built assets -->
+        {% for css_file in dist_css_files %}
+        <link rel="stylesheet" href="/dist/css/{{ css_file }}">
+        {% endfor %}
         {% for js_file in dist_js_files %}
         <script type="module" src="/dist/js/{{ js_file }}"></script>
         {% endfor %}
@@ -29,7 +32,7 @@
                 tracesSampleRate: 1.0,
             });
         </script>
-        <link rel="stylesheet" href="/static/style.css" />
+
         <link rel="icon" href="/static/favicon.ico" sizes="32x32" />
         <link
             rel="apple-touch-icon"
@@ -94,6 +97,21 @@
             </div>
         </div>
 
+        <div id="memorial" class="memorial-popup hidden">
+            <div class="memorial-popup-content">
+                <div class="ghostrider-image">
+                    <img alt="Jason 'Ghostrider' Maloney, Toronto Skyline from Leslie Spit"
+                         class="memorial-image">
+                </div>
+                <div class="memorial-controls">
+                    <h3>In memory of Jason "Ghostrider" Maloney</h3>
+                    <button id="dismiss-memorial" class="btn">
+                        RIP Ghostrider
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <div class="container">
             <header>
                 <div class="header-content-outer">
@@ -115,16 +133,24 @@
                         <canvas id="windChart"></canvas>
                         <div id="loading-indicator" class="loading-indicator">
                             <img
-                                src="/static/windburglr.svg"
+                                src=""
                                 alt="Loading..."
                                 class="loading-logo"
+                                id="loading-logo-img"
                             />
                         </div>
                     </div>
                 </div>
 
-                <div class="controls">
-                    {% block controls %}{% endblock %}
+                <div class="controls-container">
+                    <div class="controls">
+                        {% block controls %}{% endblock %}
+                    </div>
+                    <div class="meorial-controls">
+                        <button id="show-memorial" class="btn">
+                            Ghostrider
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

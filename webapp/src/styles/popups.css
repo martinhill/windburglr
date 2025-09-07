@@ -1,0 +1,188 @@
+/* Mobile orientation popup */
+.orientation-popup {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--popup-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    padding: 2rem;
+}
+
+.orientation-popup-content {
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    padding: 2rem;
+    text-align: center;
+    max-width: 320px;
+    box-shadow: 0 10px 25px var(--shadow-color);
+    border: 1px solid var(--border-color);
+}
+
+.orientation-popup h3 {
+    margin: 0 0 1rem 0;
+    color: var(--text-secondary);
+    font-size: 1.2rem;
+    font-weight: 600;
+}
+
+.orientation-popup p {
+    margin: 0 0 1.5rem 0;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+
+.orientation-popup .rotate-icon {
+    font-size: 2rem;
+    margin: 0 0 1rem 0;
+    color: var(--accent-color);
+}
+
+.orientation-popup .btn {
+    background: var(--accent-color);
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.orientation-popup .btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px var(--shadow-color);
+}
+
+.orientation-popup.hidden {
+    display: none;
+}
+
+/* Memorial popup */
+.memorial-popup {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--popup-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    padding: 2rem;
+}
+
+.memorial-popup-content {
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    padding: 1rem;
+    text-align: center;
+    max-width: 90vw;
+    max-height: 90vh;
+    width: 100%;
+    box-shadow: 0 10px 25px var(--shadow-color);
+    border: 1px solid var(--border-color);
+    overflow-y: auto;
+}
+
+.memorial-popup h3 {
+    color: var(--text-secondary);
+    font-size: 1.2rem;
+    font-weight: 600;
+}
+
+.memorial-popup .ghostrider-image {
+    display: block;
+    margin: 0 auto 1rem auto;
+}
+
+.memorial-image {
+    width: 100%;
+    height: auto;
+    max-height: 60vh;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 2px solid var(--border-color);
+    display: block;
+    transition: opacity 0.3s ease;
+}
+
+.memorial-image.loading {
+    opacity: 0.7;
+    filter: blur(2px);
+}
+
+.memorial-image.error {
+    opacity: 0.5;
+    border-color: var(--error-color);
+}
+
+.memorial-popup .memorial-controls {
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: 0.75rem 0 0 0;
+    gap: 1rem;
+}
+
+.memorial-popup .btn {
+    background: var(--accent-color);
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.memorial-popup .btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px var(--shadow-color);
+}
+
+.memorial-popup.hidden {
+    display: none;
+}
+
+/* Landscape orientation layout for memorial popup */
+@media (orientation: landscape) and (max-height: 512px) {
+    .memorial-popup-content {
+        display: flex;
+        align-items: center;
+        gap: 2rem;
+        padding: 1rem;
+    }
+
+    .memorial-popup .ghostrider-image {
+        flex: 5;
+        margin: 0;
+    }
+
+    .memorial-image {
+        max-height: 80vh;
+    }
+
+    .memorial-popup .memorial-controls {
+        flex: 1;
+        flex-direction: column;
+    }
+
+    .memorial-popup-content h3,
+    .memorial-popup-content .btn {
+        text-align: center;
+    }
+
+    .memorial-popup-content h3 {
+        margin-bottom: 1.5rem;
+    }
+}

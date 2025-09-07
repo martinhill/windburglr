@@ -1,0 +1,64 @@
+:root {
+    /* Light theme colors */
+    --bg-primary: #f5f7fa;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #f8fafc;
+    --text-primary: #1a202c;
+    --text-secondary: #4a5568;
+    --text-muted: #718096;
+    --border-color: #e2e8f0;
+    --shadow-color: rgba(0, 0, 0, 0.1);
+    --accent-color: #667eea;
+    --accent-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    --success-color: #10b981;
+    --warning-color: #f59e0b;
+    --error-color: #ef4444;
+    --input-bg: #ffffff;
+    --input-border: #d1d5db;
+    --input-focus: #667eea;
+    --popup-bg: rgba(0, 0, 0, 0.7);
+}
+
+/* CSS-only theme detection using prefers-color-scheme */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg-primary: #0f172a;
+        --bg-secondary: #1e293b;
+        --bg-tertiary: #334155;
+        --text-primary: #f1f5f9;
+        --text-secondary: #cbd5e1;
+        --text-muted: #94a3b8;
+        --border-color: #475569;
+        --shadow-color: rgba(0, 0, 0, 0.3);
+        --accent-color: #53598f;
+        --accent-gradient: linear-gradient(135deg, #818cf8 0%, #a78bfa 100%);
+        --success-color: #34d399;
+        --warning-color: #fbbf24;
+        --error-color: #f87171;
+        --input-bg: #1e293b;
+        --input-border: #475569;
+        --input-focus: #818cf8;
+        --popup-bg: rgba(0, 0, 0, 0.7);
+    }
+}
+
+/* Manual override via data-theme attribute takes precedence */
+[data-theme="dark"] {
+    --bg-primary: #0f172a;
+    --bg-secondary: #1e293b;
+    --bg-tertiary: #334155;
+    --text-primary: #f1f5f9;
+    --text-secondary: #cbd5e1;
+    --text-muted: #94a3b8;
+    --border-color: #475569;
+    --shadow-color: rgba(0, 0, 0, 0.3);
+    --accent-color: #53598f;
+    --accent-gradient: linear-gradient(135deg, #818cf8 0%, #a78bfa 100%);
+    --success-color: #34d399;
+    --warning-color: #fbbf24;
+    --error-color: #f87171;
+    --input-bg: #1e293b;
+    --input-border: #475569;
+    --input-focus: #818cf8;
+    --popup-bg: rgba(0, 0, 0, 0.7);
+}

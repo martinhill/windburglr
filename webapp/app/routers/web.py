@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from ..config import DEFAULT_STATION, GTAG_ID
-from ..dependencies import get_db_pool, get_dist_js_files
+from ..dependencies import get_db_pool, get_dist_js_files, get_dist_css_files
 from ..services.station import get_station_timezone
 
 router = APIRouter(tags=["web"])
@@ -31,6 +31,7 @@ async def live_wind_chart(
             "is_live": True,
             "dev_mode": os.getenv("DEV_MODE", "false").lower() == "true",
             "dist_js_files": get_dist_js_files(),
+            "dist_css_files": get_dist_css_files(),
         },
     )
 
@@ -92,6 +93,7 @@ async def historical_wind_day_chart(
                 "station_timezone": station_tz_name,
                 "dev_mode": os.getenv("DEV_MODE", "false").lower() == "true",
                 "dist_js_files": get_dist_js_files(),
+                "dist_css_files": get_dist_css_files(),
             },
         )
     except ValueError as err:

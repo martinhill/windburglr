@@ -273,9 +273,9 @@ header h1 {
     font-weight: 500;
 }
 
-.controls {
+.controls-container {
     display: flex;
-    justify-content: center;
+    justify-content: space-between;
     align-items: center;
     gap: 1rem;
     flex-wrap: wrap;
@@ -286,6 +286,14 @@ header h1 {
     transition:
         background-color 0.3s ease,
         border-color 0.3s ease;
+}
+
+.controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
 }
 
 .btn {
@@ -332,14 +340,17 @@ select:focus {
 
 .date-navigation {
     display: flex;
+    justify-content: center;
     align-items: center;
     gap: 1rem;
     flex-wrap: wrap;
 }
 
 .prev-next-nav {
+    flex-grow: 1;
     display: flex;
     flex-direction: row;
+    justify-content: center;
     align-items: center;
     gap: 1rem;
 }
@@ -392,7 +403,7 @@ input[type="date"]:focus {
         font-size: 0.6rem;
     }
 
-    .controls {
+    .controls-container {
         flex-direction: column;
         gap: 0.5rem;
         padding: 0.5rem;
@@ -413,6 +424,7 @@ input[type="date"]:focus {
 
     .controls {
         position: relative;
+        flex-direction: column;
     }
 }
 
@@ -444,7 +456,6 @@ input[type="date"]:focus {
     border-radius: 12px;
     padding: 2rem;
     text-align: center;
-    max-width: 320px;
     box-shadow: 0 10px 25px var(--shadow-color);
     border: 1px solid var(--border-color);
 }
@@ -489,6 +500,130 @@ input[type="date"]:focus {
     display: none;
 }
 
+/* Memorial popup */
+.memorial-popup {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    padding: 2rem;
+}
+
+.memorial-popup-content {
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    padding: 1rem;
+    text-align: center;
+    max-width: 90vw;
+    max-height: 90vh;
+    width: 100%;
+    box-shadow: 0 10px 25px var(--shadow-color);
+    border: 1px solid var(--border-color);
+    overflow-y: auto;
+}
+
+.memorial-popup h3 {
+    color: var(--text-secondary);
+    font-size: 1.2rem;
+    font-weight: 600;
+}
+
+.memorial-popup .ghostrider-image {
+    display: block;
+    margin: 0 auto 1rem auto;
+}
+
+.memorial-image {
+    width: 100%;
+    height: auto;
+    max-height: 60vh;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 2px solid var(--border-color);
+    display: block;
+    transition: opacity 0.3s ease;
+}
+
+.memorial-image.loading {
+    opacity: 0.7;
+    filter: blur(2px);
+}
+
+.memorial-image.error {
+    opacity: 0.5;
+    border-color: var(--error-color);
+}
+
+.memorial-popup .memorial-controls {
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: 0.75rem 0 0 0;
+    gap: 1rem;
+}
+
+.memorial-popup .btn {
+    background: var(--accent-color);
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.memorial-popup .btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px var(--shadow-color);
+}
+
+.memorial-popup.hidden {
+    display: none;
+}
+
+/* Landscape orientation layout for memorial popup */
+@media (orientation: landscape) and (max-height: 512px) {
+    .memorial-popup-content {
+        display: flex;
+        align-items: center;
+        gap: 2rem;
+        padding: 1rem;
+    }
+
+    .memorial-popup .ghostrider-image {
+        flex: 5;
+        margin: 0;
+    }
+
+    .memorial-image {
+        max-height: 80vh;
+    }
+
+    .memorial-popup .memorial-controls {
+        flex: 1;
+        flex-direction: column;
+    }
+
+    .memorial-popup-content h3,
+    .memorial-popup-content .btn {
+        text-align: center;
+    }
+
+    .memorial-popup-content h3 {
+        margin-bottom: 1.5rem;
+    }
+}
+
 /* Landscape orientation for phones and tablets */
 @media (orientation: landscape) and (max-height: 900px) {
     .content-wrapper {
@@ -501,17 +636,21 @@ input[type="date"]:focus {
         min-height: 100vh;
     }
 
-    .controls {
+    .controls-container {
         flex: 1;
         flex-direction: column;
-        justify-content: flex-start;
         align-items: stretch;
         border-top: none;
         border-left: 1px solid var(--border-color);
         padding: 1rem;
-        overflow-y: auto;
     }
 
+    .controls {
+        justify-content: flex-start;
+        align-items: stretch;
+    }
+
+    .controls-container
     .btn,
     select,
     input[type="date"] {
@@ -520,7 +659,7 @@ input[type="date"]:focus {
     }
 
     .date-navigation {
-        flex-direction: column;
+        flex-direction: inherit;
         align-items: stretch;
     }
 }

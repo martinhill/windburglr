@@ -88,3 +88,9 @@ def get_dist_js_files() -> List[str]:
     """Get list of JS filenames in dist/js directory."""
     js_files = glob.glob("dist/js/main-*.js")
     return [os.path.basename(f) for f in js_files]
+
+
+def get_dist_css_files() -> List[str]:
+    """Get list of CSS filenames in dist/css directory."""
+    css_files = glob.glob("dist/css/main-*.css")
+    return [os.path.basename(f) for f in css_files]
