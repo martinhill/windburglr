@@ -3,6 +3,9 @@
 ## Issues
 * Historical day view starts at 7am?
 * Chart label enable/disable click location is displaced above the label
+* zoom range highlight not accurate
+* bundle svg
+* fix manifest file
 
 # Code Quality
 * fix linting errors
@@ -19,7 +22,6 @@
 
 ## UI/UX
 * optional wind direction arrows in place of right axis point plot
-* improve mobile responsiveness
 * configure better chart animation
 * accessibility testing/improvements
 * update time clock/minutes-ago modes with click/touch toggle
@@ -27,8 +29,7 @@
   * full time string in update last-update
   * degrees in direction
 
-## Features
-* Ghostrider memorial - footer?
+## Other Enhancements
 * shared cache (redis, litefs)
 * /api/wind pagination by date
 * Progressive Web App (PWA) support
