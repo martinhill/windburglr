@@ -1,13 +1,17 @@
 import asyncio
 import json
+import logging
 from typing import Annotated
 
 import asyncpg
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from websockets.exceptions import ConnectionClosedError
 
 from ..dependencies import get_db_pool, get_websocket_manager, get_wind_service
 from ..services.websocket import WebSocketManager
 from ..services.wind_data import WindDataService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["websocket"])
 
@@ -39,7 +43,7 @@ async def websocket_endpoint(
                 await websocket.send_text(json.dumps({"type": "ping"}))
             except WebSocketDisconnect:
                 break
-    except WebSocketDisconnect:
-        pass
+    except (WebSocketDisconnect, ConnectionClosedError) as e:
+        logger.warning("WebSocket connection unexpectedly closed for station %s: %s", station, e)
     finally:
         ws_manager.disconnect(websocket, station)

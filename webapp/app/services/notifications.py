@@ -194,7 +194,7 @@ class PostgresNotificationManager:
         """Handle incoming PostgreSQL notifications."""
         try:
             self.notification_count += 1
-            logger.info(
+            logger.debug(
                 "🔔 Received notification #%s on channel '%s' from PID %s",
                 self.notification_count,
                 channel,
