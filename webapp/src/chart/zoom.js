@@ -12,6 +12,10 @@ export class ZoomController {
 
     setupZoomOverlay() {
         const canvas = document.getElementById('windChart');
+        if (!canvas) {
+            console.error('ZoomController: Canvas element not found');
+            return;
+        }
         const rect = canvas.getBoundingClientRect();
 
         this.zoomOverlay = document.createElement('div');
@@ -32,16 +36,18 @@ export class ZoomController {
         if (!this.zoomOverlay) return;
 
         const canvas = document.getElementById('windChart');
-        const rect = canvas.getBoundingClientRect();
+        const canvasRect = canvas.getBoundingClientRect();
+        const parentRect = canvas.parentElement.getBoundingClientRect();
         const chartArea = this.chart.chartArea;
 
         const left = Math.min(startX, currentX);
         const width = Math.abs(currentX - startX);
 
-        this.zoomOverlay.style.left = `${left - rect.left}px`;
+        // Calculate position relative to the parent element (chart-section)
+        this.zoomOverlay.style.left = `${left - parentRect.left}px`;
         this.zoomOverlay.style.top = `${chartArea.top}px`;
         this.zoomOverlay.style.width = `${width}px`;
-        this.zoomOverlay.style.height = `${rect.height - rect.top - chartArea.top}px`;
+        this.zoomOverlay.style.height = `${canvasRect.height - canvasRect.top + parentRect.top - chartArea.top}px`;
         this.zoomOverlay.style.display = 'block';
     }
 
@@ -53,10 +59,10 @@ export class ZoomController {
 
     performZoom(startX, endX) {
         const canvas = document.getElementById('windChart');
-        const rect = canvas.getBoundingClientRect();
+        const canvasRect = canvas.getBoundingClientRect();
 
-        const startDataX = this.chart.scales.x.getValueForPixel(startX - rect.left);
-        const endDataX = this.chart.scales.x.getValueForPixel(endX - rect.left);
+        const startDataX = this.chart.scales.x.getValueForPixel(startX - canvasRect.left);
+        const endDataX = this.chart.scales.x.getValueForPixel(endX - canvasRect.left);
 
         if (!startDataX || !endDataX) return;
 
@@ -107,15 +113,19 @@ export class ZoomController {
 
     setupEventListeners() {
         const canvas = document.getElementById('windChart');
+        if (!canvas) {
+            console.error('ZoomController: Canvas element not found');
+            return;
+        }
 
         const handleStart = (e) => {
-            const rect = canvas.getBoundingClientRect();
+            const canvasRect = canvas.getBoundingClientRect();
             const x = e.clientX || (e.touches && e.touches[0].clientX);
             const y = e.clientY || (e.touches && e.touches[0].clientY);
             const chartArea = this.chart.chartArea;
 
-            if (x >= rect.left + chartArea.left && x <= rect.left + chartArea.right &&
-                y >= rect.top + chartArea.top && y <= rect.bottom - 100) {
+            if (x >= canvasRect.left + chartArea.left && x <= canvasRect.left + chartArea.right &&
+                y >= canvasRect.top + chartArea.top && y <= canvasRect.bottom - 100) {
                 this.isZooming = true;
                 this.zoomStartX = x;
                 canvas.style.cursor = 'zoom-in';
