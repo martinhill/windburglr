@@ -4,8 +4,6 @@
 * Historical day view starts at 7am?
 * Chart label enable/disable click location is displaced above the label
 * zoom range highlight not accurate
-* bundle svg
-* fix manifest file
 
 # Code Quality
 * fix linting errors
