@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Dict, Any
 from datetime import datetime
+from typing import Any
 
 
 class CacheBackend(ABC):
@@ -14,7 +14,7 @@ class CacheBackend(ABC):
     @abstractmethod
     async def get_cached_data(
         self, station: str, start_time: datetime, end_time: datetime
-    ) -> List[Tuple[float, int, int, int]]:
+    ) -> list[tuple[float, int, int, int]]:
         """Retrieve cached data for the specified time range.
         Returns list of (timestamp, direction, speed_kts, gust_kts) tuples.
         """
@@ -22,7 +22,7 @@ class CacheBackend(ABC):
 
     @abstractmethod
     async def add_observation(
-        self, station: str, data_tuple: Tuple[float, int, int, int]
+        self, station: str, data_tuple: tuple[float, int, int, int]
     ) -> None:
         """Add a single new observation to the cache."""
         pass
@@ -33,13 +33,13 @@ class CacheBackend(ABC):
         station: str,
         start_time: datetime,
         end_time: datetime,
-        wind_data: List[Tuple[float, int, int, int]],
+        wind_data: list[tuple[float, int, int, int]],
     ) -> None:
         """Populate cache with data from database."""
         pass
 
     @abstractmethod
-    async def get_cache_stats(self) -> Dict[str, Any]:
+    async def get_cache_stats(self) -> dict[str, Any]:
         """Return cache statistics."""
         pass
 

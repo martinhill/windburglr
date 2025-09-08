@@ -1,13 +1,12 @@
 import asyncio
 import json
 import logging
-from typing import Optional
 
 import asyncpg
 
+from ..cache.abc import CacheBackend
 from ..config import get_database_url
 from ..models import WindDataPoint
-from ..cache.abc import CacheBackend
 from .websocket import WebSocketManager
 
 logger = logging.getLogger("windburglr.notifications")
@@ -21,9 +20,9 @@ class PostgresNotificationManager:
     ):
         self.cache_backend = cache_backend
         self.websocket_manager = websocket_manager
-        self.pg_listener: Optional[asyncpg.Connection] = None
+        self.pg_listener: asyncpg.Connection | None = None
         self.notification_count = 0
-        self.monitor_task: Optional[asyncio.Task] = None
+        self.monitor_task: asyncio.Task | None = None
         self._is_pg_listener_healthy = False
 
     def set_pg_listener(self, connection: asyncpg.Connection):

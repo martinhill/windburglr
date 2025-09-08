@@ -49,6 +49,7 @@ dev = [
 [tool.ruff]
 target-version = "py313"
 line-length = 88
+exclude = ["__pycache__", ".venv", ".git", "htmlcov", "tests/", "build_frontend.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "S", "B", "A", "C4", "T20"]

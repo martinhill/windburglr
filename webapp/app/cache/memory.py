@@ -1,8 +1,8 @@
 import asyncio
 import logging
 from bisect import bisect_left, bisect_right
-from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Tuple, Any, Set
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from .abc import CacheBackend
 
@@ -13,8 +13,8 @@ class MemoryCacheBackend(CacheBackend):
     """In-memory cache backend for wind data."""
 
     def __init__(self, cache_duration_hours: int = 48):
-        self.wind_data_cache: Dict[str, List[Tuple[float, int, int, int]]] = {}
-        self.cache_oldest_time: Dict[str, float] = {}
+        self.wind_data_cache: dict[str, list[tuple[float, int, int, int]]] = {}
+        self.cache_oldest_time: dict[str, float] = {}
         self.cache_lock = asyncio.Lock()
         self.cache_hit_count = 0
         self.cache_miss_count = 0
@@ -27,7 +27,7 @@ class MemoryCacheBackend(CacheBackend):
 
         # Convert time to UTC if needed
         if start_time.tzinfo is not None:
-            start_time = start_time.astimezone(timezone.utc)
+            start_time = start_time.astimezone(UTC)
 
         start_ts = start_time.timestamp()
         oldest_ts = self.cache_oldest_time[station]
@@ -68,7 +68,7 @@ class MemoryCacheBackend(CacheBackend):
 
     async def get_cached_data(
         self, station: str, start_time: datetime, end_time: datetime
-    ) -> List[Tuple[float, int, int, int]]:
+    ) -> list[tuple[float, int, int, int]]:
         """Get cached data for the specified time range."""
         if station not in self.wind_data_cache:
             return []
@@ -79,9 +79,9 @@ class MemoryCacheBackend(CacheBackend):
 
         # Convert times to UTC timestamps
         if start_time.tzinfo is not None:
-            start_time = start_time.astimezone(timezone.utc)
+            start_time = start_time.astimezone(UTC)
         if end_time.tzinfo is not None:
-            end_time = end_time.astimezone(timezone.utc)
+            end_time = end_time.astimezone(UTC)
 
         start_ts = start_time.timestamp()
         end_ts = end_time.timestamp()
@@ -94,7 +94,7 @@ class MemoryCacheBackend(CacheBackend):
         return cache_data[start_idx:end_idx]
 
     async def add_observation(
-        self, station: str, data_tuple: Tuple[float, int, int, int]
+        self, station: str, data_tuple: tuple[float, int, int, int]
     ) -> None:
         """Add new observation to cache."""
         async with self.cache_lock:
@@ -125,7 +125,7 @@ class MemoryCacheBackend(CacheBackend):
         station: str,
         start_time: datetime,
         end_time: datetime,
-        wind_data: List[Tuple[float, int, int, int]],
+        wind_data: list[tuple[float, int, int, int]],
     ) -> None:
         """Populate cache with data from database."""
         try:
@@ -155,8 +155,8 @@ class MemoryCacheBackend(CacheBackend):
                     combined_data.sort(key=lambda x: x[0])
 
                     # Remove duplicates based on timestamp
-                    deduplicated_data: List[Tuple[float, int, int, int]] = []
-                    seen_timestamps: Set[float] = set()
+                    deduplicated_data: list[tuple[float, int, int, int]] = []
+                    seen_timestamps: set[float] = set()
 
                     # Iterate in reverse to keep the most recent data for duplicate timestamps
                     for item in reversed(combined_data):
@@ -202,13 +202,13 @@ class MemoryCacheBackend(CacheBackend):
                 "Error updating cache from database for station %s: %s", station, e
             )
 
-    async def get_cache_stats(self) -> Dict[str, Any]:
+    async def get_cache_stats(self) -> dict[str, Any]:
         """Return cache statistics."""
         total_entries = sum(len(entries) for entries in self.wind_data_cache.values())
         oldest_entry = None
         if self.cache_oldest_time.values():
             oldest_timestamp = min(self.cache_oldest_time.values())
-            oldest_entry = datetime.fromtimestamp(oldest_timestamp, tz=timezone.utc)
+            oldest_entry = datetime.fromtimestamp(oldest_timestamp, tz=UTC)
 
         hit_rate = 0.0
         total_requests = self.cache_hit_count + self.cache_miss_count
@@ -234,7 +234,7 @@ class MemoryCacheBackend(CacheBackend):
         if station not in self.wind_data_cache:
             return
 
-        cutoff_time = datetime.now(timezone.utc) - self.cache_duration
+        cutoff_time = datetime.now(UTC) - self.cache_duration
         cutoff_timestamp = cutoff_time.timestamp()
 
         # Find insertion point for cutoff time (data is sorted by timestamp)

@@ -1,6 +1,7 @@
 import logging
-from datetime import datetime, timezone
-from typing import Dict, Any, Optional, Generator
+from collections.abc import Generator
+from datetime import UTC, datetime
+from typing import Any
 
 import asyncpg
 
@@ -22,13 +23,13 @@ class WindDataService:
         start_time: datetime,
         end_time: datetime,
         pool: asyncpg.Pool,
-    ) -> Generator[WindDataPoint, None, None]:
+    ) -> Generator[WindDataPoint]:
         """Query wind data from database for a station and time range."""
         # Convert timezone-aware datetimes to timezone-naive UTC for asyncpg
         if start_time.tzinfo is not None:
-            start_time = start_time.astimezone(timezone.utc).replace(tzinfo=None)
+            start_time = start_time.astimezone(UTC).replace(tzinfo=None)
         if end_time.tzinfo is not None:
-            end_time = end_time.astimezone(timezone.utc).replace(tzinfo=None)
+            end_time = end_time.astimezone(UTC).replace(tzinfo=None)
 
         async with pool.acquire() as conn:
             rows = await conn.fetch(
@@ -50,7 +51,7 @@ class WindDataService:
 
     async def get_latest_wind_data(
         self, station: str, pool: asyncpg.Pool
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get the latest wind observation for a station."""
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -72,7 +73,7 @@ class WindDataService:
         start_time: datetime,
         end_time: datetime,
         pool: asyncpg.Pool,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get wind data from cache if available, otherwise query database."""
         # Try cache-first approach
         is_cache_hit = await self.cache.is_cache_hit(station, start_time)

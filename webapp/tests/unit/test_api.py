@@ -3,14 +3,12 @@
 TODO: Test /day redirect at local day start/end boundaries
 """
 
-from datetime import datetime, timedelta, timezone
-from typing import List, Tuple
-from zoneinfo import ZoneInfo
-from pydantic import ValidationError
-from pydantic import types
-from pydantic import BaseModel
-import pytest
 import logging
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
+
+import pytest
+from pydantic import BaseModel, ValidationError, types
 
 from app.models import WindDataPoint
 
@@ -18,14 +16,14 @@ logger = logging.getLogger(__name__)
 
 
 def is_wind_data_ok(
-    wind_data: List[Tuple], test_input_data: List[dict], start_time: datetime) -> Tuple[bool, str]:
+    wind_data: list[tuple], test_input_data: list[dict], start_time: datetime) -> tuple[bool, str]:
     """Check if the wind data is valid."""
     if not wind_data:
         return False, "No wind data"
     test_data_by_timestamp = {
-        int(item["update_time"].replace(tzinfo=timezone.utc).timestamp()): item for item in test_input_data
+        int(item["update_time"].replace(tzinfo=UTC).timestamp()): item for item in test_input_data
     }
-    prev_ts = start_time.replace(tzinfo=timezone.utc).timestamp()
+    prev_ts = start_time.replace(tzinfo=UTC).timestamp()
     data_len = len(wind_data)
     for i, data in enumerate(wind_data):
         if len(data) != 4:
@@ -172,7 +170,7 @@ def test_api_wind_hours_param(test_client, mock_test_db_manager):
 
 def test_api_wind_time_range(test_client):
     """Test API wind endpoint with time range."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     now = now.replace(tzinfo=None)
     from_time = (now - timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%S")
     to_time = now.strftime("%Y-%m-%dT%H:%M:%S")
@@ -303,7 +301,7 @@ def test_api_wind_data_matches_generated_data(test_client, mock_test_db_manager)
     # Test data is a list of dicts with keys: direction, speed_kts, gust_kts, update_time, station
 
     # Check that each API data point exists in the test data
-    test_data_by_timestamp = {int(item["update_time"].replace(tzinfo=timezone.utc).timestamp()): item for item in test_data}
+    test_data_by_timestamp = {int(item["update_time"].replace(tzinfo=UTC).timestamp()): item for item in test_data}
 
     for api_item in api_wind_data:
         timestamp = int(api_item[0])
@@ -343,7 +341,7 @@ def test_api_wind_custom_station_data_matches(test_client, mock_test_db_manager)
     api_wind_data = data["winddata"]
 
     # Check that each API data point exists in the test data
-    test_data_by_timestamp = {int(item["update_time"].replace(tzinfo=timezone.utc).timestamp()): item for item in test_data}
+    test_data_by_timestamp = {int(item["update_time"].replace(tzinfo=UTC).timestamp()): item for item in test_data}
 
     for api_item in api_wind_data:
         timestamp = int(api_item[0])
@@ -384,13 +382,13 @@ def test_api_wind_hours_param_data_verification(test_client, mock_test_db_manage
     assert len(api_wind_data) == 60 * hours - 1
 
     # Calculate the cutoff time (6 hours ago)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     cutoff_time = now - timedelta(hours=hours)
 
     # Convert API data to a lookup dictionary
     api_data_by_timestamp = {int(item[0]): item for item in api_wind_data}
 
-    test_data_by_timestamp = {int(item["update_time"].replace(tzinfo=timezone.utc).timestamp()): item for item in test_data}
+    test_data_by_timestamp = {int(item["update_time"].replace(tzinfo=UTC).timestamp()): item for item in test_data}
 
     matching_items = 0
     for api_item in api_wind_data:
@@ -428,7 +426,7 @@ def test_wind_data_caching_simple(test_client, mock_test_db_manager):
 
     # Fetch wind data without caching
     hours = 6
-    start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+    start_time = datetime.now(UTC) - timedelta(hours=hours)
     response = test_client.get(f"/api/wind?hours={hours}")
     wind_data = response.json()["winddata"]
     assert response.status_code == 200
@@ -443,7 +441,7 @@ def test_wind_data_caching_simple(test_client, mock_test_db_manager):
     assert status == True, reason
 
     # Fetch wind data with caching
-    start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+    start_time = datetime.now(UTC) - timedelta(hours=hours)
     response = test_client.get(f"/api/wind?hours={hours}")
     wind_data2 = response.json()["winddata"]
     assert response.status_code == 200
@@ -460,7 +458,7 @@ def test_wind_data_caching_simple(test_client, mock_test_db_manager):
 
     # Fetch more wind data without caching
     hours = 12
-    start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+    start_time = datetime.now(UTC) - timedelta(hours=hours)
     response = test_client.get(f"/api/wind?hours={hours}")
     wind_data = response.json()["winddata"]
     assert response.status_code == 200
@@ -476,7 +474,7 @@ def test_wind_data_caching_simple(test_client, mock_test_db_manager):
 
     # Fetch wind data with caching
     hours = 24
-    start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+    start_time = datetime.now(UTC) - timedelta(hours=hours)
     response = test_client.get(f"/api/wind?hours={hours}")
     wind_data = response.json()["winddata"]
     assert response.status_code == 200
@@ -490,7 +488,7 @@ def test_wind_data_caching_simple(test_client, mock_test_db_manager):
 
     # Fetch wind data with caching
     hours = 3
-    start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+    start_time = datetime.now(UTC) - timedelta(hours=hours)
     response = test_client.get(f"/api/wind?hours={hours}")
     wind_data = response.json()["winddata"]
     assert response.status_code == 200
@@ -504,7 +502,7 @@ def test_wind_data_caching_simple(test_client, mock_test_db_manager):
 
     # Fetch wind data with caching
     hours = 1
-    start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+    start_time = datetime.now(UTC) - timedelta(hours=hours)
     response = test_client.get(f"/api/wind?hours={hours}")
     wind_data = response.json()["winddata"]
     assert response.status_code == 200
@@ -518,7 +516,7 @@ def test_wind_data_caching_simple(test_client, mock_test_db_manager):
 
     # Fetch wind data with caching
     hours = 1
-    start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+    start_time = datetime.now(UTC) - timedelta(hours=hours)
     response = test_client.get(f"/api/wind?hours={hours}")
     wind_data = response.json()["winddata"]
     assert response.status_code == 200
@@ -549,7 +547,7 @@ async def test_wind_data_caching_new_wind_obs(test_client, mock_test_db_manager)
     # Verify the database was queried
     assert mock_test_db_manager.query_count == initial_query_count + 2, "Cache hit"
 
-    new_obs_update_time = datetime.now(timezone.utc)
+    new_obs_update_time = datetime.now(UTC)
 
     notification_data = {
         "station_name": "CYTZ",
@@ -569,7 +567,7 @@ async def test_wind_data_caching_new_wind_obs(test_client, mock_test_db_manager)
     # The notification system broadcasts to WebSocket connections, but doesn't update the mock database
     # So we just verify the notification was processed successfully
     hours = 6
-    start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+    start_time = datetime.now(UTC) - timedelta(hours=hours)
     response = test_client.get(f"/api/wind?hours={hours}")
     assert response.status_code == 200
 
@@ -615,7 +613,7 @@ def test_wind_data_caching_different_time_ranges(test_client, mock_test_db_manag
     )
 
     # Second request: data from 2 days ago - should not be cached
-    two_days_ago = datetime.now(timezone.utc) - timedelta(days=2)
+    two_days_ago = datetime.now(UTC) - timedelta(days=2)
     two_days_ago.replace(hour=0, minute=0, second=0, microsecond=0)
     from_time = two_days_ago.strftime("%Y-%m-%dT%H:%M:%S")
     to_time = (two_days_ago + timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%S")

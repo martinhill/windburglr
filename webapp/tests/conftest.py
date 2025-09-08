@@ -1,14 +1,14 @@
-import os
 import logging
-import pytest
-from fastapi.testclient import TestClient
-from httpx import AsyncClient, ASGITransport
-from httpx_ws.transport import ASGIWebSocketTransport
-from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Any
+import os
 from contextlib import asynccontextmanager
-from asgi_lifespan import LifespanManager
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
+import pytest
+from asgi_lifespan import LifespanManager
+from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
+from httpx_ws.transport import ASGIWebSocketTransport
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +112,7 @@ async def test_db_manager():
                 self.test_stations.add(station_name)
 
                 # Generate test data at 1-minute intervals
-                base_time = datetime.now(timezone.utc)
+                base_time = datetime.now(UTC)
                 data = []
 
                 # Generate data for the specified number of days at 1-minute intervals
@@ -188,7 +188,7 @@ async def test_db_manager():
                     self.test_stations.add(station_name)
 
                     # Generate bulk data for insertion
-                    base_time = datetime.now(timezone.utc)
+                    base_time = datetime.now(UTC)
                     data_rows = []
 
                     # Generate data for the specified number of days at 1-minute intervals
@@ -335,7 +335,7 @@ def mock_test_db_manager():
 
         def create_test_data(self, station_name="CYTZ", days=1):
             """Create mock test data at 1-minute intervals."""
-            base_time = datetime.now(timezone.utc) - timedelta(days=days)
+            base_time = datetime.now(UTC) - timedelta(days=days)
             data = []
             total_minutes = days * 24 * 60
 
@@ -374,7 +374,7 @@ def mock_test_db_manager():
                     "method": method,
                     "query": query,
                     "args": args,
-                    "timestamp": datetime.now(timezone.utc),
+                    "timestamp": datetime.now(UTC),
                 }
             )
 
@@ -430,10 +430,10 @@ class WindDataGenerator:
         base_direction: int = 270,
         base_speed: int = 10,
         gust_variance: int = 5,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Generate hourly wind data."""
         data = []
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         for i in range(hours):
             timestamp = now - timedelta(hours=i)
@@ -458,10 +458,10 @@ class WindDataGenerator:
     @staticmethod
     def generate_storm_data(
         station: str = "CYTZ", duration_hours: int = 6, max_speed: int = 45
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Generate storm condition data."""
         data = []
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         for i in range(duration_hours):
             timestamp = now - timedelta(hours=i)
@@ -492,10 +492,10 @@ class WindDataGenerator:
     @staticmethod
     def generate_calm_data(
         station: str = "CYTZ", duration_hours: int = 12
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Generate calm wind conditions."""
         data = []
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         for i in range(duration_hours):
             timestamp = now - timedelta(hours=i)
@@ -521,10 +521,11 @@ class WindDataGenerator:
 @pytest.fixture
 def test_client(mock_test_db_manager):
     """Create a test client for unit tests that uses mock_test_db_manager."""
-    from main import make_app
-    from app.dependencies import get_db_pool
-    import json
     import asyncio
+    import json
+
+    from app.dependencies import get_db_pool
+    from main import make_app
 
     class MockListenerConnection:
         """Mock asyncpg.Connection that supports listeners for testing."""
@@ -570,7 +571,6 @@ def test_client(mock_test_db_manager):
             # Record the query
             self.mock_manager.record_query("fetch", query, args)
 
-            from datetime import datetime, timezone, timedelta
 
             if "get_wind_data_by_station_range" in query.lower():
                 # Return data from mock_test_db_manager
@@ -721,8 +721,8 @@ async def test_db_with_bulk_data(test_db_manager):
 
 @pytest.fixture
 async def app(test_db_manager, persistent_connection):
-    from main import make_app
     from app.dependencies import get_db_pool
+    from main import make_app
 
     async def get_test_db_pool():
         return test_db_manager.pool
@@ -737,8 +737,8 @@ async def app(test_db_manager, persistent_connection):
 @pytest.fixture
 async def app_with_bulk_data(test_db_with_bulk_data, persistent_connection):
     """App fixture with pre-loaded bulk test data to avoid notification spam."""
-    from main import make_app
     from app.dependencies import get_db_pool
+    from main import make_app
 
     async def get_test_db_pool():
         return test_db_with_bulk_data.pool

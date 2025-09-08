@@ -1,6 +1,7 @@
-import pytest
-from playwright.sync_api import sync_playwright, Page
 from datetime import datetime, timedelta
+
+import pytest
+from playwright.sync_api import Page, sync_playwright
 
 
 class TestFrontend:

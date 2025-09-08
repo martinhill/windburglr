@@ -1,24 +1,26 @@
-from datetime import datetime, timedelta, timezone
-from typing import Dict, Any, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Annotated, Any
 
+import asyncpg
 from fastapi import APIRouter, Depends
 
 from ..config import DEFAULT_STATION, ISO_FORMAT
 from ..dependencies import get_db_pool, get_wind_service
 from ..services.station import get_station_timezone
+from ..services.wind_data import WindDataService
 
 router = APIRouter(prefix="/api", tags=["api"])
 
 
 @router.get("/wind")
 async def get_wind_data(
-    pool=Depends(get_db_pool),
-    wind_service=Depends(get_wind_service),
+    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+    wind_service: Annotated[WindDataService, Depends(get_wind_service)],
     stn: str = DEFAULT_STATION,
-    from_time: Optional[str] = None,
-    to_time: Optional[str] = None,
-    hours: Optional[int] = None,
-) -> Dict[str, Any]:
+    from_time: str | None = None,
+    to_time: str | None = None,
+    hours: int | None = None,
+) -> dict[str, Any]:
     """Get wind data for a station and time range."""
     # Get station timezone for metadata only
     station_tz_name = await get_station_timezone(stn, pool)
@@ -26,17 +28,17 @@ async def get_wind_data(
     if from_time and to_time:
         # Parse datetime strings as UTC (no timezone conversion)
         start_time = datetime.strptime(from_time, ISO_FORMAT).replace(
-            tzinfo=timezone.utc
+            tzinfo=UTC
         )
-        end_time = datetime.strptime(to_time, ISO_FORMAT).replace(tzinfo=timezone.utc)
+        end_time = datetime.strptime(to_time, ISO_FORMAT).replace(tzinfo=UTC)
     elif hours:
         # For relative time queries, use current UTC time
-        now_utc = datetime.now(timezone.utc)
+        now_utc = datetime.now(UTC)
         start_time = now_utc - timedelta(hours=hours)
         end_time = now_utc
     else:
         # Default: last 24 hours in UTC
-        now_utc = datetime.now(timezone.utc)
+        now_utc = datetime.now(UTC)
         start_time = now_utc - timedelta(hours=24)
         end_time = now_utc
 

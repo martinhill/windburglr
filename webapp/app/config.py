@@ -1,6 +1,6 @@
 import os
 from datetime import timedelta
-from typing import Dict, Any
+from typing import Any
 
 DEFAULT_STATION = "CYTZ"
 ISO_FORMAT = "%Y-%m-%dT%H:%M:%S"
@@ -22,7 +22,7 @@ def get_database_url(pooled: bool = False) -> str:
     return os.environ.get("DATABASE_URL", "")
 
 
-def get_cache_config() -> Dict[str, Any]:
+def get_cache_config() -> dict[str, Any]:
     """Get cache configuration from environment."""
     return {
         "type": os.getenv("CACHE_BACKEND", "memory"),
@@ -31,7 +31,7 @@ def get_cache_config() -> Dict[str, Any]:
         },
     }
 
-def get_sentry_config() -> Dict[str, Any]:
+def get_sentry_config() -> dict[str, Any]:
     """Get Sentry configuration from environment."""
     return {
         "dsn": os.environ.get("SENTRY_DSN", ""),

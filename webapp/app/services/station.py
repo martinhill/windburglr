@@ -1,7 +1,7 @@
 import logging
-from async_lru import alru_cache
 
 import asyncpg
+from async_lru import alru_cache
 
 logger = logging.getLogger("windburglr.station")
 

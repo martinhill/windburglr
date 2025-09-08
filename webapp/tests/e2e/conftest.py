@@ -1,10 +1,11 @@
-import pytest
-import subprocess
-import time
-import requests
 import os
 import socket
+import subprocess
+import time
 from contextlib import contextmanager
+
+import pytest
+import requests
 
 
 def get_free_port():

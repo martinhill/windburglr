@@ -1,29 +1,34 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Annotated
 
+import asyncpg
 from fastapi import APIRouter, Depends
 from fastapi.responses import PlainTextResponse
 
+from ..cache.abc import CacheBackend
 from ..dependencies import (
-    get_db_pool,
-    get_websocket_manager,
-    get_pg_manager,
     get_cache_backend,
+    get_db_pool,
+    get_pg_manager,
+    get_websocket_manager,
 )
+from ..services.notifications import PostgresNotificationManager
+from ..services.websocket import WebSocketManager
 
 router = APIRouter(prefix="/health", tags=["health"])
 
 
 @router.get("")
 async def health_check(
-    pool=Depends(get_db_pool),
-    ws_manager=Depends(get_websocket_manager),
-    pg_manager=Depends(get_pg_manager),
-    cache_backend=Depends(get_cache_backend),
+    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+    ws_manager: Annotated[WebSocketManager, Depends(get_websocket_manager)],
+    pg_manager: Annotated[PostgresNotificationManager, Depends(get_pg_manager)],
+    cache_backend: Annotated[CacheBackend, Depends(get_cache_backend)],
 ):
     """Health check endpoint for monitoring and load balancers."""
     health_status = {
         "status": "healthy",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "database": "unknown",
         "websocket": "unknown",
         "postgresql_listener": "unknown",
@@ -75,7 +80,7 @@ async def health_check(
 
 @router.get("/stack", response_class=PlainTextResponse)
 async def get_health_stack(
-    pg_manager=Depends(get_pg_manager),
+    pg_manager: Annotated[PostgresNotificationManager, Depends(get_pg_manager)],
 ):
     """Returns the stack of the monitoring task."""
     if pg_manager.monitor_task:

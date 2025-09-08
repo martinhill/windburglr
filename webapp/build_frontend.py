@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 
-import json
 import glob
-from typing import Dict, Optional
+import json
 
 
-def get_asset_paths(is_dev: bool = False) -> Dict[str, Optional[str]]:
+def get_asset_paths(is_dev: bool = False) -> dict[str, str | None]:
     """Get the correct asset paths for dev or production."""
     if is_dev:
         # In dev mode, Vite serves from the dev server

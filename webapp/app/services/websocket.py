@@ -1,5 +1,4 @@
 import logging
-from typing import Dict, List
 
 from fastapi import WebSocket
 
@@ -10,7 +9,7 @@ class WebSocketManager:
     """Manages WebSocket connections for real-time wind data updates."""
 
     def __init__(self):
-        self.active_connections: Dict[str, List[WebSocket]] = {}
+        self.active_connections: dict[str, list[WebSocket]] = {}
 
     async def connect(self, websocket: WebSocket, station: str):
         """Accept a new WebSocket connection for a station."""
@@ -51,7 +50,7 @@ class WebSocketManager:
                 len(self.active_connections[station]),
                 station,
             )
-            disconnected: List[WebSocket] = []
+            disconnected: list[WebSocket] = []
             for connection in self.active_connections[station]:
                 try:
                     await connection.send_text(message)

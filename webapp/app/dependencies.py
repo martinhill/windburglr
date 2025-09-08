@@ -3,23 +3,22 @@ Dependency providers for FastAPI application.
 Manages application state and provides dependencies to routes.
 """
 
-import os
 import glob
-from typing import List, Optional
+import os
 
 import asyncpg
 
 from .cache.abc import CacheBackend
-from .services.websocket import WebSocketManager
 from .services.notifications import PostgresNotificationManager
+from .services.websocket import WebSocketManager
 from .services.wind_data import WindDataService
 
 # Application state - initialized during startup
-_cache_backend: Optional[CacheBackend] = None
-_db_pool: Optional[asyncpg.Pool] = None
-_websocket_manager: Optional[WebSocketManager] = None
-_pg_manager: Optional[PostgresNotificationManager] = None
-_wind_service: Optional[WindDataService] = None
+_cache_backend: CacheBackend | None = None
+_db_pool: asyncpg.Pool | None = None
+_websocket_manager: WebSocketManager | None = None
+_pg_manager: PostgresNotificationManager | None = None
+_wind_service: WindDataService | None = None
 
 
 # Initialization functions (called from lifespan)
@@ -84,13 +83,13 @@ async def get_wind_service() -> WindDataService:
     return _wind_service
 
 
-def get_dist_js_files() -> List[str]:
+def get_dist_js_files() -> list[str]:
     """Get list of JS filenames in dist/js directory."""
     js_files = glob.glob("dist/js/main-*.js")
     return [os.path.basename(f) for f in js_files]
 
 
-def get_dist_css_files() -> List[str]:
+def get_dist_css_files() -> list[str]:
     """Get list of CSS filenames in dist/css directory."""
     css_files = glob.glob("dist/css/main-*.css")
     return [os.path.basename(f) for f in css_files]

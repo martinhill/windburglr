@@ -1,14 +1,15 @@
 import os
 import zoneinfo
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+from typing import Annotated
 
-from typing import Any
-from fastapi import APIRouter, HTTPException, Request, Depends
+import asyncpg
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from ..config import DEFAULT_STATION, GTAG_ID
-from ..dependencies import get_db_pool, get_dist_js_files, get_dist_css_files
+from ..dependencies import get_db_pool, get_dist_css_files, get_dist_js_files
 from ..services.station import get_station_timezone
 
 router = APIRouter(tags=["web"])
@@ -49,9 +50,9 @@ async def redirect_to_today(stn: str = DEFAULT_STATION, hours: int = 24):
 async def historical_wind_day_chart(
     request: Request,
     date: str,
+    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
     stn: str = DEFAULT_STATION,
     hours: int = 24,
-    pool: Any = Depends(get_db_pool),
 ):
     """Historical wind chart for a specific date."""
     try:
@@ -72,8 +73,8 @@ async def historical_wind_day_chart(
         )
         day_end_local = day_start_local + timedelta(days=1)
 
-        day_start_utc = day_start_local.astimezone(timezone.utc)
-        day_end_utc = day_end_local.astimezone(timezone.utc)
+        day_start_utc = day_start_local.astimezone(UTC)
+        day_end_utc = day_end_local.astimezone(UTC)
 
         return templates.TemplateResponse(
             request=request,

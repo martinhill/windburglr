@@ -1,6 +1,7 @@
-import pytest
 from asyncio import sleep
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
+import pytest
 from httpx import AsyncClient
 from httpx_ws import aconnect_ws
 
@@ -74,7 +75,7 @@ class TestIntegration:
             latest_wind_obs = await websocket.receive_json()
             assert isinstance(latest_wind_obs, dict)
             # Should receive some JSON data structure
-            update_time = datetime.fromtimestamp(latest_wind_obs["timestamp"], tz=timezone.utc).replace(tzinfo=None)
+            update_time = datetime.fromtimestamp(latest_wind_obs["timestamp"], tz=UTC).replace(tzinfo=None)
             assert update_time == check_latest_wind_obs["update_time"]
             assert latest_wind_obs["direction"] == check_latest_wind_obs["direction"]
             assert latest_wind_obs["speed_kts"] == check_latest_wind_obs["speed_kts"]
@@ -90,7 +91,7 @@ class TestIntegration:
             latest_wind_obs = await websocket.receive_json()
             assert isinstance(latest_wind_obs, dict)
             # Should receive some JSON data structure
-            update_time = datetime.fromtimestamp(latest_wind_obs["timestamp"], tz=timezone.utc).replace(tzinfo=None)
+            update_time = datetime.fromtimestamp(latest_wind_obs["timestamp"], tz=UTC).replace(tzinfo=None)
             assert update_time == check_latest_wind_obs["update_time"]
             assert latest_wind_obs["direction"] == check_latest_wind_obs["direction"]
             assert latest_wind_obs["speed_kts"] == check_latest_wind_obs["speed_kts"]
@@ -98,7 +99,7 @@ class TestIntegration:
 
             # Test live update
             await sleep(1)
-            new_obs_time = datetime.now(timezone.utc)
+            new_obs_time = datetime.now(UTC)
             await test_db_with_bulk_data.insert_new_wind_obs(
                 station_name="CYTZ",
                 direction=180,
@@ -138,7 +139,7 @@ class TestIntegration:
             latest_wind_obs = await websocket.receive_json()
             assert isinstance(latest_wind_obs, dict)
             # Should receive some JSON data structure
-            update_time = datetime.fromtimestamp(latest_wind_obs["timestamp"], tz=timezone.utc).replace(tzinfo=None)
+            update_time = datetime.fromtimestamp(latest_wind_obs["timestamp"], tz=UTC).replace(tzinfo=None)
             assert update_time == check_latest_wind_obs["update_time"]
             assert latest_wind_obs["direction"] == check_latest_wind_obs["direction"]
             assert latest_wind_obs["speed_kts"] == check_latest_wind_obs["speed_kts"]
@@ -154,7 +155,7 @@ class TestIntegration:
             assert ping["type"] == "ping"
 
             # Test live updates continue
-            new_obs_time = datetime.now(timezone.utc)
+            new_obs_time = datetime.now(UTC)
             await test_db_with_bulk_data.insert_new_wind_obs(
                 station_name="CYTZ",
                 direction=180,

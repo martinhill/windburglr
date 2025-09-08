@@ -1,9 +1,13 @@
 import asyncio
 import json
+from typing import Annotated
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
+import asyncpg
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
 from ..dependencies import get_db_pool, get_websocket_manager, get_wind_service
+from ..services.websocket import WebSocketManager
+from ..services.wind_data import WindDataService
 
 router = APIRouter(tags=["websocket"])
 
@@ -12,9 +16,9 @@ router = APIRouter(tags=["websocket"])
 async def websocket_endpoint(
     websocket: WebSocket,
     station: str,
-    pool=Depends(get_db_pool),
-    ws_manager=Depends(get_websocket_manager),
-    wind_service=Depends(get_wind_service),
+    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+    ws_manager: Annotated[WebSocketManager, Depends(get_websocket_manager)],
+    wind_service: Annotated[WindDataService, Depends(get_wind_service)],
 ):
     """WebSocket endpoint for real-time wind data updates."""
     await ws_manager.connect(websocket, station)

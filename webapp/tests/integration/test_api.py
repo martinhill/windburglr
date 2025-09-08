@@ -4,7 +4,8 @@ These tests use the test_db_manager fixture to generate test data
 and verify API responses against the generated data.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 
@@ -72,7 +73,7 @@ class TestAPI:
     ):
         """Test API wind endpoint with hours parameter and verify data range."""
         # Generate test data
-        now_datetime = datetime.now(timezone.utc) + timedelta(seconds=1)
+        now_datetime = datetime.now(UTC) + timedelta(seconds=1)
         six_hours_ago = now_datetime - timedelta(hours=6, minutes=1)
 
         response = await integration_client_with_bulk_data.get("/api/wind?hours=6")
@@ -87,7 +88,7 @@ class TestAPI:
         for obs in data["winddata"]:
             assert isinstance(obs, list)
             assert len(obs) == 4  # [timestamp, direction, speed, gust]
-            obs_time = datetime.fromtimestamp(obs[0], tz=timezone.utc)
+            obs_time = datetime.fromtimestamp(obs[0], tz=UTC)
             assert six_hours_ago <= obs_time <= now_datetime
             assert isinstance(obs[1], (int, float))  # direction
             assert isinstance(obs[2], (int, float))  # speed
@@ -101,7 +102,7 @@ class TestAPI:
         """Test API wind endpoint with time range and verify data."""
         # Generate test data
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         from_time = (now - timedelta(hours=16)).strftime("%Y-%m-%dT%H:%M:%S")
         to_time = (now - timedelta(hours=12)).strftime("%Y-%m-%dT%H:%M:%S")
 
@@ -115,14 +116,14 @@ class TestAPI:
 
         # Verify data is within the specified time range
         from_dt = datetime.fromisoformat(from_time.replace("Z", "+00:00")).replace(
-            tzinfo=timezone.utc
+            tzinfo=UTC
         )
         to_dt = datetime.fromisoformat(to_time.replace("Z", "+00:00")).replace(
-            tzinfo=timezone.utc
+            tzinfo=UTC
         )
 
         for obs in data["winddata"]:
-            obs_time = datetime.fromtimestamp(obs[0], timezone.utc)
+            obs_time = datetime.fromtimestamp(obs[0], UTC)
             # Skip exact timing verification due to test execution timing
             assert from_dt <= obs_time <= to_dt
 
@@ -131,7 +132,7 @@ class TestAPI:
         self, integration_client_with_bulk_data, test_db_with_bulk_data):
         """Test that API returns consistent data with database."""
 
-        end_time = datetime.now(timezone.utc)
+        end_time = datetime.now(UTC)
         end_time = end_time.replace(tzinfo=None)
         start_time = end_time - timedelta(hours=1)  # Use 1 hour for testing
 
@@ -146,7 +147,7 @@ class TestAPI:
         db_wind_obs = test_db_with_bulk_data.test_wind_data
         db_timestamps = [obs["update_time"] for obs in db_wind_obs]
         api_timestamps = [
-            datetime.fromtimestamp(obs[0], tz=timezone.utc).replace(tzinfo=None)
+            datetime.fromtimestamp(obs[0], tz=UTC).replace(tzinfo=None)
             for obs in api_data["winddata"]
         ]
 

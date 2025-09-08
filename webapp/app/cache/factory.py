@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Any
 
 from .abc import CacheBackend
 from .memory import MemoryCacheBackend
@@ -16,7 +16,7 @@ class CacheFactory:
             raise ValueError(f"Unknown cache backend: {backend}")
 
 
-def create_cache_from_config(config: Dict[str, Any]) -> CacheBackend:
+def create_cache_from_config(config: dict[str, Any]) -> CacheBackend:
     """Create cache backend from configuration dictionary."""
     backend_type = config.get("type", "memory")
     options = config.get("options", {})

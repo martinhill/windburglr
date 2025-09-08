@@ -1,5 +1,6 @@
-import pytest
 from datetime import datetime
+
+import pytest
 
 
 def test_websocket_connection(test_client, mock_test_db_manager):

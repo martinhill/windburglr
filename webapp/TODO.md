@@ -3,10 +3,8 @@
 ## Issues
 * Historical day view starts at 7am?
 * Chart label enable/disable click location is displaced above the label
-* zoom range highlight not accurate
 
 # Code Quality
-* fix linting errors
 
 ## CI/CD
 * Sentry sourcemaps
