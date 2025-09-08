@@ -1,6 +1,7 @@
 {
   "name": "WindBurglr",
   "short_name": "WindBurglr",
+  "id": "/",
   "description": "Real-time wind data visualization",
   "start_url": "/",
   "scope": "/",
