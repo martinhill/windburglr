@@ -31,9 +31,15 @@ def get_cache_config() -> dict[str, Any]:
         },
     }
 
+def get_sentry_release() -> str:
+    """Get git SHA from environment or fallback to 'unknown'."""
+    return os.environ.get("SENTRY_RELEASE", "unknown")
+
+
 def get_sentry_config() -> dict[str, Any]:
     """Get Sentry configuration from environment."""
     return {
         "dsn": os.environ.get("SENTRY_DSN", ""),
         "environment": os.environ.get("SENTRY_ENVIRONMENT", "development"),
+        "release": get_sentry_release(),
     }

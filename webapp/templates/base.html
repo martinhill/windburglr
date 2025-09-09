@@ -26,9 +26,9 @@
         ></script>
         <script>
             Sentry.init({
-                dsn: "https://3120a70d778a187a20276c2c8a9cb4f9@o4509923794878464.ingest.us.sentry.io/4509923795140608",
-                environment:
-                    "{{ 'production' if request.url.hostname != 'localhost' else 'development' }}",
+                dsn: "{{ sentry_dsn }}",
+                environment: "{{ sentry_environment }}",
+                release: "{{ sentry_release }}",
                 integrations: [Sentry.browserTracingIntegration()],
                 tracesSampleRate: 1.0,
             });

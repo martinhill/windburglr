@@ -8,5 +8,8 @@ if [ -f .env ]; then
     export $(sed 's/#.*$//' .env | xargs)
 fi
 
+# Set Sentry release for production builds
+export SENTRY_RELEASE=$(git rev-parse HEAD)
+
 # Start the FastAPI application using Poetry
 poetry run fastapi dev main.py --host 0.0.0.0 --port ${PORT:-8000}

@@ -8,6 +8,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from sentry_sdk.integrations.asyncpg import AsyncPGIntegration
+from sentry_sdk.integrations.starlette import StarletteIntegration
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 
 from app.cache import create_cache_from_config
@@ -44,10 +45,12 @@ if sentry_config["dsn"]:
     sentry_sdk.init(
         dsn=sentry_config["dsn"],
         integrations=[
-            FastApiIntegration(),
+            StarletteIntegration(transaction_style="endpoint"),
+            FastApiIntegration(transaction_style="endpoint"),
             AsyncPGIntegration(),
         ],
         environment=sentry_config["environment"],
+        release=sentry_config["release"],
         traces_sample_rate=1.0,
         profiles_sample_rate=1.0,
     )

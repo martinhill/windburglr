@@ -21,6 +21,10 @@ COPY src/ ./src/
 COPY vite.config.js ./
 RUN npm run build
 
+# Capture git SHA for Sentry release tracking
+ARG SENTRY_RELEASE
+ENV SENTRY_RELEASE=${SENTRY_RELEASE}
+
 FROM python:3.13-slim
 WORKDIR /app
 COPY --from=builder /app/.venv .venv/

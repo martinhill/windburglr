@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from ..config import DEFAULT_STATION, GTAG_ID
+from ..config import DEFAULT_STATION, GTAG_ID, get_sentry_config
 from ..dependencies import get_db_pool, get_dist_css_files, get_dist_js_files
 from ..services.station import get_station_timezone
 
@@ -21,6 +21,7 @@ async def live_wind_chart(
     request: Request, stn: str = DEFAULT_STATION, hours: int = 3, minutes: int = 0
 ):
     """Main page with live wind chart."""
+    sentry_config = get_sentry_config()
     return templates.TemplateResponse(
         request=request,
         name="index.html",
@@ -33,6 +34,9 @@ async def live_wind_chart(
             "dev_mode": os.getenv("DEV_MODE", "false").lower() == "true",
             "dist_js_files": get_dist_js_files(),
             "dist_css_files": get_dist_css_files(),
+            "sentry_dsn": sentry_config["dsn"],
+            "sentry_environment": sentry_config["environment"],
+            "sentry_release": sentry_config["release"],
         },
     )
 
@@ -76,6 +80,7 @@ async def historical_wind_day_chart(
         day_start_utc = day_start_local.astimezone(UTC)
         day_end_utc = day_end_local.astimezone(UTC)
 
+        sentry_config = get_sentry_config()
         return templates.TemplateResponse(
             request=request,
             name="day.html",
@@ -95,6 +100,9 @@ async def historical_wind_day_chart(
                 "dev_mode": os.getenv("DEV_MODE", "false").lower() == "true",
                 "dist_js_files": get_dist_js_files(),
                 "dist_css_files": get_dist_css_files(),
+                "sentry_dsn": sentry_config["dsn"],
+                "sentry_environment": sentry_config["environment"],
+                "sentry_release": sentry_config["release"],
             },
         )
     except ValueError as err:
