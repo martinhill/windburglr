@@ -23,7 +23,7 @@ RUN npm run build
 
 # Capture git SHA for Sentry release tracking
 ARG SENTRY_RELEASE
-ENV SENTRY_RELEASE=${SENTRY_RELEASE}
+RUN echo SENTRY_RELEASE=$SENTRY_RELEASE >> .env.sentry
 
 FROM python:3.13-slim
 WORKDIR /app
