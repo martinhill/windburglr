@@ -18,7 +18,14 @@ export class ZoomController {
         }
         const rect = canvas.getBoundingClientRect();
 
+        // Remove any existing zoom overlay to prevent duplicates
+        const existingOverlay = canvas.parentElement.querySelector('.zoom-overlay');
+        if (existingOverlay) {
+            existingOverlay.remove();
+        }
+
         this.zoomOverlay = document.createElement('div');
+        this.zoomOverlay.className = 'zoom-overlay'; // Add class for easier identification
         this.zoomOverlay.style.position = 'absolute';
         this.zoomOverlay.style.backgroundColor = 'rgba(102, 126, 234, 0.2)';
         this.zoomOverlay.style.border = '1px solid rgba(102, 126, 234, 0.5)';
@@ -26,7 +33,7 @@ export class ZoomController {
         this.zoomOverlay.style.zIndex = '1000';
         this.zoomOverlay.style.display = 'none';
         this.zoomOverlay.style.marginTop = '1em';
-        this.zoomOverlay.style.minHeight = '80%';
+        this.zoomOverlay.style.minHeight = '70%';
 
         canvas.parentElement.style.position = 'relative';
         canvas.parentElement.appendChild(this.zoomOverlay);
@@ -68,7 +75,7 @@ export class ZoomController {
 
         const state = store.getState();
         let originalTimeRange = state.originalTimeRange;
-        
+
         if (!originalTimeRange && this.chart.data.labels.length > 0) {
             originalTimeRange = {
                 min: this.chart.data.labels[0],

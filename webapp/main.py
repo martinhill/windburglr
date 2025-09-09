@@ -8,8 +8,8 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from sentry_sdk.integrations.asyncpg import AsyncPGIntegration
-from sentry_sdk.integrations.starlette import StarletteIntegration
 from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.starlette import StarletteIntegration
 
 from app.cache import create_cache_from_config
 from app.config import LOG_LEVEL, get_cache_config, get_sentry_config

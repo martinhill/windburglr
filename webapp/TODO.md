@@ -26,6 +26,7 @@
   * degrees in direction
 
 ## Other Enhancements
+* Wind data outage monitoring / alerts
 * shared cache (redis, litefs)
 * /api/wind pagination by date
 * Progressive Web App (PWA) support

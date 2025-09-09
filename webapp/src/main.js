@@ -247,6 +247,12 @@ class WindBurglrApp {
 
 // Initialize app when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
+    // Prevent multiple app instances
+    if (window.windBurglrApp) {
+        console.warn('⚠️ WindBurglrApp already initialized, skipping duplicate initialization');
+        return;
+    }
+
     window.windBurglrApp = new WindBurglrApp();
     window.windBurglrApp.init();
 });

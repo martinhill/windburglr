@@ -29,5 +29,11 @@ FROM python:3.13-slim
 WORKDIR /app
 COPY --from=builder /app/.venv .venv/
 COPY --from=builder /app/dist ./dist/
-COPY . .
+
+# Copy application files explicitly to avoid overwriting dist/
+COPY app/ ./app/
+COPY templates/ ./templates/
+COPY static/ ./static/
+COPY main.py .
+
 CMD ["/app/.venv/bin/fastapi", "run"]
