@@ -1,6 +1,11 @@
 import os
 from datetime import timedelta
 from typing import Any
+from dotenv import load_dotenv
+
+
+# Get the SENTRY_RELEASE in production, provided via a file in the docker image
+load_dotenv(".env.sentry")
 
 DEFAULT_STATION = "CYTZ"
 ISO_FORMAT = "%Y-%m-%dT%H:%M:%S"
