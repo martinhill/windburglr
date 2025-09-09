@@ -7,8 +7,6 @@
 # Code Quality
 
 ## CI/CD
-* Sentry sourcemaps
-* Github actions
 
 ## Testing
 * have claude make more unit tests

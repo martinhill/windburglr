@@ -1,11 +1,12 @@
+import logging
 import os
 from datetime import timedelta
+from functools import cache
 from typing import Any
 
 from dotenv import load_dotenv
 
-# Get the SENTRY_RELEASE in production, provided via a file in the docker image
-load_dotenv(".env.sentry")
+logger = logging.getLogger(__name__)
 
 DEFAULT_STATION = "CYTZ"
 ISO_FORMAT = "%Y-%m-%dT%H:%M:%S"
@@ -36,15 +37,24 @@ def get_cache_config() -> dict[str, Any]:
         },
     }
 
-def get_sentry_release() -> str:
-    """Get git SHA from environment or fallback to 'unknown'."""
-    return os.environ.get("SENTRY_RELEASE", "unknown")
+sentry_dotenv_result = load_dotenv(".env.sentry")
 
-
+@cache
 def get_sentry_config() -> dict[str, Any]:
     """Get Sentry configuration from environment."""
+    if sentry_dotenv_result:
+        logger.info("Loaded Sentry environment variables from dotfile")
+    else:
+        logger.warning("No Sentry dotfile found, using environment variables")
+
+    environment = os.environ.get("SENTRY_ENVIRONMENT", "development")
+    release = os.environ.get("SENTRY_RELEASE", "unknown")
+
+    logger.info(f"Using Sentry environment: {environment}")
+    logger.info(f"Using Sentry release: {release}")
+
     return {
         "dsn": os.environ.get("SENTRY_DSN", ""),
-        "environment": os.environ.get("SENTRY_ENVIRONMENT", "development"),
-        "release": get_sentry_release(),
+        "environment": environment,
+        "release": release,
     }
