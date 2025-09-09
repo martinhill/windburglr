@@ -9,9 +9,6 @@ primary_region = 'yyz'
 [build]
   dockerfile = "Dockerfile"
 
-[build.args]
-  SENTRY_RELEASE = "$SOURCE_COMMIT"
-
 [http_service]
 internal_port = 8000
 force_https = true
