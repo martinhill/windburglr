@@ -5,7 +5,7 @@ import asyncpg
 from fastapi import APIRouter, Depends
 
 from ..config import DEFAULT_STATION, ISO_FORMAT
-from ..dependencies import get_db_pool, get_wind_service
+from ..dependencies import get_db_connection, get_wind_service
 from ..services.station import get_station_timezone
 from ..services.wind_data import WindDataService
 
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api", tags=["api"])
 
 @router.get("/wind")
 async def get_wind_data(
-    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+    conn: Annotated[asyncpg.Connection, Depends(get_db_connection)],
     wind_service: Annotated[WindDataService, Depends(get_wind_service)],
     stn: str = DEFAULT_STATION,
     from_time: str | None = None,
@@ -23,7 +23,7 @@ async def get_wind_data(
 ) -> dict[str, Any]:
     """Get wind data for a station and time range."""
     # Get station timezone for metadata only
-    station_tz_name = await get_station_timezone(stn, pool)
+    station_tz_name = await get_station_timezone(stn, conn)
 
     if from_time and to_time:
         # Parse datetime strings as UTC (no timezone conversion)
@@ -44,7 +44,7 @@ async def get_wind_data(
 
     # Get data from service
     result = await wind_service.get_cached_or_fresh_data(
-        stn, start_time, end_time, pool
+        stn, start_time, end_time, conn
     )
 
     return {

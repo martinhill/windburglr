@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime
 from typing import Annotated
 
@@ -8,19 +9,21 @@ from fastapi.responses import PlainTextResponse
 from ..cache.abc import CacheBackend
 from ..dependencies import (
     get_cache_backend,
-    get_db_pool,
+    get_db_connection,
     get_pg_manager,
     get_websocket_manager,
 )
 from ..services.notifications import PostgresNotificationManager
 from ..services.websocket import WebSocketManager
 
+logger = logging.getLogger("windburglr.health")
+
 router = APIRouter(prefix="/health", tags=["health"])
 
 
 @router.get("")
 async def health_check(
-    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+    conn: Annotated[asyncpg.Connection, Depends(get_db_connection)],
     ws_manager: Annotated[WebSocketManager, Depends(get_websocket_manager)],
     pg_manager: Annotated[PostgresNotificationManager, Depends(get_pg_manager)],
     cache_backend: Annotated[CacheBackend, Depends(get_cache_backend)],
@@ -35,16 +38,13 @@ async def health_check(
         "connection_monitor": {},
     }
 
-    # Check database connection
-    if pool:
-        try:
-            async with pool.acquire() as conn:
-                result = await conn.fetchval("SELECT 1")
-                health_status["database"] = "connected" if result == 1 else "failed"
-        except Exception as e:
-            health_status["database"] = f"error: {str(e)}"
-    else:
-        health_status["database"] = "not_configured"
+    # Check database connection - connection is already tested by dependency
+    try:
+        result = await conn.fetchval("SELECT 1")
+        health_status["database"] = "connected" if result == 1 else "failed"
+    except Exception as e:
+        health_status["database"] = f"error: {str(e)}"
+        logger.error("Database health check failed: %s", e)
 
     # Check WebSocket manager
     health_status["websocket"] = (

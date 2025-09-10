@@ -3,15 +3,21 @@ Dependency providers for FastAPI application.
 Manages application state and provides dependencies to routes.
 """
 
+import asyncio
 import glob
+import logging
 import os
 
 import asyncpg
 
 from .cache.abc import CacheBackend
+from .config import ACQUIRE_CONNECTION_TIMEOUT
+from .database import create_db_pool
 from .services.notifications import PostgresNotificationManager
 from .services.websocket import WebSocketManager
 from .services.wind_data import WindDataService
+
+logger = logging.getLogger("windburglr.dependencies")
 
 # Application state - initialized during startup
 _cache_backend: CacheBackend | None = None
@@ -55,9 +61,9 @@ async def get_cache_backend() -> CacheBackend:
     return _cache_backend
 
 
-async def get_db_pool() -> asyncpg.Pool:
+async def get_db_pool(raise_error: bool = True) -> asyncpg.Pool:
     """Get the database pool instance."""
-    if _db_pool is None:
+    if _db_pool is None and raise_error:
         raise RuntimeError("Database pool not initialized")
     return _db_pool
 
@@ -81,6 +87,43 @@ async def get_wind_service() -> WindDataService:
     if _wind_service is None:
         raise RuntimeError("Wind service not initialized")
     return _wind_service
+
+
+async def get_db_connection() -> asyncpg.Connection:
+    """Get a database connection with automatic recovery and error handling."""
+    pool = await get_db_pool()
+
+    try:
+        # Try to acquire connection
+        async with pool.acquire(timeout=ACQUIRE_CONNECTION_TIMEOUT) as conn:
+            yield conn
+
+    except (asyncpg.exceptions.InterfaceError, asyncpg.exceptions.ConnectionDoesNotExistError) as e:
+        logger.warning("Database connection failed, attempting pool recreation: %s", e)
+
+        # Gracefully wait for existing connections to close
+        try:
+            await asyncio.wait_for(pool.close(), timeout=5)
+        except TimeoutError:
+            logger.warning("Timed out waiting for database connection pool to close")
+        except Exception as close_error:
+            logger.error("Error closing database connection pool: %s", close_error)
+
+        # Try to recreate the pool
+        try:
+            new_pool = await create_db_pool()
+            set_db_pool(new_pool)  # Update global pool reference
+            pool = new_pool
+            async with pool.acquire(timeout=ACQUIRE_CONNECTION_TIMEOUT) as conn:
+                await conn.fetchval("SELECT 1")
+                yield conn
+        except Exception as recreate_error:
+            logger.error("Failed to recreate database pool: %s", recreate_error)
+            raise RuntimeError("Database connection unavailable") from recreate_error
+
+    except Exception as e:
+        logger.error("Unexpected database connection error: %s", e)
+        raise
 
 
 def get_dist_js_files() -> list[str]:

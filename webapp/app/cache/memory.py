@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from bisect import bisect_left, bisect_right
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -19,9 +20,19 @@ class MemoryCacheBackend(CacheBackend):
         self.cache_hit_count = 0
         self.cache_miss_count = 0
         self.cache_duration = timedelta(hours=cache_duration_hours)
+        # Staleness tracking for suspension/resumption detection (per station)
+        self.station_stale: set[str] = set()
+        self.station_stale_timestamp: dict[str, float] = {}
 
     async def is_cache_hit(self, station: str, start_time: datetime) -> bool:
         """Check if cache covers the requested time range."""
+        # First check if this station's cache is stale
+        if await self.is_station_stale(station):
+            stale_time = self.station_stale_timestamp.get(station)
+            logger.debug("Cache miss for station %s: cache is marked as stale (marked at %s)",
+                        station, datetime.fromtimestamp(stale_time) if stale_time else "unknown")
+            return False
+
         if station not in self.cache_oldest_time or station not in self.wind_data_cache:
             return False
 
@@ -146,7 +157,11 @@ class MemoryCacheBackend(CacheBackend):
                     )
 
                 # Get existing cache data
-                existing_data = self.wind_data_cache[station]
+                if not await self.is_station_stale(station):
+                    existing_data = self.wind_data_cache[station]
+                else:
+                    # Toss preexisting data if stale to prevent possible gaps
+                    existing_data = []
 
                 # Combine existing and new data, then sort and deduplicate
                 combined_data = existing_data + sorted_new_data
@@ -191,6 +206,10 @@ class MemoryCacheBackend(CacheBackend):
                 # Prune old data after adding new data
                 await self._prune_cache(station)
 
+                # Clear staleness flag for this station since we're updating with fresh data
+                if await self.is_station_stale(station):
+                    await self._clear_station_staleness(station)
+
             logger.debug(
                 "Updated cache for station %s with %s new entries, cache size: %s",
                 station,
@@ -215,14 +234,46 @@ class MemoryCacheBackend(CacheBackend):
         if total_requests > 0:
             hit_rate = self.cache_hit_count / total_requests
 
+        # Count stale stations
+        stale_stations = list(self.station_stale)
+
         return {
             "cache_hit_count": self.cache_hit_count,
             "cache_miss_count": self.cache_miss_count,
             "cache_hit_ratio": hit_rate,
             "stations_cached": len(self.wind_data_cache),
+            "stale_stations": len(stale_stations),
+            "stale_station_list": stale_stations,
             "total_cached_entries": total_entries,
             "oldest_cache_entry": oldest_entry,
         }
+
+    async def mark_cache_stale(self) -> None:
+        """Mark all cached stations as stale due to system resumption."""
+        async with self.cache_lock:
+            # Mark all existing stations as stale
+            for station in self.wind_data_cache.keys():
+                self.station_stale.add(station)
+                self.station_stale_timestamp[station] = time.time()
+            logger.warning("All cached stations marked as stale due to system resumption")
+
+    async def is_station_stale(self, station: str) -> bool:
+        """Check if a specific station's cache is currently marked as stale."""
+        return station in self.station_stale
+
+    async def mark_station_stale(self, station: str) -> None:
+        """Mark a specific station's cache as stale."""
+        async with self.cache_lock:
+            self.station_stale.add(station)
+            self.station_stale_timestamp[station] = time.time()
+            logger.debug("Station %s cache marked as stale", station)
+
+    async def _clear_station_staleness(self, station: str) -> None:
+        """Clear the stale flag for a specific station when cache is refreshed."""
+        self.station_stale.discard(station)
+        if station in self.station_stale_timestamp:
+            del self.station_stale_timestamp[station]
+        logger.debug("Station %s staleness cleared - cache is now fresh", station)
 
     async def cleanup(self) -> None:
         """Cleanup resources and connections."""

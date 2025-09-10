@@ -16,6 +16,7 @@ GTAG_ID = os.environ.get("GOOGLE_TAG_MANAGER_ID", "")
 # Cache configuration
 DATA_CACHE_HOURS = int(os.environ.get("DATA_CACHE_HOURS", "48"))
 CACHE_DURATION = timedelta(hours=DATA_CACHE_HOURS)
+ACQUIRE_CONNECTION_TIMEOUT = float(os.environ.get("ACQUIRE_CONNECTION_TIMEOUT", "5.0"))
 
 # Logging configuration
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()

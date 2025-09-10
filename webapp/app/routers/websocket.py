@@ -7,7 +7,7 @@ import asyncpg
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from websockets.exceptions import ConnectionClosedError
 
-from ..dependencies import get_db_pool, get_websocket_manager, get_wind_service
+from ..dependencies import get_db_connection, get_websocket_manager, get_wind_service
 from ..services.websocket import WebSocketManager
 from ..services.wind_data import WindDataService
 
@@ -20,7 +20,7 @@ router = APIRouter(tags=["websocket"])
 async def websocket_endpoint(
     websocket: WebSocket,
     station: str,
-    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+    conn: Annotated[asyncpg.Connection, Depends(get_db_connection)],
     ws_manager: Annotated[WebSocketManager, Depends(get_websocket_manager)],
     wind_service: Annotated[WindDataService, Depends(get_wind_service)],
 ):
@@ -28,7 +28,7 @@ async def websocket_endpoint(
     await ws_manager.connect(websocket, station)
     try:
         # Send initial data
-        initial_data = await wind_service.get_latest_wind_data(station, pool)
+        initial_data = await wind_service.get_latest_wind_data(station, conn)
         if initial_data:
             await websocket.send_text(json.dumps(initial_data))
 

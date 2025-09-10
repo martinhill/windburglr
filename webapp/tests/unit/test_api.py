@@ -432,8 +432,9 @@ def test_wind_data_caching_simple(test_client, mock_test_db_manager):
     assert response.status_code == 200
 
     # Verify the database was queried (wind data + timezone)
-    assert mock_test_db_manager.query_count == initial_query_count + 2, (
-        f"Database was not queried (count: {mock_test_db_manager.query_count})"
+    query_count = len(mock_test_db_manager.get_recorded_queries(contains="get_wind_data"))
+    assert query_count == initial_query_count + 1, (
+        f"Database was not queried (count: {query_count})"
     )
 
     assert len(wind_data) == hours * 60 -1, "Wind data length does not match"
@@ -447,8 +448,9 @@ def test_wind_data_caching_simple(test_client, mock_test_db_manager):
     assert response.status_code == 200
 
     # Verify the database was not queried again for wind data (timezone is cached)
-    assert mock_test_db_manager.query_count == initial_query_count + 2, (
-        f"Database was queried for wind data (count: {mock_test_db_manager.query_count})"
+    query_count = len(mock_test_db_manager.get_recorded_queries(contains="get_wind_data"))
+    assert query_count == initial_query_count + 1, (
+        f"Database was queried for wind data (count: {query_count})"
     )
 
     assert len(wind_data) == len(wind_data2), "Wind data length does not match"
@@ -464,8 +466,9 @@ def test_wind_data_caching_simple(test_client, mock_test_db_manager):
     assert response.status_code == 200
 
     # Verify the database was queried again
-    assert mock_test_db_manager.query_count == initial_query_count + 3, (
-        f"Database was not queried again (count: {mock_test_db_manager.query_count})"
+    query_count = len(mock_test_db_manager.get_recorded_queries(contains="get_wind_data"))
+    assert query_count == initial_query_count + 2, (
+        f"Database was not queried again (count: {query_count})"
     )
 
     assert len(wind_data) == hours * 60 -1, "Wind data length does not match"
@@ -480,7 +483,8 @@ def test_wind_data_caching_simple(test_client, mock_test_db_manager):
     assert response.status_code == 200
 
     # Verify the database was not queried again
-    assert mock_test_db_manager.query_count == initial_query_count + 4, "Cache hit"
+    query_count = len(mock_test_db_manager.get_recorded_queries(contains="get_wind_data"))
+    assert query_count == initial_query_count + 3, "Cache hit"
 
     assert len(wind_data) == hours * 60 -1, "Wind data length does not match"
     status, reason = is_wind_data_ok(wind_data, test_data, start_time)
@@ -494,7 +498,8 @@ def test_wind_data_caching_simple(test_client, mock_test_db_manager):
     assert response.status_code == 200
 
     # Verify the database was not queried again
-    assert mock_test_db_manager.query_count == initial_query_count + 4, "Cache miss"
+    query_count = len(mock_test_db_manager.get_recorded_queries(contains="get_wind_data"))
+    assert query_count == initial_query_count + 3, "Cache miss"
 
     assert len(wind_data) == hours * 60 -1, "Wind data length does not match"
     status, reason = is_wind_data_ok(wind_data, test_data, start_time)
@@ -508,7 +513,8 @@ def test_wind_data_caching_simple(test_client, mock_test_db_manager):
     assert response.status_code == 200
 
     # Verify the database was not queried again
-    assert mock_test_db_manager.query_count == initial_query_count + 4, "Cache miss"
+    query_count = len(mock_test_db_manager.get_recorded_queries(contains="get_wind_data"))
+    assert query_count == initial_query_count + 3, "Cache miss"
 
     assert len(wind_data) == hours * 60 -1, "Wind data length does not match"
     status, reason = is_wind_data_ok(wind_data, test_data, start_time)
@@ -522,7 +528,8 @@ def test_wind_data_caching_simple(test_client, mock_test_db_manager):
     assert response.status_code == 200
 
     # Verify the database was not queried again
-    assert mock_test_db_manager.query_count == initial_query_count + 4, "Cache miss"
+    query_count = len(mock_test_db_manager.get_recorded_queries(contains="get_wind_data"))
+    assert query_count == initial_query_count + 3, "Cache miss"
 
     assert len(wind_data) == hours * 60 -1, "Wind data length does not match"
     status, reason = is_wind_data_ok(wind_data, test_data, start_time)
@@ -545,7 +552,8 @@ async def test_wind_data_caching_new_wind_obs(test_client, mock_test_db_manager)
     assert response.status_code == 200
 
     # Verify the database was queried
-    assert mock_test_db_manager.query_count == initial_query_count + 2, "Cache hit"
+    query_count = len(mock_test_db_manager.get_recorded_queries(contains="get_wind_data"))
+    assert query_count == initial_query_count + 1, "Cache hit"
 
     new_obs_update_time = datetime.now(UTC)
 
@@ -581,7 +589,8 @@ async def test_wind_data_caching_new_wind_obs(test_client, mock_test_db_manager)
     ]
 
     # Verify the database was queried again
-    assert mock_test_db_manager.query_count == initial_query_count + 2, "Cache miss"
+    query_count = len(mock_test_db_manager.get_recorded_queries(contains="get_wind_data"))
+    assert query_count == initial_query_count + 1, "Cache miss"
 
     test_data.append({
         "station_name": notification_data['station_name'],
@@ -608,8 +617,9 @@ def test_wind_data_caching_different_time_ranges(test_client, mock_test_db_manag
     assert response.status_code == 200
 
     # Verify the database was queried (wind data + timezone)
-    assert mock_test_db_manager.query_count == initial_query_count + 2, (
-        f"Database was not queried for initial request (count: {mock_test_db_manager.query_count})"
+    query_count = len(mock_test_db_manager.get_recorded_queries(contains="get_wind_data"))
+    assert query_count == initial_query_count + 1, (
+        f"Database was not queried for initial request (count: {query_count})"
     )
 
     # Second request: data from 2 days ago - should not be cached
@@ -622,8 +632,9 @@ def test_wind_data_caching_different_time_ranges(test_client, mock_test_db_manag
     assert response.status_code == 200
 
     # Verify the database was queried again for different time range
-    assert mock_test_db_manager.query_count == initial_query_count + 3, (
-        f"Database was not queried for 2 days ago request (count: {mock_test_db_manager.query_count})"
+    query_count = len(mock_test_db_manager.get_recorded_queries(contains="get_wind_data"))
+    assert query_count == initial_query_count + 2, (
+        f"Database was not queried for 2 days ago request (count: {query_count})"
     )
 
     # Third request: repeat the 6 hours request (should hit cache)
@@ -631,6 +642,7 @@ def test_wind_data_caching_different_time_ranges(test_client, mock_test_db_manag
     assert response.status_code == 200
 
     # Verify the database was NOT queried again (cache hit)
-    assert mock_test_db_manager.query_count == initial_query_count + 3, (
-        f"Database was queried when it should have hit cache (count: {mock_test_db_manager.query_count})"
+    query_count = len(mock_test_db_manager.get_recorded_queries(contains="get_wind_data"))
+    assert query_count == initial_query_count + 2, (
+        f"Database was queried when it should have hit cache (count: {query_count})"
     )

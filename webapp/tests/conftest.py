@@ -369,6 +369,7 @@ def mock_test_db_manager():
 
         def record_query(self, method, query, args):
             """Record a query execution with its parameters."""
+            logger.info("Recording query: %s, Args: %s", query, args)
             self.recorded_queries.append(
                 {
                     "method": method,
@@ -524,7 +525,7 @@ def test_client(mock_test_db_manager):
     import asyncio
     import json
 
-    from app.dependencies import get_db_pool
+    from app.dependencies import get_db_connection
     from main import make_app
 
     class MockListenerConnection:
@@ -654,26 +655,15 @@ def test_client(mock_test_db_manager):
                 return "America/Toronto"
             return None
 
-    class MockPool:
-        """Mock database pool that returns mock data."""
-
-        def __init__(self, mock_manager):
-            self.mock_manager = mock_manager
-
-        @asynccontextmanager
-        async def acquire(self):
-            """Mock acquire method that yields a mock connection."""
-            yield MockConnection(self.mock_manager)
-
-    mock_pool = MockPool(mock_test_db_manager)
+    mock_connection = MockConnection(mock_test_db_manager)
     mock_listener_conn = MockListenerConnection(mock_test_db_manager)
 
     async def get_mock_data_source():
-        return mock_pool
+        return mock_connection
 
     # Create app with injected mock listener connection
     app = make_app(pg_connection=mock_listener_conn)
-    app.dependency_overrides[get_db_pool] = get_mock_data_source
+    app.dependency_overrides[get_db_connection] = get_mock_data_source
 
     # Use LifespanManager to properly start the app and register listeners
     async def start_app():
@@ -721,14 +711,15 @@ async def test_db_with_bulk_data(test_db_manager):
 
 @pytest.fixture
 async def app(test_db_manager, persistent_connection):
-    from app.dependencies import get_db_pool
+    from app.dependencies import get_db_connection
     from main import make_app
 
-    async def get_test_db_pool():
-        return test_db_manager.pool
+    async def get_test_db_connection():
+        async with test_db_manager.pool.acquire() as connection:
+            yield connection
 
     app = make_app(persistent_connection)
-    app.dependency_overrides[get_db_pool] = get_test_db_pool
+    app.dependency_overrides[get_db_connection] = get_test_db_connection
 
     async with LifespanManager(app) as manager:
         yield manager.app
@@ -737,14 +728,15 @@ async def app(test_db_manager, persistent_connection):
 @pytest.fixture
 async def app_with_bulk_data(test_db_with_bulk_data, persistent_connection):
     """App fixture with pre-loaded bulk test data to avoid notification spam."""
-    from app.dependencies import get_db_pool
+    from app.dependencies import get_db_connection
     from main import make_app
 
-    async def get_test_db_pool():
-        return test_db_with_bulk_data.pool
+    async def get_test_db_connection():
+        async with test_db_with_bulk_data.pool.acquire() as connection:
+            yield connection
 
     app = make_app(persistent_connection)
-    app.dependency_overrides[get_db_pool] = get_test_db_pool
+    app.dependency_overrides[get_db_connection] = get_test_db_connection
 
     async with LifespanManager(app) as manager:
         yield manager.app

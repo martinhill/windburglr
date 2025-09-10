@@ -22,7 +22,7 @@ class WindDataService:
         station: str,
         start_time: datetime,
         end_time: datetime,
-        pool: asyncpg.Pool,
+        conn: asyncpg.Connection,
     ) -> Generator[WindDataPoint]:
         """Query wind data from database for a station and time range."""
         # Convert timezone-aware datetimes to timezone-naive UTC for asyncpg
@@ -31,40 +31,39 @@ class WindDataService:
         if end_time.tzinfo is not None:
             end_time = end_time.astimezone(UTC).replace(tzinfo=None)
 
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT * FROM get_wind_data_by_station_range($1, $2, $3)",
-                station,
-                start_time,
-                end_time,
+        # Connection is already acquired and tested by the dependency
+        rows = await conn.fetch(
+            "SELECT * FROM get_wind_data_by_station_range($1, $2, $3)",
+            station,
+            start_time,
+            end_time,
+        )
+        return (
+            WindDataPoint(
+                timestamp=row["update_time"],
+                direction=row["direction"],
+                speed_kts=row["speed_kts"],
+                gust_kts=row["gust_kts"],
             )
-
-            return (
-                WindDataPoint(
-                    timestamp=row["update_time"],
-                    direction=row["direction"],
-                    speed_kts=row["speed_kts"],
-                    gust_kts=row["gust_kts"],
-                )
-                for row in rows
-            )
+            for row in rows
+        )
 
     async def get_latest_wind_data(
-        self, station: str, pool: asyncpg.Pool
+        self, station: str, conn: asyncpg.Connection
     ) -> dict[str, Any] | None:
         """Get the latest wind observation for a station."""
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT * FROM get_latest_wind_observation($1)", station
-            )
-            if row:
-                # Ensure update_time is timezone-aware before processing
-                return WindDataPoint(
-                    timestamp=row['update_time'],
-                    direction=row["direction"],
-                    speed_kts=row["speed_kts"],
-                    gust_kts=row["gust_kts"],
-                ).model_dump()
+        # Connection is already acquired and tested by the dependency
+        row = await conn.fetchrow(
+            "SELECT * FROM get_latest_wind_observation($1)", station
+        )
+        if row:
+            # Ensure update_time is timezone-aware before processing
+            return WindDataPoint(
+                timestamp=row['update_time'],
+                direction=row["direction"],
+                speed_kts=row["speed_kts"],
+                gust_kts=row["gust_kts"],
+            ).model_dump()
         return None
 
     async def get_cached_or_fresh_data(
@@ -72,7 +71,7 @@ class WindDataService:
         station: str,
         start_time: datetime,
         end_time: datetime,
-        pool: asyncpg.Pool,
+        conn: asyncpg.Connection,
     ) -> dict[str, Any]:
         """Get wind data from cache if available, otherwise query database."""
         # Try cache-first approach
@@ -105,7 +104,7 @@ class WindDataService:
             winddata = [
                 (point.timestamp, point.direction, point.speed_kts, point.gust_kts)
                 for point in await self.query_wind_data(
-                    station, start_time, end_time, pool
+                    station, start_time, end_time, conn
                 )
             ]
 

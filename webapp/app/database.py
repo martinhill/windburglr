@@ -18,4 +18,5 @@ async def create_db_pool() -> asyncpg.Pool:
         logger.info("PostgreSQL connection pool created successfully")
         return pool
     else:
-        logger.warning("No database URL provided")
+        # Log warning and silently ignore for testing purposes
+        logger.warning("No database URL provided - cannot create connection pool")

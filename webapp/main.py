@@ -15,6 +15,7 @@ from app.cache import create_cache_from_config
 from app.config import LOG_LEVEL, get_cache_config, get_sentry_config
 from app.database import create_db_pool
 from app.dependencies import (
+    get_db_pool,
     set_cache_backend,
     set_db_pool,
     set_pg_manager,
@@ -25,6 +26,7 @@ from app.routers import api, health, web, websocket
 from app.services.notifications import PostgresNotificationManager
 from app.services.websocket import WebSocketManager
 from app.services.wind_data import WindDataService
+from app.utils.suspension_detector import SuspensionDetector
 
 # Configure logging
 logging.basicConfig(
@@ -71,6 +73,17 @@ def make_app(pg_connection: asyncpg.Connection | None = None):
         cache_backend = create_cache_from_config(cache_config)
         set_cache_backend(cache_backend)
 
+        # Create suspension detector
+        suspension_detector = SuspensionDetector()
+
+        # Add callback to mark cache as stale on resumption
+        async def handle_resumption():
+            logger.warning("System resumption detected - marking cache as stale")
+            await cache_backend.mark_cache_stale()
+
+        suspension_detector.add_resumption_callback(handle_resumption)
+        await suspension_detector.start_monitoring()
+
         # Create database connection pool
         db_pool = await create_db_pool()
         set_db_pool(db_pool)
@@ -96,8 +109,16 @@ def make_app(pg_connection: asyncpg.Connection | None = None):
 
         # Shutdown
         logger.info("Shutting down WindBurglr application")
+        await suspension_detector.stop_monitoring()
         await pg_manager.stop_pg_listener()
         await cache_backend.cleanup()
+
+        # Close database pool
+        if db_pool := await get_db_pool(raise_error=False):
+            logger.info("Closing database connection pool...")
+            await db_pool.close()
+            logger.info("Database connection pool closed")
+
         logger.info("Application shutdown complete")
 
     app = FastAPI(title="WindBurglr", lifespan=lifespan)

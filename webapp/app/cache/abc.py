@@ -44,6 +44,26 @@ class CacheBackend(ABC):
         pass
 
     @abstractmethod
+    async def mark_cache_stale(self) -> None:
+        """Mark all cached stations as stale due to system resumption."""
+        pass
+
+    @abstractmethod
+    async def is_station_stale(self, station: str) -> bool:
+        """Check if a specific station's cache is currently marked as stale."""
+        pass
+
+    @abstractmethod
+    async def mark_station_stale(self, station: str) -> None:
+        """Mark a specific station's cache as stale."""
+        pass
+
+    @abstractmethod
+    async def _clear_station_staleness(self, station: str) -> None:
+        """Clear the stale flag for a specific station when cache is refreshed."""
+        pass
+
+    @abstractmethod
     async def cleanup(self) -> None:
         """Cleanup resources and connections."""
         pass
