@@ -90,7 +90,10 @@ class PostgresNotificationManager:
         ):
             self.monitor_task.cancel()
             try:
-                await self.monitor_task
+                logger.debug("Waiting for monitor task to complete...")
+                await asyncio.wait_for(self.monitor_task, timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning("Monitor task did not cancel within timeout, forcing completion")
             except asyncio.CancelledError:
                 logger.info("PostgreSQL connection monitor task cancelled")
             except Exception as e:
@@ -98,8 +101,11 @@ class PostgresNotificationManager:
 
         if self.pg_listener:
             try:
-                await self.pg_listener.close()
+                logger.debug("Closing PostgreSQL listener...")
+                await asyncio.wait_for(self.pg_listener.close(), timeout=5.0)
                 logger.info("PostgreSQL listener stopped")
+            except asyncio.TimeoutError:
+                logger.warning("PostgreSQL connection close timed out")
             except Exception as e:
                 logger.error("Error stopping PostgreSQL listener: %s", e, exc_info=True)
 
