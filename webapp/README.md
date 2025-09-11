@@ -44,11 +44,7 @@ The Nix environment will automatically:
 
 1. Install dependencies:
 ```bash
-poetry install
-```
-or
-```bash
-pip install -r requirements.txt
+uv sync --extra dev
 ```
 
 2. Set up environment variables:

@@ -1,18 +1,19 @@
-FROM python:3.13 AS builder
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS builder
 
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 UV_LINK_MODE=copy
 WORKDIR /app
 
 # Install Node.js
+RUN apt-get update && apt-get install -y curl
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y nodejs
 
 # Install Python dependencies
-RUN pip install poetry
-RUN poetry config virtualenvs.in-project true
-COPY pyproject.toml poetry.lock ./
-RUN poetry install
+COPY pyproject.toml ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --no-install-project --no-dev
 
 # Install frontend dependencies and build
 COPY package.json package-lock.json ./
@@ -41,4 +42,6 @@ COPY templates/ ./templates/
 COPY static/ ./static/
 COPY main.py .
 
-CMD ["/app/.venv/bin/fastapi", "run"]
+ENV PATH="/app/.venv/bin:$PATH"
+
+CMD ["fastapi", "run"]
