@@ -52,6 +52,15 @@ class WindDataService:
         self, station: str, conn: asyncpg.Connection
     ) -> dict[str, Any] | None:
         """Get the latest wind observation for a station."""
+        # Try to get the latest value from cache first
+        if latest_observation := await self.cache.get_latest_observation(station):
+            return WindDataPoint(
+                timestamp=latest_observation[0],
+                direction=latest_observation[1],
+                speed_kts=latest_observation[2],
+                gust_kts=latest_observation[3]
+            ).model_dump()
+
         # Connection is already acquired and tested by the dependency
         row = await conn.fetchrow(
             "SELECT * FROM get_latest_wind_observation($1)", station

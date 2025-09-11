@@ -131,6 +131,12 @@ class MemoryCacheBackend(CacheBackend):
                 len(self.wind_data_cache[station]),
             )
 
+    async def get_latest_observation(
+        self, station: str) -> list[tuple[float, int, int, int]] | None:
+        """Retrieve latest observations for the specified station."""
+        if station in self.wind_data_cache and not await self.is_station_stale(station):
+            return self.wind_data_cache[station][-1]
+
     async def update_cache(
         self,
         station: str,

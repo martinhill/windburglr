@@ -28,6 +28,14 @@ class CacheBackend(ABC):
         pass
 
     @abstractmethod
+    async def get_latest_observation(
+        self, station: str) -> list[tuple[float, int, int, int]]:
+        """Retrieve latest observations for the specified station."""
+        pass
+
+    @abstractmethod
+
+    @abstractmethod
     async def update_cache(
         self,
         station: str,
