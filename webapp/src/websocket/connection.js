@@ -4,6 +4,7 @@ import { store } from '../store/store.js';
 export class WebSocketManager {
     constructor() {
         this.websocket = null;
+        this.needsBackfill = false;
     }
 
     updateConnectionStatus(status, text) {
@@ -13,7 +14,7 @@ export class WebSocketManager {
             statusElement.className = `connection-indicator ${status}`;
         }
         console.log(`WebSocket status: ${text}`);
-        
+
         // Update connection status in store
         store.setConnectionStatus(status, text, 'websocket');
     }
@@ -21,7 +22,7 @@ export class WebSocketManager {
     async connect() {
         const state = store.getState();
         const station = state.config.station;
-        
+
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/ws/${station}`;
 
@@ -33,13 +34,15 @@ export class WebSocketManager {
             console.log('WebSocket connected successfully');
             this.updateConnectionStatus('connected', 'Connected');
 
-            try {
-                const gapData = await fillDataGap(station, state.lastObservationTime, true);
-                if (gapData.length > 0) {
-                    store.addWindDataBatch(gapData, 'gap-fill');
+            if (this.needsBackfill) {
+                try {
+                    const gapData = await fillDataGap(station, state.lastObservationTime, true);
+                    if (gapData.length > 0) {
+                        store.addWindDataBatch(gapData, 'gap-fill');
+                    }
+                } catch (error) {
+                    console.error('Error filling gap on connection:', error);
                 }
-            } catch (error) {
-                console.error('Error filling gap on connection:', error);
             }
         };
 
@@ -65,7 +68,7 @@ export class WebSocketManager {
                         gust_kts: data.gust_kts,
                         timestamp: data.timestamp
                     }, 'websocket');
-                    
+
                     // Add new wind data point to store
                     const newPoint = [data.timestamp, data.direction, data.speed_kts, data.gust_kts];
                     store.addWindData(newPoint, 'websocket');
@@ -83,6 +86,7 @@ export class WebSocketManager {
         this.websocket.onclose = (event) => {
             console.log('WebSocket closed:', event.code, event.reason);
             this.updateConnectionStatus('disconnected', 'Disconnected');
+            this.needsBackfill = true;
 
             setTimeout(() => {
                 console.log('Attempting to reconnect...');
