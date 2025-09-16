@@ -128,7 +128,7 @@ describe('ZoomController', () => {
       expect(mockOverlay.style.zIndex).toBe('1000')
       expect(mockOverlay.style.display).toBe('none')
       expect(mockOverlay.style.marginTop).toBe('1em')
-      expect(mockOverlay.style.minHeight).toBe('80%')
+      expect(mockOverlay.style.minHeight).toBe('70%')
     })
 
     it('should append overlay to parent element', () => {

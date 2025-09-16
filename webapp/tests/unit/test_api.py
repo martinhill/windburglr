@@ -171,7 +171,6 @@ def test_api_wind_hours_param(test_client, mock_test_db_manager):
 def test_api_wind_time_range(test_client):
     """Test API wind endpoint with time range."""
     now = datetime.now(UTC)
-    now = now.replace(tzinfo=None)
     from_time = (now - timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%S")
     to_time = now.strftime("%Y-%m-%dT%H:%M:%S")
 

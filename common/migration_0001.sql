@@ -1,36 +1,25 @@
--- PostgreSQL with TimescaleDB
 
-CREATE EXTENSION IF NOT EXISTS timescaledb;
+--- Update station table
+DROP INDEX idx_station_name;
+CREATE UNIQUE INDEX station_name_key ON station (name);
+-- Fix timezone column definition - remove NOT NULL constraint initially
+-- and set proper default for existing rows
+ALTER TABLE station ALTER COLUMN timezone TYPE VARCHAR(50);
+ALTER TABLE station ALTER COLUMN timezone SET DEFAULT 'UTC';
+UPDATE station SET timezone = 'UTC' WHERE timezone IS NULL;ALTER TABLE station ALTER COLUMN timezone SET NOT NULL;
 
-CREATE TABLE IF NOT EXISTS station (
-  id serial PRIMARY KEY,
-  name VARCHAR(10) UNIQUE NOT NULL,
-  timezone VARCHAR(50) NOT NULL DEFAULT 'UTC'
-);
-CREATE TABLE IF NOT EXISTS wind_obs (
-  station_id integer references station (id),
-  update_time timestamp with time zone,
-  direction numeric,
-  speed_kts numeric,
-  gust_kts numeric,
-  PRIMARY KEY (station_id, update_time)
-);
+-- Grant permissions to the scraper user
+GRANT INSERT, UPDATE ON TABLE station TO scraper;
+GRANT USAGE, SELECT, UPDATE ON TABLE station_id_seq TO scraper;
+GRANT SELECT, INSERT, UPDATE ON TABLE scraper_status TO scraper;
+GRANT INSERT ON TABLE wind_obs TO scraper;
+GRANT SELECT ON TABLE station TO webapp;
+GRANT SELECT  ON TABLE wind_obs TO webapp;
+GRANT SELECT ON TABLE scraper_status TO webapp;
 
--- Conditionally create hypertable if TimescaleDB is available, otherwise create regular index
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
-        SELECT create_hypertable('wind_obs', 'update_time');
-    ELSE
-        -- Fallback for development environments without TimescaleDB
-        CREATE INDEX IF NOT EXISTS idx_wind_obs_update_time ON wind_obs (update_time);
-    END IF;
-END $$;
-
--- WindBurglr PostgreSQL Stored Procedures
--- These functions encapsulate common queries for better performance and maintainability
-
+-- Update functions
 -- 1. Historical wind data by station and time range
+DROP FUNCTION get_wind_data_by_station_range(text,timestamp without time zone,timestamp without time zone);
 CREATE OR REPLACE FUNCTION get_wind_data_by_station_range(
     station_name TEXT,
     start_time TIMESTAMP WITH TIME ZONE,
@@ -53,6 +42,7 @@ END;
 $$ LANGUAGE plpgsql STABLE;
 
 -- 2. Latest wind observation for a station
+DROP FUNCTION get_latest_wind_observation(text);
 CREATE OR REPLACE FUNCTION get_latest_wind_observation(
     station_name TEXT
 ) RETURNS TABLE (
@@ -72,60 +62,72 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE;
 
--- 3. Station timezone lookup with fallback to UTC
-CREATE OR REPLACE FUNCTION get_station_timezone_name(
-    station_name TEXT
-) RETURNS TEXT AS $$
-DECLARE
-    tz_name TEXT;
-BEGIN
-    SELECT timezone INTO tz_name
-    FROM station
-    WHERE name = station_name;
 
-    IF tz_name IS NULL THEN
-        RETURN 'UTC';
+-- Step 1: Create new table with correct schema
+CREATE TABLE IF NOT EXISTS wind_obs_new (
+  station_id integer references station (id),
+  update_time timestamp with time zone,
+  direction numeric,
+  speed_kts numeric,
+  gust_kts numeric,
+  PRIMARY KEY (station_id, update_time)
+);
+
+-- Step 2: Enable TimescaleDB if available and create hypertable
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb')
+    THEN PERFORM
+        create_hypertable('wind_obs_new', 'update_time');
+    ELSE
+        CREATE INDEX IF NOT EXISTS idx_wind_obs_new_update_time ON wind_obs_new (update_time);
     END IF;
+END
+$$;
 
-    RETURN tz_name;
-END;
-$$ LANGUAGE plpgsql STABLE;
+-- Step 3: Copy data in batches (adjust batch_size as needed)
+DO $$
+DECLARE batch_size INTEGER := 10000;
+offset_val INTEGER := 0;
+rows_copied INTEGER;
+BEGIN LOOP
+    INSERT INTO wind_obs_new (station_id, update_time, direction, speed_kts, gust_kts)
+    SELECT station_id, update_time::timestamptz, direction, speed_kts, gust_kts FROM wind_obs ORDER BY station_id, update_time LIMIT batch_size OFFSET offset_val;
 
--- 4. Station ID and name lookup
-CREATE OR REPLACE FUNCTION get_station_id_by_name(
-    station_name TEXT
-) RETURNS TABLE (
-    id INTEGER,
-    name TEXT
-) AS $$
+    GET DIAGNOSTICS rows_copied = ROW_COUNT;
+    EXIT WHEN rows_copied = 0;
+
+    offset_val := offset_val + batch_size;
+    RAISE NOTICE 'Copied % rows, offset %', rows_copied, offset_val;
+END LOOP;
+
+END $$;
+
+-- Step 4: Verify row count matches
+-- Step 5: If counts match, drop old table and rename (run these manually after verification)
+DO $$
+DECLARE
+    old_count INTEGER;
+    new_count INTEGER;
 BEGIN
-    RETURN QUERY
-    SELECT s.id, s.name
-    FROM station s
-    WHERE s.name = station_name;
-END;
-$$ LANGUAGE plpgsql STABLE;
+    SELECT COUNT(*) INTO old_count FROM wind_obs;
+    SELECT COUNT(*) INTO new_count FROM wind_obs_new;
 
--- 5. List all available stations
-CREATE OR REPLACE FUNCTION get_all_stations()
- RETURNS TABLE (
-    name TEXT
-) AS $$
-BEGIN
-    RETURN QUERY
-    SELECT s.name
-    FROM station s
-    ORDER BY s.name;
-END;
-$$ LANGUAGE plpgsql STABLE;
+    IF old_count = new_count THEN
+        DROP TABLE wind_obs;
+        ALTER TABLE wind_obs_new RENAME TO wind_obs;
+        RAISE NOTICE 'Migration completed successfully. Rows: %', old_count;
+    ELSE
+        RAISE EXCEPTION 'Row count mismatch: wind_obs has % rows, wind_obs_new has % rows', old_count, new_count;
+    END IF;
+END $$;
 
--- Usage examples:
--- SELECT * FROM get_wind_data_by_station_range('CYTZ', '2023-01-01', '2023-12-31');
--- SELECT * FROM get_latest_wind_observation('CYTZ');
--- SELECT get_station_timezone_name('CYTZ');
--- SELECT * FROM get_station_id_by_name('CYTZ');
--- SELECT * FROM get_all_stations();
-
+-- Re-create trigger that fires after each insert
+CREATE TRIGGER wind_obs_insert_trigger
+    AFTER INSERT ON wind_obs
+    FOR EACH ROW
+    EXECUTE FUNCTION notify_wind_obs_insert();
 
 -- Scraper status tracking table
 CREATE TABLE IF NOT EXISTS scraper_status (
@@ -283,41 +285,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE;
 
--- PostgreSQL trigger function and trigger for wind_obs notifications
--- Run this SQL to set up database-level notifications
-
-
--- Create trigger function that sends notifications on wind_obs insert
-CREATE OR REPLACE FUNCTION notify_wind_obs_insert()
-RETURNS trigger AS $$
-DECLARE
-    station_name_var TEXT;
-BEGIN
-    -- Get station name for the notification
-    SELECT name INTO station_name_var
-    FROM station
-    WHERE id = NEW.station_id;
-
-    -- Send notification with station name and observation data
-    PERFORM pg_notify('wind_obs_insert',
-        json_build_object(
-            'station_id', NEW.station_id,
-            'station_name', station_name_var,
-            'direction', NEW.direction,
-            'speed_kts', NEW.speed_kts,
-            'gust_kts', NEW.gust_kts,
-            'update_time', extract(epoch from NEW.update_time)
-        )::text
-    );
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Create trigger that fires after each insert
-CREATE TRIGGER wind_obs_insert_trigger
-    AFTER INSERT ON wind_obs
-    FOR EACH ROW
-    EXECUTE FUNCTION notify_wind_obs_insert();
 
 -- Trigger function for scraper_status notifications
 CREATE OR REPLACE FUNCTION notify_scraper_status()

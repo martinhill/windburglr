@@ -27,9 +27,9 @@ class WindDataService:
         """Query wind data from database for a station and time range."""
         # Convert timezone-aware datetimes to timezone-naive UTC for asyncpg
         if start_time.tzinfo is not None:
-            start_time = start_time.astimezone(UTC).replace(tzinfo=None)
+            start_time = start_time.astimezone(UTC)
         if end_time.tzinfo is not None:
-            end_time = end_time.astimezone(UTC).replace(tzinfo=None)
+            end_time = end_time.astimezone(UTC)
 
         # Connection is already acquired and tested by the dependency
         rows = await conn.fetch(

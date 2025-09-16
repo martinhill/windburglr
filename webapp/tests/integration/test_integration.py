@@ -75,7 +75,7 @@ class TestIntegration:
             latest_wind_obs = await websocket.receive_json()
             assert isinstance(latest_wind_obs, dict)
             # Should receive some JSON data structure
-            update_time = datetime.fromtimestamp(latest_wind_obs["timestamp"], tz=UTC).replace(tzinfo=None)
+            update_time = datetime.fromtimestamp(latest_wind_obs["timestamp"], tz=UTC)
             assert update_time == check_latest_wind_obs["update_time"]
             assert latest_wind_obs["direction"] == check_latest_wind_obs["direction"]
             assert latest_wind_obs["speed_kts"] == check_latest_wind_obs["speed_kts"]
@@ -91,7 +91,7 @@ class TestIntegration:
             latest_wind_obs = await websocket.receive_json()
             assert isinstance(latest_wind_obs, dict)
             # Should receive some JSON data structure
-            update_time = datetime.fromtimestamp(latest_wind_obs["timestamp"], tz=UTC).replace(tzinfo=None)
+            update_time = datetime.fromtimestamp(latest_wind_obs["timestamp"], tz=UTC)
             assert update_time == check_latest_wind_obs["update_time"]
             assert latest_wind_obs["direction"] == check_latest_wind_obs["direction"]
             assert latest_wind_obs["speed_kts"] == check_latest_wind_obs["speed_kts"]
@@ -105,7 +105,7 @@ class TestIntegration:
                 direction=180,
                 speed_kts=10,
                 gust_kts=None,
-                obs_time=new_obs_time.replace(tzinfo=None))
+                obs_time=new_obs_time)
             updated_wind_obs = await websocket.receive_json()
             assert isinstance(updated_wind_obs, dict)
             assert updated_wind_obs["timestamp"] == new_obs_time.timestamp()
@@ -139,7 +139,7 @@ class TestIntegration:
             latest_wind_obs = await websocket.receive_json()
             assert isinstance(latest_wind_obs, dict)
             # Should receive some JSON data structure
-            update_time = datetime.fromtimestamp(latest_wind_obs["timestamp"], tz=UTC).replace(tzinfo=None)
+            update_time = datetime.fromtimestamp(latest_wind_obs["timestamp"], tz=UTC)
             assert update_time == check_latest_wind_obs["update_time"]
             assert latest_wind_obs["direction"] == check_latest_wind_obs["direction"]
             assert latest_wind_obs["speed_kts"] == check_latest_wind_obs["speed_kts"]
@@ -161,7 +161,8 @@ class TestIntegration:
                 direction=180,
                 speed_kts=10,
                 gust_kts=None,
-                obs_time=new_obs_time.replace(tzinfo=None))
+                obs_time=new_obs_time,
+            )
 
             updated_wind_obs = await websocket.receive_json()
             assert isinstance(updated_wind_obs, dict)

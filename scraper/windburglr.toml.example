@@ -1,0 +1,22 @@
+[general]
+log_level = "INFO"
+refresh_rate = 60
+db_url = "postgresql://windburglr@example.com/windburglr"
+output_mode = "postgres"
+
+[[stations]]
+name = "CYTZ"
+local_timezone = "America/Toronto"
+url = "https://example.ca/service/wind-data/CYTZ"
+timeout = 15
+timezone = "UTC"
+[stations.headers]
+Bearer = "secret"
+
+[[stations]]
+name = "CYVR"
+local_timezone = "America/Vancouver"
+url = "https://example.ca/service/wind-data/v2/CYVR"
+timeout = 15
+[stations.headers]
+Bearer = "secret"

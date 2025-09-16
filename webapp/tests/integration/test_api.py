@@ -133,7 +133,6 @@ class TestAPI:
         """Test that API returns consistent data with database."""
 
         end_time = datetime.now(UTC)
-        end_time = end_time.replace(tzinfo=None)
         start_time = end_time - timedelta(hours=1)  # Use 1 hour for testing
 
         # Test API response structure
@@ -147,7 +146,7 @@ class TestAPI:
         db_wind_obs = test_db_with_bulk_data.test_wind_data
         db_timestamps = [obs["update_time"] for obs in db_wind_obs]
         api_timestamps = [
-            datetime.fromtimestamp(obs[0], tz=UTC).replace(tzinfo=None)
+            datetime.fromtimestamp(obs[0], tz=UTC)
             for obs in api_data["winddata"]
         ]
 

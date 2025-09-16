@@ -1,0 +1,13 @@
+# fly.toml app configuration file generated for windburglr-scraper on 2025-09-18T16:15:19-04:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'windburglr-scraper'
+primary_region = 'yyz'
+
+[build]
+  dockerfile = "Dockerfile"
+
+[[vm]]
+  size = 'shared-cpu-1x'

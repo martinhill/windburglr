@@ -118,7 +118,7 @@ async def test_db_manager():
                 # Generate data for the specified number of days at 1-minute intervals
                 total_minutes = days * 24 * 60
                 for i in range(total_minutes):
-                    obs_time = (base_time - timedelta(minutes=i)).replace(tzinfo=None)
+                    obs_time = base_time - timedelta(minutes=i)
                     hour_of_day = obs_time.hour
 
                     # Create more realistic wind patterns
@@ -194,9 +194,7 @@ async def test_db_manager():
                     # Generate data for the specified number of days at 1-minute intervals
                     total_minutes = days * 24 * 60
                     for i in range(total_minutes):
-                        obs_time = (base_time - timedelta(minutes=i)).replace(
-                            tzinfo=None
-                        )
+                        obs_time = base_time - timedelta(minutes=i)
                         hour_of_day = obs_time.hour
 
                         # Create more realistic wind patterns
@@ -354,9 +352,7 @@ def mock_test_db_manager():
                         "direction": direction,
                         "speed_kts": speed_kts,
                         "gust_kts": gust_kts,
-                        "update_time": obs_time.replace(
-                            tzinfo=None
-                        ),  # Make timezone-naive like real DB
+                        "update_time": obs_time,
                         "station": station_name,
                     }
                 )
@@ -589,18 +585,8 @@ def test_client(mock_test_db_manager):
                         # Filter by time range if provided
                         if start_time and end_time:
                             # Convert timezone-aware start_time and end_time to timezone-naive for comparison
-                            start_time_naive = (
-                                start_time.replace(tzinfo=None)
-                                if start_time.tzinfo
-                                else start_time
-                            )
-                            end_time_naive = (
-                                end_time.replace(tzinfo=None)
-                                if end_time.tzinfo
-                                else end_time
-                            )
                             if not (
-                                start_time_naive <= obs["update_time"] <= end_time_naive
+                                start_time <= obs["update_time"] <= end_time
                             ):
                                 continue
                         filtered_data.append(
