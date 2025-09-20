@@ -421,7 +421,7 @@ def test_wind_data_caching_simple(test_client, mock_test_db_manager):
     # Generate 1 day of test data at 1-minute intervals
     test_data = mock_test_db_manager.create_test_data(station_name="CYTZ", days=1)
 
-    initial_query_count = mock_test_db_manager.query_count
+    initial_query_count = 0
 
     # Fetch wind data without caching
     hours = 6
@@ -543,7 +543,7 @@ async def test_wind_data_caching_new_wind_obs(test_client, mock_test_db_manager)
     # Generate 1 day of test data at 1-minute intervals
     test_data = mock_test_db_manager.create_test_data(station_name="CYTZ", days=1)
 
-    initial_query_count = mock_test_db_manager.query_count
+    initial_query_count = 0
 
     # Fetch wind data without caching
     hours = 6
@@ -608,7 +608,7 @@ def test_wind_data_caching_different_time_ranges(test_client, mock_test_db_manag
     # Generate test data
     test_data = mock_test_db_manager.create_test_data(station_name="CYTZ", days=7)
 
-    initial_query_count = mock_test_db_manager.query_count
+    initial_query_count = 0
 
     # First request: 6 hours of data
     hours = 12

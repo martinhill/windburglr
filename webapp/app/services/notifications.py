@@ -1,13 +1,15 @@
 import asyncio
 import json
 import logging
+from datetime import datetime, UTC
 
 import asyncpg
 
 from ..cache.abc import CacheBackend
 from ..config import get_database_url
-from ..models import WindDataPoint
+from ..models import WindDataPoint, ScraperStatus
 from .websocket import WebSocketManager
+from .watchdog import WatchdogService
 
 logger = logging.getLogger("windburglr.notifications")
 
@@ -16,10 +18,14 @@ class PostgresNotificationManager:
     """Manages PostgreSQL LISTEN/NOTIFY connections for real-time updates."""
 
     def __init__(
-        self, cache_backend: CacheBackend, websocket_manager: WebSocketManager
+        self,
+        cache_backend: CacheBackend,
+        websocket_manager: WebSocketManager,
+        watchdog_service: WatchdogService | None = None,
     ):
         self.cache_backend = cache_backend
         self.websocket_manager = websocket_manager
+        self.watchdog_service = watchdog_service
         self.pg_listener: asyncpg.Connection | None = None
         self.notification_count = 0
         self.monitor_task: asyncio.Task | None = None
@@ -66,8 +72,20 @@ class PostgresNotificationManager:
                 await self.pg_listener.add_listener(
                     "wind_obs_insert", self._handle_notification
                 )
+                await self.pg_listener.add_listener(
+                    "scraper_status_update", self._handle_scraper_status_notification
+                )
+
+                # Initialize watchdog service with this connection
+                if self.watchdog_service:
+                    await self.watchdog_service.initialize(self.pg_listener)
+                    # Set websocket manager for status updates
+                    self.watchdog_service.set_websocket_manager(self.websocket_manager)
+
             logger.info("PostgreSQL listener started successfully")
-            logger.info("Listening for channels: wind_obs_insert")
+            logger.info(
+                "Listening for channels: wind_obs_insert, scraper_status_update"
+            )
 
             # Mark connection as healthy
             self._is_pg_listener_healthy = True
@@ -93,7 +111,9 @@ class PostgresNotificationManager:
                 logger.debug("Waiting for monitor task to complete...")
                 await asyncio.wait_for(self.monitor_task, timeout=5.0)
             except TimeoutError:
-                logger.warning("Monitor task did not cancel within timeout, forcing completion")
+                logger.warning(
+                    "Monitor task did not cancel within timeout, forcing completion"
+                )
             except asyncio.CancelledError:
                 logger.info("PostgreSQL connection monitor task cancelled")
             except Exception as e:
@@ -236,7 +256,8 @@ class PostgresNotificationManager:
                 )
 
                 await self.websocket_manager.broadcast_to_station(
-                    json.dumps(wind_data), station_name
+                    json.dumps({"type": "wind", "data": wind_data}),
+                    station_name,
                 )
 
                 # Add new observation to cache
@@ -251,3 +272,76 @@ class PostgresNotificationManager:
                 logger.warning("No station name found in notification data")
         except Exception as e:
             logger.error("Error handling notification: %s", e, exc_info=True)
+
+    async def _handle_scraper_status_notification(
+        self, connection, pid, channel, payload
+    ):
+        """Handle scraper status update notifications."""
+        try:
+            logger.debug(
+                "Received scraper status notification from PID %s on channel '%s'",
+                pid,
+                channel,
+            )
+            logger.debug("Raw payload: %s", payload)
+
+            if self.watchdog_service:
+                # Parse the JSON payload and convert to ScraperStatus model
+                data = json.loads(payload)
+                logger.debug("Parsed notification data: %s", data)
+
+                # Handle double-encoded JSON strings (in case payload was string-encoded)
+                if isinstance(data, str):
+                    data = json.loads(data)
+                    logger.debug("Re-parsed double-encoded JSON data: %s", data)
+
+                # Ensure we have a dictionary
+                if not isinstance(data, dict):
+                    logger.error("Expected dict but got %s: %s", type(data), data)
+                    return
+
+                # Compute time durations if missing from notification data
+                if "time_since_last_attempt" not in data and "last_attempt" in data:
+                    try:
+                        last_attempt = datetime.fromisoformat(
+                            data["last_attempt"].replace("Z", "+00:00")
+                        )
+                        now = datetime.now(UTC)
+                        data["time_since_last_attempt"] = now - last_attempt
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to compute time_since_last_attempt: %s", e
+                        )
+                        data["time_since_last_attempt"] = None
+
+                if (
+                    "time_since_last_success" not in data
+                    and "last_success" in data
+                    and data["last_success"]
+                ):
+                    try:
+                        last_success = datetime.fromisoformat(
+                            data["last_success"].replace("Z", "+00:00")
+                        )
+                        now = datetime.now(UTC)
+                        data["time_since_last_success"] = now - last_success
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to compute time_since_last_success: %s", e
+                        )
+                        data["time_since_last_success"] = None
+
+                # Create ScraperStatus from the notification data
+                scraper_status = ScraperStatus(**data)
+                logger.debug("Created ScraperStatus model: %s", scraper_status)
+
+                await self.watchdog_service.handle_scraper_status_update(scraper_status)
+            else:
+                logger.warning(
+                    "Watchdog service not available for scraper status update"
+                )
+
+        except Exception as e:
+            logger.error(
+                "Error handling scraper status notification: %s", e, exc_info=True
+            )

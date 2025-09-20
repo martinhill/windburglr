@@ -1,6 +1,7 @@
 # TODO
 
 ## Issues
+* Refresh data when frontend has run empty in selected window, currently does not refresh
 * Historical day view starts at 7am?
 * Chart label enable/disable click location is displaced above the label
 
@@ -25,6 +26,8 @@
 
 ## Other Enhancements
 * Wind data outage monitoring / alerts
+ * stale status with reason in header, i.e. no update, parsing error, service down
+ * upsert scraper state/diagnostics in DB
 * shared cache (redis, litefs)
 * /api/wind pagination by date
 * Progressive Web App (PWA) support

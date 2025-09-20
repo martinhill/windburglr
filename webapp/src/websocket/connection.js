@@ -50,12 +50,26 @@ export class WebSocketManager {
             console.log('WebSocket message received:', event.data);
 
             try {
-                const data = JSON.parse(event.data);
+                const message = JSON.parse(event.data);
+                let data;
 
-                if (data.type === 'ping') {
-                    console.log('Received ping from server');
-                    this.updateConnectionStatus('connected', 'Connected');
-                    return;
+                // Handle new format with type and data keys
+                if (message.type) {
+                    if (message.type === 'ping') {
+                        console.log('Received ping from server');
+                        this.updateConnectionStatus('connected', 'Connected');
+                        return;
+                    }
+
+                    if (message.type === 'wind_observation') {
+                        data = message.data;
+                    } else {
+                        console.log('Received unknown message type:', message.type);
+                        return;
+                    }
+                } else {
+                    // Handle legacy format (direct properties)
+                    data = message;
                 }
 
                 this.updateConnectionStatus('connected', 'Connected (Live)');
@@ -73,7 +87,7 @@ export class WebSocketManager {
                     const newPoint = [data.timestamp, data.direction, data.speed_kts, data.gust_kts];
                     store.addWindData(newPoint, 'websocket');
                 } else {
-                    console.log('Received unknown message type:', data);
+                    console.log('Received message without timestamp:', data);
                 }
             } catch (error) {
                 console.error('Error parsing WebSocket message:', error);

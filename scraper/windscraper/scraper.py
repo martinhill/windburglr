@@ -236,7 +236,7 @@ class Scraper:
                     await self.status_handler(station, "healthy", None)
         except aiohttp.ClientResponseError as e:
             error_msg = f"HTTP {e.status}: {e.message}"
-            await self.status_handler(station, "network_error", error_msg)
+            await self.status_handler(station, "http_error", error_msg)
             raise
         except (ValueError, json.JSONDecodeError) as e:
             error_msg = f"Parse error: {e}"

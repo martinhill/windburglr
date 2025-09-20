@@ -7,7 +7,12 @@ import asyncpg
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from websockets.exceptions import ConnectionClosedError
 
-from ..dependencies import get_db_connection, get_websocket_manager, get_wind_service
+from ..dependencies import (
+    get_db_connection,
+    get_watchdog_service,
+    get_websocket_manager,
+    get_wind_service,
+)
 from ..services.websocket import WebSocketManager
 from ..services.wind_data import WindDataService
 
@@ -23,14 +28,28 @@ async def websocket_endpoint(
     conn: Annotated[asyncpg.Connection, Depends(get_db_connection)],
     ws_manager: Annotated[WebSocketManager, Depends(get_websocket_manager)],
     wind_service: Annotated[WindDataService, Depends(get_wind_service)],
+    watchdog_service=Depends(get_watchdog_service),
 ):
     """WebSocket endpoint for real-time wind data updates."""
     await ws_manager.connect(websocket, station)
     try:
-        # Send initial data
+        # Send initial status update for this specific connection
+        station_status = watchdog_service.get_station_status_by_name(station)
+        if station_status:
+            status_message = json.dumps(
+                {
+                    "type": "status_update",
+                    "data": station_status.model_dump(mode="json"),
+                }
+            )
+            await websocket.send_text(status_message)
+
+        # Send initial wind data
         initial_data = await wind_service.get_latest_wind_data(station, conn)
         if initial_data:
-            await websocket.send_text(json.dumps(initial_data))
+            await websocket.send_text(
+                json.dumps({"type": "wind", "data": initial_data})
+            )
 
         # Keep connection alive and handle incoming messages
         while True:
@@ -44,6 +63,8 @@ async def websocket_endpoint(
             except WebSocketDisconnect:
                 break
     except (WebSocketDisconnect, ConnectionClosedError) as e:
-        logger.warning("WebSocket connection unexpectedly closed for station %s: %s", station, e)
+        logger.warning(
+            "WebSocket connection unexpectedly closed for station %s: %s", station, e
+        )
     finally:
         ws_manager.disconnect(websocket, station)

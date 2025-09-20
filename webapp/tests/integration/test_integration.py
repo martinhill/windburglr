@@ -34,7 +34,9 @@ class TestIntegration:
         assert response.json()["station"] == "CYYZ"
 
     @pytest.mark.anyio
-    async def test_timezone_handling(self, integration_client, test_db_manager, sample_stations):
+    async def test_timezone_handling(
+        self, integration_client, test_db_manager, sample_stations
+    ):
         """Test timezone handling across different stations."""
         # Test Toronto station - should return America/Toronto with real database
         await test_db_manager.create_test_stations(sample_stations)
@@ -64,16 +66,23 @@ class TestIntegration:
 
     @pytest.mark.anyio
     async def test_websocket_initial_data(
-        self,
-        ws_integration_client: AsyncClient,
-        test_db_with_bulk_data):
+        self, ws_integration_client: AsyncClient, test_db_with_bulk_data
+    ):
         """Test WebSocket integration."""
 
         check_latest_wind_obs = test_db_with_bulk_data.latest_wind_obs
         async with aconnect_ws("/ws/CYTZ", ws_integration_client) as websocket:
-            #  The first message should be the latest wind observation
-            latest_wind_obs = await websocket.receive_json()
-            assert isinstance(latest_wind_obs, dict)
+            # First message might be status update, then wind observation
+            message = await websocket.receive_json()
+            assert isinstance(message, dict)
+
+            if message["type"] == "status_update":
+                # If we got status update first, get the next message for wind observation
+                message = await websocket.receive_json()
+                assert isinstance(message, dict)
+
+            assert message["type"] == "wind"
+            latest_wind_obs = message["data"]
             # Should receive some JSON data structure
             update_time = datetime.fromtimestamp(latest_wind_obs["timestamp"], tz=UTC)
             assert update_time == check_latest_wind_obs["update_time"]
@@ -82,14 +91,24 @@ class TestIntegration:
             assert latest_wind_obs["gust_kts"] == check_latest_wind_obs["gust_kts"]
 
     @pytest.mark.anyio
-    async def test_websocket_live_update(self, ws_integration_client: AsyncClient, test_db_with_bulk_data):
+    async def test_websocket_live_update(
+        self, ws_integration_client: AsyncClient, test_db_with_bulk_data
+    ):
         """Test WebSocket integration."""
 
         check_latest_wind_obs = test_db_with_bulk_data.latest_wind_obs
         async with aconnect_ws("/ws/CYTZ", ws_integration_client) as websocket:
-            #  The first message should be the latest wind observation
-            latest_wind_obs = await websocket.receive_json()
-            assert isinstance(latest_wind_obs, dict)
+            # First message might be status update, then wind observation
+            message = await websocket.receive_json()
+            assert isinstance(message, dict)
+
+            if message["type"] == "status_update":
+                # If we got status update first, get the next message for wind observation
+                message = await websocket.receive_json()
+                assert isinstance(message, dict)
+
+            assert message["type"] == "wind"
+            latest_wind_obs = message["data"]
             # Should receive some JSON data structure
             update_time = datetime.fromtimestamp(latest_wind_obs["timestamp"], tz=UTC)
             assert update_time == check_latest_wind_obs["update_time"]
@@ -105,9 +124,12 @@ class TestIntegration:
                 direction=180,
                 speed_kts=10,
                 gust_kts=None,
-                obs_time=new_obs_time)
-            updated_wind_obs = await websocket.receive_json()
-            assert isinstance(updated_wind_obs, dict)
+                obs_time=new_obs_time,
+            )
+            updated_message = await websocket.receive_json()
+            assert isinstance(updated_message, dict)
+            assert updated_message["type"] == "wind"
+            updated_wind_obs = updated_message["data"]
             assert updated_wind_obs["timestamp"] == new_obs_time.timestamp()
             assert updated_wind_obs["direction"] == 180
             assert updated_wind_obs["speed_kts"] == 10
@@ -131,13 +153,22 @@ class TestIntegration:
     @pytest.mark.slow
     @pytest.mark.anyio
     async def test_listener_reconnection(
-        self, ws_integration_client, test_db_with_bulk_data, persistent_connection):
+        self, ws_integration_client, test_db_with_bulk_data, persistent_connection
+    ):
         """Test listener reconnection."""
         check_latest_wind_obs = test_db_with_bulk_data.latest_wind_obs
         async with aconnect_ws("/ws/CYTZ", ws_integration_client) as websocket:
-            #  The first message should be the latest wind observation
-            latest_wind_obs = await websocket.receive_json()
-            assert isinstance(latest_wind_obs, dict)
+            # First message might be status update, then wind observation
+            message = await websocket.receive_json()
+            assert isinstance(message, dict)
+
+            if message["type"] == "status_update":
+                # If we got status update first, get the next message for wind observation
+                message = await websocket.receive_json()
+                assert isinstance(message, dict)
+
+            assert message["type"] == "wind"
+            latest_wind_obs = message["data"]
             # Should receive some JSON data structure
             update_time = datetime.fromtimestamp(latest_wind_obs["timestamp"], tz=UTC)
             assert update_time == check_latest_wind_obs["update_time"]
@@ -164,8 +195,10 @@ class TestIntegration:
                 obs_time=new_obs_time,
             )
 
-            updated_wind_obs = await websocket.receive_json()
-            assert isinstance(updated_wind_obs, dict)
+            updated_message = await websocket.receive_json()
+            assert isinstance(updated_message, dict)
+            assert updated_message["type"] == "wind"
+            updated_wind_obs = updated_message["data"]
             assert updated_wind_obs["timestamp"] == new_obs_time.timestamp()
             assert updated_wind_obs["direction"] == 180
             assert updated_wind_obs["speed_kts"] == 10

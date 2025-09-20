@@ -11,6 +11,8 @@ from httpx import ASGITransport, AsyncClient
 from httpx_ws.transport import ASGIWebSocketTransport
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
 
 @pytest.fixture
 def sample_stations():
@@ -309,6 +311,127 @@ async def test_db_manager():
                     end_time,
                 )
 
+        async def create_scraper_status(
+            self,
+            station_name: str,
+            status: str = "active",
+            last_success_minutes_ago: int = 5,
+            last_attempt_minutes_ago: int = 1,
+            error_message: str = None,
+            retry_count: int = 0,
+        ):
+            """Create or update scraper status for a station."""
+            async with self.pool.acquire() as conn:
+                # Ensure station exists first
+                station_id = await conn.fetchval(
+                    """
+                    INSERT INTO station (name, timezone)
+                    VALUES ($1, 'UTC')
+                    ON CONFLICT (name) DO UPDATE SET timezone = EXCLUDED.timezone
+                    RETURNING id
+                    """,
+                    station_name,
+                )
+
+                # Track station for cleanup
+                self.test_stations.add(station_name)
+
+                # Calculate timestamps
+                now = datetime.now(UTC)
+                last_success = (
+                    now - timedelta(minutes=last_success_minutes_ago)
+                    if last_success_minutes_ago is not None
+                    else None
+                )
+                last_attempt = (
+                    now - timedelta(minutes=last_attempt_minutes_ago)
+                    if last_attempt_minutes_ago is not None
+                    else None
+                )
+
+                # Insert or update scraper status
+                await conn.execute(
+                    """
+                    INSERT INTO scraper_status (station_id, status, last_success, last_attempt, error_message, retry_count, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    ON CONFLICT (station_id) DO UPDATE SET
+                        status = EXCLUDED.status,
+                        last_success = EXCLUDED.last_success,
+                        last_attempt = EXCLUDED.last_attempt,
+                        error_message = EXCLUDED.error_message,
+                        retry_count = EXCLUDED.retry_count,
+                        updated_at = EXCLUDED.updated_at
+                    """,
+                    station_id,
+                    status,
+                    last_success,
+                    last_attempt,
+                    error_message,
+                    retry_count,
+                    now,
+                )
+
+                return {
+                    "station_name": station_name,
+                    "station_id": station_id,
+                    "status": status,
+                    "last_success": last_success,
+                    "last_attempt": last_attempt,
+                    "error_message": error_message,
+                    "retry_count": retry_count,
+                }
+
+        async def update_scraper_status(
+            self, station_name: str, status: str, error_message: str = None
+        ):
+            """Update scraper status using the database function (triggers notification)."""
+            async with self.pool.acquire() as conn:
+                await conn.execute(
+                    "SELECT update_scraper_status($1, $2, $3)",
+                    station_name,
+                    status,
+                    error_message,
+                )
+
+        async def get_scraper_status(self, station_name: str = None):
+            """Get scraper status for station(s)."""
+            async with self.pool.acquire() as conn:
+                if station_name:
+                    # Get status for specific station
+                    result = await conn.fetchrow(
+                        """
+                        SELECT s.name as station_name,
+                               COALESCE(ss.status, 'unknown') as status,
+                               ss.last_success,
+                               ss.last_attempt,
+                               ss.error_message,
+                               ss.retry_count,
+                               ss.updated_at
+                        FROM station s
+                        LEFT JOIN scraper_status ss ON s.id = ss.station_id
+                        WHERE s.name = $1
+                        """,
+                        station_name,
+                    )
+                    return dict(result) if result else None
+                else:
+                    # Get status for all stations
+                    results = await conn.fetch(
+                        """
+                        SELECT s.name as station_name,
+                               COALESCE(ss.status, 'unknown') as status,
+                               ss.last_success,
+                               ss.last_attempt,
+                               ss.error_message,
+                               ss.retry_count,
+                               ss.updated_at
+                        FROM station s
+                        LEFT JOIN scraper_status ss ON s.id = ss.station_id
+                        ORDER BY s.name
+                        """
+                    )
+                    return [dict(row) for row in results]
+
     # Create and setup manager
     manager = TestDatabaseManager()
     setup_success = await manager.setup(database_url)
@@ -356,7 +479,9 @@ def mock_test_db_manager():
                         "station": station_name,
                     }
                 )
-            self.test_data = data
+            if self.test_data is None:
+                self.test_data = []
+            self.test_data.extend(data)
             return data
 
         def get_station_data(self, station_name):
@@ -365,7 +490,7 @@ def mock_test_db_manager():
 
         def record_query(self, method, query, args):
             """Record a query execution with its parameters."""
-            logger.info("Recording query: %s, Args: %s", query, args)
+            logger.debug("Recording query: %s, Args: %s", query, args)
             self.recorded_queries.append(
                 {
                     "method": method,
@@ -404,6 +529,16 @@ def mock_test_db_manager():
         def query_count(self):
             """Get the total number of recorded queries."""
             return len(self.recorded_queries)
+
+        def create_test_stations(self, stations_data):
+            """Create stations for testing (mock implementation)."""
+            # Mock implementation - just store in test_data
+            for station in stations_data:
+                station_name = station["name"]
+                # Add mock scraper status for each station
+                self.test_data.append(
+                    {"station": station_name, "scraper_status": "active"}
+                )
 
         def cleanup(self):
             self.test_data = None
@@ -546,6 +681,11 @@ def test_client(mock_test_db_manager):
                 return 1
             return None
 
+        async def fetch(self, query, *args):
+            """Mock fetch method - delegate to the mock connection."""
+            mock_connection = MockConnection(self.mock_manager)
+            return await mock_connection.fetch(query, *args)
+
         async def add_listener(self, channel, callback):
             """Mock add_listener to register notification handlers."""
             self._listeners[channel] = callback
@@ -555,6 +695,9 @@ def test_client(mock_test_db_manager):
             if channel in self._listeners:
                 # Simulate the asyncpg notification format
                 payload = json.dumps(payload_data)
+                logger.debug(
+                    "Triggering notification for channel %s: %s", channel, payload
+                )
                 await self._listeners[channel](self, 12345, channel, payload)
 
     class MockConnection:
@@ -568,6 +711,97 @@ def test_client(mock_test_db_manager):
             # Record the query
             self.mock_manager.record_query("fetch", query, args)
 
+            if "get_scraper_status" in query.lower():
+                logger.debug("Mocking scraper status data")
+                # Return mock scraper status data based on test data
+                now = datetime.now(UTC)
+                test_data = self.mock_manager.test_data
+                stations_with_scraper_status = []
+
+                # Check if we have stations with scraper_status info
+                if test_data:
+                    stations_with_data = [
+                        item for item in test_data if "scraper_status" in item
+                    ]
+
+                    for item in stations_with_data:
+                        station_name = item.get("station", "CYTZ")
+                        stations_with_scraper_status.append(
+                            {
+                                "station_name": station_name,
+                                "status": item.get("scraper_status", "unknown"),
+                                "last_success": (
+                                    now - timedelta(minutes=5)
+                                ).isoformat(),
+                                "last_attempt": (
+                                    now - timedelta(minutes=1)
+                                ).isoformat(),
+                                "error_message": None,
+                                "retry_count": 0,
+                                "updated_at": now.isoformat(),
+                                "time_since_last_attempt": "0:01:00",
+                                "time_since_last_success": "0:05:00",
+                            }
+                        )
+
+                # For stations that have wind data but no explicit scraper status, assume "active"
+                stations_with_wind_data = set()
+                if test_data:
+                    for item in test_data:
+                        if (
+                            "direction" in item and "speed_kts" in item
+                        ):  # Wind observation
+                            stations_with_wind_data.add(item.get("station", "CYTZ"))
+
+                existing_stations = {
+                    s["station_name"] for s in stations_with_scraper_status
+                }
+                for station_name in stations_with_wind_data - existing_stations:
+                    stations_with_scraper_status.append(
+                        {
+                            "station_name": station_name,
+                            "status": "active",  # Default to active for stations with wind data
+                            "last_success": (now - timedelta(minutes=5)).isoformat(),
+                            "last_attempt": (now - timedelta(minutes=1)).isoformat(),
+                            "error_message": None,
+                            "retry_count": 0,
+                            "updated_at": now.isoformat(),
+                            "time_since_last_attempt": "0:01:00",
+                            "time_since_last_success": "0:05:00",
+                        }
+                    )
+
+                # For stations created without wind data (create_test_stations), add "unknown" status
+                all_stations = set()
+                logger.debug("all_stations %s", str(all_stations))
+                if test_data:
+                    for item in test_data:
+                        if "station" in item:
+                            all_stations.add(item["station"])
+
+                stations_without_wind = (
+                    all_stations - stations_with_wind_data - existing_stations
+                )
+                for station_name in stations_without_wind:
+                    stations_with_scraper_status.append(
+                        {
+                            "station_name": station_name,
+                            "status": "unknown",
+                            "last_success": None,
+                            "last_attempt": None,
+                            "error_message": None,
+                            "retry_count": 0,
+                            "updated_at": None,
+                            "time_since_last_attempt": None,
+                            "time_since_last_success": None,
+                        }
+                    )
+
+                logger.debug(
+                    "Returning stations_with_scraper_status %s",
+                    str(stations_with_scraper_status),
+                )
+                return stations_with_scraper_status
 
             if "get_wind_data_by_station_range" in query.lower():
                 # Return data from mock_test_db_manager
@@ -585,9 +819,7 @@ def test_client(mock_test_db_manager):
                         # Filter by time range if provided
                         if start_time and end_time:
                             # Convert timezone-aware start_time and end_time to timezone-naive for comparison
-                            if not (
-                                start_time <= obs["update_time"] <= end_time
-                            ):
+                            if not (start_time <= obs["update_time"] <= end_time):
                                 continue
                         filtered_data.append(
                             {
@@ -597,7 +829,13 @@ def test_client(mock_test_db_manager):
                                 "gust_kts": obs["gust_kts"],
                             }
                         )
-                logger.debug("Mocking fetch (%s, %s, %s): %d", station, start_time, end_time, len(filtered_data))
+                logger.debug(
+                    "Mocking fetch (%s, %s, %s): %d",
+                    station,
+                    start_time,
+                    end_time,
+                    len(filtered_data),
+                )
 
                 return filtered_data
 
@@ -617,15 +855,28 @@ def test_client(mock_test_db_manager):
                 station = args[0] if args else "CYTZ"
                 test_data = self.mock_manager.test_data
                 if test_data:
-                    # Return the most recent observation
-                    latest = test_data[0]  # Assuming sorted by time
-                    return {
-                        "direction": latest["direction"],
-                        "speed_kts": latest["speed_kts"],
-                        "gust_kts": latest["gust_kts"],
-                        "update_time": latest["update_time"],
-                        "name": latest.get("station", station),
-                    }
+                    # Look for wind observations for this specific station
+                    wind_observations = [
+                        item
+                        for item in test_data
+                        if all(
+                            key in item
+                            for key in ["direction", "speed_kts", "gust_kts"]
+                        )
+                        and item.get("station") == station
+                    ]
+                    if wind_observations:
+                        # Return the most recent observation
+                        latest = wind_observations[0]  # Assuming sorted by time
+                        return {
+                            "direction": latest["direction"],
+                            "speed_kts": latest["speed_kts"],
+                            "gust_kts": latest["gust_kts"],
+                            "update_time": latest["update_time"],
+                            "name": latest.get("station", station),
+                        }
+                # No wind data available
+                return None
 
             if "station" in query.lower() and "timezone" in query.lower():
                 return {"timezone_name": "America/Toronto"}

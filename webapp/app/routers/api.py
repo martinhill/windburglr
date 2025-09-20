@@ -5,8 +5,10 @@ import asyncpg
 from fastapi import APIRouter, Depends
 
 from ..config import DEFAULT_STATION, ISO_FORMAT
-from ..dependencies import get_db_connection, get_wind_service
+from ..dependencies import get_db_connection, get_watchdog_service, get_wind_service
+from ..models import ScraperHealth, ScraperStatus
 from ..services.station import get_station_timezone
+from ..services.watchdog import WatchdogService
 from ..services.wind_data import WindDataService
 
 router = APIRouter(prefix="/api", tags=["api"])
@@ -27,9 +29,7 @@ async def get_wind_data(
 
     if from_time and to_time:
         # Parse datetime strings as UTC (no timezone conversion)
-        start_time = datetime.strptime(from_time, ISO_FORMAT).replace(
-            tzinfo=UTC
-        )
+        start_time = datetime.strptime(from_time, ISO_FORMAT).replace(tzinfo=UTC)
         end_time = datetime.strptime(to_time, ISO_FORMAT).replace(tzinfo=UTC)
     elif hours:
         # For relative time queries, use current UTC time
@@ -55,3 +55,31 @@ async def get_wind_data(
         "end_time": end_time.isoformat(),
         "cache_hit": result["cache_hit"],
     }
+
+
+@router.get("/scraper-status")
+async def get_scraper_status(
+    watchdog_service: Annotated[WatchdogService, Depends(get_watchdog_service)],
+) -> list[ScraperStatus]:
+    """Get detailed scraper status for all stations from watchdog service."""
+    return watchdog_service.get_scraper_status()
+
+
+@router.get("/scraper-health")
+async def get_scraper_health(
+    conn: Annotated[asyncpg.Connection, Depends(get_db_connection)],
+) -> ScraperHealth:
+    """Get overall scraper health status."""
+    row = await conn.fetchrow(
+        """
+        SELECT
+            total_stations,
+            healthy_stations,
+            error_stations,
+            stale_stations,
+            overall_status
+        FROM get_scraper_health()
+        """
+    )
+
+    return ScraperHealth(**row)

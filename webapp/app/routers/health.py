@@ -69,8 +69,31 @@ async def health_check(
     cache_stats = await cache_backend.get_cache_stats()
     health_status["cache"] = cache_stats
 
+    # Add scraper health status
+    try:
+        scraper_health = await conn.fetchrow(
+            """
+            SELECT
+                total_stations,
+                healthy_stations,
+                error_stations,
+                stale_stations,
+                overall_status
+            FROM get_scraper_health()
+            """
+        )
+        health_status["scraper"] = scraper_health or {}
+    except Exception as e:
+        health_status["scraper"] = {
+            "error": f"Failed to get scraper health: {str(e)}",
+            "overall_status": "unknown"
+        }
+
     # Determine overall status
-    if health_status["database"] == "connected" and pg_manager.is_pg_listener_healthy:
+    scraper_status = health_status.get("scraper", {}).get("overall_status", "unknown")
+    if (health_status["database"] == "connected" and
+        pg_manager.is_pg_listener_healthy and
+        scraper_status in ["healthy", "warning"]):
         health_status["status"] = "healthy"
     else:
         health_status["status"] = "unhealthy"

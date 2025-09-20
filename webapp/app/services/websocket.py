@@ -1,6 +1,9 @@
+import json
 import logging
 
 from fastapi import WebSocket
+
+from app.models import ScraperStatus
 
 logger = logging.getLogger("windburglr.websocket")
 
@@ -71,3 +74,31 @@ class WebSocketManager:
                 self.disconnect(conn, station)
         else:
             logger.debug("No active connections for station %s", station)
+
+    async def send_station_status_update(self, station: str, watchdog_service):
+        """Send status update for a specific station to all its connections."""
+        try:
+            # Get station-specific status from watchdog service using the public method
+            station_status = watchdog_service.get_station_status_by_name(station)
+
+            if station_status:
+                # Use Pydantic's built-in JSON serialization with mode='json' for datetime handling
+                status_message = json.dumps(
+                    {
+                        "type": "status_update",
+                        "data": station_status.model_dump(mode="json"),
+                    }
+                )
+
+                await self.broadcast_to_station(status_message, station)
+                logger.debug("Sent status update for station %s", station)
+            else:
+                logger.debug("No status data available for station %s", station)
+
+        except Exception as e:
+            logger.error(
+                "Error sending station status update for %s: %s",
+                station,
+                e,
+                exc_info=True,
+            )

@@ -19,11 +19,13 @@ from app.dependencies import (
     set_cache_backend,
     set_db_pool,
     set_pg_manager,
+    set_watchdog_service,
     set_websocket_manager,
     set_wind_service,
 )
 from app.routers import api, health, web, websocket
 from app.services.notifications import PostgresNotificationManager
+from app.services.watchdog import WatchdogService
 from app.services.websocket import WebSocketManager
 from app.services.wind_data import WindDataService
 from app.utils.suspension_detector import SuspensionDetector
@@ -32,7 +34,7 @@ from app.utils.suspension_detector import SuspensionDetector
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)-8s - %(name)s - %(message)s",
-    datefmt='%m-%d %H:%M:%S',
+    datefmt="%m-%d %H:%M:%S",
     handlers=[logging.StreamHandler()],
     force=True,
 )
@@ -92,7 +94,13 @@ def make_app(pg_connection: asyncpg.Connection | None = None):
         websocket_manager = WebSocketManager()
         set_websocket_manager(websocket_manager)
 
-        pg_manager = PostgresNotificationManager(cache_backend, websocket_manager)
+        # Create watchdog service (will be initialized by PostgresNotificationManager)
+        watchdog_service = WatchdogService()
+        set_watchdog_service(watchdog_service)
+
+        pg_manager = PostgresNotificationManager(
+            cache_backend, websocket_manager, watchdog_service
+        )
         set_pg_manager(pg_manager)
 
         wind_service = WindDataService(cache_backend)
@@ -111,6 +119,7 @@ def make_app(pg_connection: asyncpg.Connection | None = None):
         logger.info("Shutting down WindBurglr application")
         await suspension_detector.stop_monitoring()
         await pg_manager.stop_pg_listener()
+        watchdog_service.cleanup()
         await cache_backend.cleanup()
 
         # Close database pool

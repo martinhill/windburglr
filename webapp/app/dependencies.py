@@ -14,6 +14,7 @@ from .cache.abc import CacheBackend
 from .config import ACQUIRE_CONNECTION_TIMEOUT
 from .database import create_db_pool
 from .services.notifications import PostgresNotificationManager
+from .services.watchdog import WatchdogService
 from .services.websocket import WebSocketManager
 from .services.wind_data import WindDataService
 
@@ -25,6 +26,7 @@ _db_pool: asyncpg.Pool | None = None
 _websocket_manager: WebSocketManager | None = None
 _pg_manager: PostgresNotificationManager | None = None
 _wind_service: WindDataService | None = None
+_watchdog_service: WatchdogService | None = None
 
 
 # Initialization functions (called from lifespan)
@@ -51,6 +53,11 @@ def set_pg_manager(manager: PostgresNotificationManager) -> None:
 def set_wind_service(service: WindDataService) -> None:
     global _wind_service
     _wind_service = service
+
+
+def set_watchdog_service(service: WatchdogService) -> None:
+    global _watchdog_service
+    _watchdog_service = service
 
 
 # FastAPI dependency functions
@@ -89,6 +96,13 @@ async def get_wind_service() -> WindDataService:
     return _wind_service
 
 
+async def get_watchdog_service() -> WatchdogService:
+    """Get the watchdog service instance."""
+    if _watchdog_service is None:
+        raise RuntimeError("Watchdog service not initialized")
+    return _watchdog_service
+
+
 async def get_db_connection() -> asyncpg.Connection:
     """Get a database connection with automatic recovery and error handling."""
     pool = await get_db_pool()
@@ -98,7 +112,10 @@ async def get_db_connection() -> asyncpg.Connection:
         async with pool.acquire(timeout=ACQUIRE_CONNECTION_TIMEOUT) as conn:
             yield conn
 
-    except (asyncpg.exceptions.InterfaceError, asyncpg.exceptions.ConnectionDoesNotExistError) as e:
+    except (
+        asyncpg.exceptions.InterfaceError,
+        asyncpg.exceptions.ConnectionDoesNotExistError,
+    ) as e:
         logger.warning("Database connection failed, attempting pool recreation: %s", e)
 
         # Gracefully wait for existing connections to close
