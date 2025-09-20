@@ -16,6 +16,7 @@ import {
     dismissOrientationPopup
 } from './ui/mobile.js';
 import { MemorialPopupManager } from './ui/ghostrider.js';
+import { ScraperStatusManager } from './ui/scraper-status.js';
 
 // Set up global functions immediately when module loads
 // This ensures they're available for template inline handlers
@@ -72,6 +73,7 @@ class WindBurglrApp {
         this.wsManager = null;
         this.conditionsManager = null;
         this.memorialPopupManager = null;
+        this.scraperStatusManager = null;
         this.unsubscribeStore = null;
     }
 
@@ -104,6 +106,11 @@ class WindBurglrApp {
             // Initialize memorial popup manager
             this.memorialPopupManager = new MemorialPopupManager();
             this.memorialPopupManager.init();
+
+            // Initialize scraper status manager
+            this.scraperStatusManager = new ScraperStatusManager();
+            // Make it globally available for WebSocket manager
+            window.scraperStatusManager = this.scraperStatusManager;
 
             // Setup mobile orientation handling
             checkOrientationPopup();
@@ -238,6 +245,9 @@ class WindBurglrApp {
         }
         if (this.memorialPopupManager) {
             this.memorialPopupManager.destroy();
+        }
+        if (this.scraperStatusManager) {
+            this.scraperStatusManager.destroy();
         }
         if (this.wsManager) {
             this.wsManager.disconnect();

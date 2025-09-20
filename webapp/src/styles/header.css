@@ -102,3 +102,133 @@ header h1 {
         opacity: 0.7;
     }
 }
+
+/* Scraper Status Styles */
+#scraper-status {
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border-radius: 4px;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+#scraper-status.hidden {
+    display: none;
+}
+
+#scraper-status.healthy {
+    display: none;
+}
+
+#scraper-status.warning {
+    background-color: var(--warning-color);
+    color: white;
+    animation: pulse-warning 2s infinite;
+}
+
+#scraper-status.error {
+    background-color: var(--error-color);
+    color: white;
+    animation: pulse-error 2s infinite;
+}
+
+#scraper-status.stopped {
+    background-color: var(--text-muted);
+    color: white;
+}
+
+@keyframes pulse-warning {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+@keyframes pulse-error {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+/* Status Banner */
+.status-banner {
+    background-color: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    padding: 1rem;
+    display: none;
+    box-shadow: 0 2px 8px var(--shadow-color);
+}
+
+.status-banner.visible {
+    display: block;
+}
+
+.status-banner-content {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.status-banner-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.status-banner-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.status-banner-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: var(--text-muted);
+    padding: 0.25rem;
+    line-height: 1;
+    border-radius: 4px;
+    transition: background-color 0.2s ease;
+}
+
+.status-banner-close:hover {
+    background-color: var(--bg-tertiary);
+}
+
+.status-banner-details {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1rem;
+    font-size: 0.9rem;
+}
+
+.status-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.status-detail-label {
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.5px;
+}
+
+.status-detail-value {
+    color: var(--text-primary);
+    word-break: break-word;
+}
+
+.status-detail-value.error-message {
+    color: var(--error-color);
+    font-family: monospace;
+    font-size: 0.85rem;
+    background-color: var(--bg-tertiary);
+    padding: 0.5rem;
+    border-radius: 4px;
+    border-left: 3px solid var(--error-color);
+}

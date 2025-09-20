@@ -47,8 +47,6 @@ export class WebSocketManager {
         };
 
         this.websocket.onmessage = (event) => {
-            console.log('WebSocket message received:', event.data);
-
             try {
                 const message = JSON.parse(event.data);
                 let data;
@@ -61,7 +59,18 @@ export class WebSocketManager {
                         return;
                     }
 
-                    if (message.type === 'wind_observation') {
+                    if (message.type === 'status_update') {
+                        const statusData = message.data;
+                        console.log('Received status update:', statusData);
+
+                        // Update scraper status display
+                        if (window.scraperStatusManager) {
+                            window.scraperStatusManager.updateStatus(statusData);
+                        }
+                        return;
+                    }
+
+                    if (message.type === 'wind') {
                         data = message.data;
                     } else {
                         console.log('Received unknown message type:', message.type);
@@ -91,6 +100,7 @@ export class WebSocketManager {
                 }
             } catch (error) {
                 console.error('Error parsing WebSocket message:', error);
+                console.log('WebSocket message received:', event.data);
                 if (window.Sentry) {
                     window.Sentry.captureException(error);
                 }
