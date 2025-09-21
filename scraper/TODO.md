@@ -7,7 +7,8 @@
 
 ## Enhancements
 * Add sentry
- - use same DSN as webapp
+ - use same DSN as webapp?
  - how to coordinate release info with webapp?
+ - should we segregate the environments?
+* WindObs Pydantic model for data validation
 * Configurable json parser
-* Pydantic model for data validation

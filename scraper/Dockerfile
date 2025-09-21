@@ -22,7 +22,7 @@ COPY --from=builder /app/.venv .venv/
 
 # Copy application files explicitly to avoid overwriting dist/
 COPY windscraper/ /app/windscraper/
-COPY windburglr.dev.toml /app/windburglr.toml
+COPY windburglr.prod.toml /app/windburglr.toml
 
 ENV PATH="/app/.venv/bin:$PATH"
 
