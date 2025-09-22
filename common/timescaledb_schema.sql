@@ -190,7 +190,7 @@ BEGIN
             error_message = error_msg,
             retry_count = CASE
                 WHEN new_status = 'healthy' THEN 0
-                WHEN new_status IN ('error', 'network_error', 'parse_error') THEN retry_count + 1
+                WHEN new_status IN ('error', 'http_error', 'network_error', 'parse_error') THEN retry_count + 1
                 ELSE retry_count
             END,
             updated_at = clock_timestamp(),
@@ -262,7 +262,7 @@ BEGIN
 
     SELECT COUNT(*) INTO error_count
     FROM scraper_status
-    WHERE status in ('error', 'network_error', 'parse_error')
+    WHERE status in ('error', 'http_error', 'network_error', 'parse_error')
     OR (status in ('healthy', 'stale_data') AND last_attempt <= NOW() - INTERVAL '5 minutes');
 
     SELECT COUNT(*) INTO stale_count

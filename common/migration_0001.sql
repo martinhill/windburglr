@@ -8,15 +8,6 @@ ALTER TABLE station ALTER COLUMN timezone TYPE VARCHAR(50);
 ALTER TABLE station ALTER COLUMN timezone SET DEFAULT 'UTC';
 UPDATE station SET timezone = 'UTC' WHERE timezone IS NULL;ALTER TABLE station ALTER COLUMN timezone SET NOT NULL;
 
--- Grant permissions to the scraper user
-GRANT INSERT, UPDATE ON TABLE station TO scraper;
-GRANT USAGE, SELECT, UPDATE ON TABLE station_id_seq TO scraper;
-GRANT SELECT, INSERT, UPDATE ON TABLE scraper_status TO scraper;
-GRANT INSERT ON TABLE wind_obs TO scraper;
-GRANT SELECT ON TABLE station TO webapp;
-GRANT SELECT  ON TABLE wind_obs TO webapp;
-GRANT SELECT ON TABLE scraper_status TO webapp;
-
 -- Update functions
 -- 1. Historical wind data by station and time range
 DROP FUNCTION get_wind_data_by_station_range(text,timestamp without time zone,timestamp without time zone);
@@ -192,7 +183,7 @@ BEGIN
             error_message = error_msg,
             retry_count = CASE
                 WHEN new_status = 'healthy' THEN 0
-                WHEN new_status IN ('error', 'network_error', 'parse_error') THEN retry_count + 1
+                WHEN new_status IN ('error', 'http_error', 'network_error', 'parse_error') THEN retry_count + 1
                 ELSE retry_count
             END,
             updated_at = clock_timestamp(),
@@ -264,7 +255,7 @@ BEGIN
 
     SELECT COUNT(*) INTO error_count
     FROM scraper_status
-    WHERE status in ('error', 'network_error', 'parse_error')
+    WHERE status in ('error', 'http_error', 'network_error', 'parse_error')
     OR (status in ('healthy', 'stale_data') AND last_attempt <= NOW() - INTERVAL '5 minutes');
 
     SELECT COUNT(*) INTO stale_count
@@ -329,3 +320,13 @@ CREATE TRIGGER scraper_status_notify_trigger
     AFTER INSERT OR UPDATE ON scraper_status
     FOR EACH ROW
     EXECUTE FUNCTION notify_scraper_status();
+
+
+-- Grant permissions to the scraper user
+GRANT INSERT, UPDATE ON TABLE station TO scraper;
+GRANT USAGE, SELECT, UPDATE ON TABLE station_id_seq TO scraper;
+GRANT SELECT, INSERT, UPDATE ON TABLE scraper_status TO scraper;
+GRANT INSERT ON TABLE wind_obs TO scraper;
+GRANT SELECT ON TABLE station TO webapp;
+GRANT SELECT  ON TABLE wind_obs TO webapp;
+GRANT SELECT ON TABLE scraper_status TO webapp;
