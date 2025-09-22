@@ -125,7 +125,7 @@ export class ScraperStatusManager {
             const elapsedSeconds = Math.floor(elapsedMs / 1000);
 
             if (elapsedSeconds < 0) {
-                return 'Future date';
+                return 'just now';
             }
 
             return this.formatDurationSeconds(elapsedSeconds);

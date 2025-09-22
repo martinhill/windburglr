@@ -175,7 +175,7 @@ describe('ScraperStatusManager', () => {
         it('should handle future timestamps', () => {
             const futureTime = '2024-01-01T13:00:00Z'; // 1 hour in future
             const result = manager.formatElapsedTime(futureTime);
-            expect(result).toBe('Future date');
+            expect(result).toBe('just now');
         });
 
         it('should handle null/undefined timestamps', () => {
