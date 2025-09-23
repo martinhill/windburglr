@@ -1,6 +1,5 @@
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import Dict, List
+from datetime import UTC, datetime, timedelta
 
 import asyncpg
 
@@ -13,7 +12,7 @@ class WatchdogService:
     """Maintains current status of upstream scraper services."""
 
     def __init__(self, scraper_status_timeout_minutes: int = 5):
-        self.scraper_status: Dict[str, ScraperStatus] = {}
+        self.scraper_status: dict[str, ScraperStatus] = {}
         self.websocket_manager = None
         self.staleness_threshold = timedelta(minutes=scraper_status_timeout_minutes)
 
@@ -72,7 +71,7 @@ class WatchdogService:
     async def check_and_update_stale_statuses(self):
         """Check and update statuses for stations that may be have stopped providing status updates."""
         logger.debug("Checking for stale stations...")
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         stale_stations = [
             status.model_copy()
             for status in self.scraper_status.values()
@@ -159,7 +158,7 @@ class WatchdogService:
 
         return self.scraper_status.get(station_name)
 
-    def get_scraper_status(self) -> List[ScraperStatus]:
+    def get_scraper_status(self) -> list[ScraperStatus]:
         """Get current scraper status as a list."""
         return list(self.scraper_status.values())
 

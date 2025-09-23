@@ -1,15 +1,15 @@
 import asyncio
 import json
 import logging
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
 import asyncpg
 
 from ..cache.abc import CacheBackend
 from ..config import get_database_url
-from ..models import WindDataPoint, ScraperStatus
-from .websocket import WebSocketManager
+from ..models import ScraperStatus, WindDataPoint
 from .watchdog import WatchdogService
+from .websocket import WebSocketManager
 
 logger = logging.getLogger("windburglr.notifications")
 

@@ -10,13 +10,13 @@ from ..dependencies import (
     get_cache_backend,
     get_db_connection,
     get_pg_manager,
-    get_websocket_manager,
     get_watchdog_service,
+    get_websocket_manager,
 )
 from ..models import ScraperHealth, ScraperStatus
 from ..services.notifications import PostgresNotificationManager
-from ..services.websocket import WebSocketManager
 from ..services.watchdog import WatchdogService
+from ..services.websocket import WebSocketManager
 
 logger = logging.getLogger("windburglr.health")
 

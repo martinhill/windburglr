@@ -3,8 +3,6 @@ import logging
 
 from fastapi import WebSocket
 
-from app.models import ScraperStatus
-
 logger = logging.getLogger("windburglr.websocket")
 
 

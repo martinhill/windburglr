@@ -13,6 +13,7 @@ from ..dependencies import (
     get_websocket_manager,
     get_wind_service,
 )
+from ..services.watchdog import WatchdogService
 from ..services.websocket import WebSocketManager
 from ..services.wind_data import WindDataService
 
@@ -28,7 +29,7 @@ async def websocket_endpoint(
     conn: Annotated[asyncpg.Connection, Depends(get_db_connection)],
     ws_manager: Annotated[WebSocketManager, Depends(get_websocket_manager)],
     wind_service: Annotated[WindDataService, Depends(get_wind_service)],
-    watchdog_service=Depends(get_watchdog_service),
+    watchdog_service: Annotated[WatchdogService, Depends(get_watchdog_service)],
 ):
     """WebSocket endpoint for real-time wind data updates."""
     await ws_manager.connect(websocket, station)

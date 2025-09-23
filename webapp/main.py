@@ -12,7 +12,12 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.starlette import StarletteIntegration
 
 from app.cache import create_cache_from_config
-from app.config import LOG_LEVEL, get_cache_config, get_sentry_config, SCRAPER_STATUS_TIMEOUT_MINUTES
+from app.config import (
+    LOG_LEVEL,
+    SCRAPER_STATUS_TIMEOUT_MINUTES,
+    get_cache_config,
+    get_sentry_config,
+)
 from app.database import create_db_pool
 from app.dependencies import (
     get_db_pool,
