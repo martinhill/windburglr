@@ -4,7 +4,6 @@ from typing import Annotated
 
 import asyncpg
 from fastapi import APIRouter, Depends
-from fastapi.responses import PlainTextResponse
 
 from ..cache.abc import CacheBackend
 from ..dependencies import (
@@ -12,9 +11,12 @@ from ..dependencies import (
     get_db_connection,
     get_pg_manager,
     get_websocket_manager,
+    get_watchdog_service,
 )
+from ..models import ScraperHealth, ScraperStatus
 from ..services.notifications import PostgresNotificationManager
 from ..services.websocket import WebSocketManager
+from ..services.watchdog import WatchdogService
 
 logger = logging.getLogger("windburglr.health")
 
@@ -101,11 +103,29 @@ async def health_check(
     return health_status
 
 
-@router.get("/stack", response_class=PlainTextResponse)
-async def get_health_stack(
-    pg_manager: Annotated[PostgresNotificationManager, Depends(get_pg_manager)],
-):
-    """Returns the stack of the monitoring task."""
-    if pg_manager.monitor_task:
-        return "\n".join(str(s) for s in pg_manager.monitor_task.get_stack())
-    return "no_task"
+@router.get("/scraper-details")
+async def get_scraper_status(
+    watchdog_service: Annotated[WatchdogService, Depends(get_watchdog_service)],
+) -> list[ScraperStatus]:
+    """Get detailed scraper status for all stations from watchdog service."""
+    return watchdog_service.get_scraper_status()
+
+
+@router.get("/scraper")
+async def get_scraper_health(
+    conn: Annotated[asyncpg.Connection, Depends(get_db_connection)],
+) -> ScraperHealth:
+    """Get overall scraper health status."""
+    row = await conn.fetchrow(
+        """
+        SELECT
+            total_stations,
+            healthy_stations,
+            error_stations,
+            stale_stations,
+            overall_status
+        FROM get_scraper_health()
+        """
+    )
+
+    return ScraperHealth(**row)

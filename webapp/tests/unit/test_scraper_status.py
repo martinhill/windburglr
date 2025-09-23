@@ -320,7 +320,7 @@ async def test_scraper_status_timing_fields(test_client, mock_test_db_manager):
 
 @pytest.mark.asyncio
 async def test_get_scraper_status_route(test_client, mock_test_db_manager):
-    """Test the GET /api/scraper-status route after populating watchdog with status updates."""
+    """Test the GET /health/scraper-details route after populating watchdog with status updates."""
     # Get the mock listener connection from the test client
     mock_listener_conn = test_client.mock_listener_connection
 
@@ -351,7 +351,7 @@ async def test_get_scraper_status_route(test_client, mock_test_db_manager):
         )
 
     # Make HTTP request to the scraper status endpoint
-    response = test_client.get("/api/scraper-status")
+    response = test_client.get("/health/scraper-details")
 
     # Should return 200 OK
     assert response.status_code == 200
@@ -408,11 +408,11 @@ async def test_get_scraper_status_route(test_client, mock_test_db_manager):
 
 
 def test_get_scraper_status_route_no_data(test_client, mock_test_db_manager):
-    """Test the GET /api/scraper-status route when no scraper status data exists."""
+    """Test the GET /health/scraper-details route when no scraper status data exists."""
     # Don't create any test data - test empty state
 
     # Make HTTP request to the scraper status endpoint
-    response = test_client.get("/api/scraper-status")
+    response = test_client.get("/health/scraper-details")
 
     # Should return 200 OK even with no data
     assert response.status_code == 200
