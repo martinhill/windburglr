@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from websockets.exceptions import ConnectionClosedError
 
 from ..dependencies import (
-    get_db_connection,
+    get_db_pool,
     get_watchdog_service,
     get_websocket_manager,
     get_wind_service,
@@ -26,7 +26,7 @@ router = APIRouter(tags=["websocket"])
 async def websocket_endpoint(
     websocket: WebSocket,
     station: str,
-    conn: Annotated[asyncpg.Connection, Depends(get_db_connection)],
+    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
     ws_manager: Annotated[WebSocketManager, Depends(get_websocket_manager)],
     wind_service: Annotated[WindDataService, Depends(get_wind_service)],
     watchdog_service: Annotated[WatchdogService, Depends(get_watchdog_service)],
@@ -46,7 +46,7 @@ async def websocket_endpoint(
             await websocket.send_text(status_message)
 
         # Send initial wind data
-        initial_data = await wind_service.get_latest_wind_data(station, conn)
+        initial_data = await wind_service.get_latest_wind_data(station, pool)
         if initial_data:
             await websocket.send_text(
                 json.dumps({"type": "wind", "data": initial_data})
