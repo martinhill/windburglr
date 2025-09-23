@@ -44,6 +44,7 @@ export default defineConfig({
 
   plugins: [sentryVitePlugin({
     org: "martin-hill",
-    project: "windburglr"
+    project: "windburglr",
+    authToken: process.env.SENTRY_AUTH_TOKEN,
   })]
 })

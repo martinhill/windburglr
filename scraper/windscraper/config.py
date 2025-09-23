@@ -1,10 +1,15 @@
+import os
 import tomllib
 import zoneinfo
+import logging
 from dataclasses import dataclass, field
 from datetime import UTC, tzinfo
+from dotenv import load_dotenv
 
 # from pydantic import Field, HttpUrl
 # from pydantic.dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -70,3 +75,26 @@ def load_config_from_toml(file_path: str) -> Config:
         db_url=general.get("db_url"),
         output_mode=general.get("output_mode", "postgres"),
     )
+
+
+sentry_dotenv_result = load_dotenv(".env.sentry")
+
+
+def get_sentry_config() -> dict[str, str]:
+    """Get Sentry configuration from environment."""
+    if sentry_dotenv_result:
+        logger.info("Loaded Sentry environment variables from dotfile")
+    else:
+        logger.warning("No Sentry dotfile found, using environment variables")
+
+    environment = os.environ.get("SENTRY_ENVIRONMENT", "development")
+    release = os.environ.get("SENTRY_RELEASE", "unknown")
+
+    logger.info(f"Using Sentry environment: {environment}")
+    logger.info(f"Using Sentry release: {release}")
+
+    return {
+        "dsn": os.environ.get("SENTRY_DSN", ""),
+        "environment": environment,
+        "release": release,
+    }

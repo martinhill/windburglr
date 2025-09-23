@@ -15,7 +15,7 @@ logger = logging.getLogger("windburglr.notifications")
 
 
 class PostgresNotificationManager:
-    """Manages PostgreSQL LISTEN/NOTIFY connections for real-time updates."""
+    """Manages Postgres LISTEN/NOTIFY connections for real-time updates."""
 
     def __init__(
         self,
@@ -36,29 +36,29 @@ class PostgresNotificationManager:
         self.pg_listener = connection
 
     async def start_pg_listener(self):
-        """Start PostgreSQL listener for real-time notifications."""
+        """Start Postgres listener for real-time notifications."""
         # If a connection was already injected, use it directly
         if self.pg_listener:
-            logger.info("Using injected PostgreSQL connection for listener")
+            logger.info("Using injected Postgres connection for listener")
         else:
             # Create a new connection if none was injected
             database_url = get_database_url(False)
             if not database_url:
                 logger.warning(
-                    "No database URL configured, skipping PostgreSQL listener"
+                    "No database URL configured, skipping Postgres listener"
                 )
                 return
 
             try:
                 # Create separate connection for notifications
                 logger.info(
-                    "Connecting to PostgreSQL for notifications: %s...",
+                    "Connecting to Postgres for notifications: %s...",
                     database_url[:50],
                 )
                 self.pg_listener = await asyncpg.connect(database_url)
             except Exception as e:
                 logger.error(
-                    "Failed to create PostgreSQL connection: %s", e, exc_info=True
+                    "Failed to create Postgres connection: %s", e, exc_info=True
                 )
                 self._is_pg_listener_healthy = False
                 return
@@ -67,7 +67,7 @@ class PostgresNotificationManager:
             # Test the connection
             if self.pg_listener:
                 result = await self.pg_listener.fetchval("SELECT 1")
-                logger.debug("PostgreSQL connection test result: %s", result)
+                logger.debug("Postgres connection test result: %s", result)
 
                 await self.pg_listener.add_listener(
                     "wind_obs_insert", self._handle_notification
@@ -82,7 +82,7 @@ class PostgresNotificationManager:
                     # Set websocket manager for status updates
                     self.watchdog_service.set_websocket_manager(self.websocket_manager)
 
-            logger.info("PostgreSQL listener started successfully")
+            logger.info("Postgres listener started successfully")
             logger.info(
                 "Listening for channels: wind_obs_insert, scraper_status_update"
             )
@@ -92,14 +92,14 @@ class PostgresNotificationManager:
 
             # Start background monitoring task
             self.monitor_task = asyncio.create_task(self._monitor_pg_connection())
-            logger.info("PostgreSQL connection monitoring started")
+            logger.info("Postgres connection monitoring started")
 
         except Exception as e:
-            logger.error("Failed to start PostgreSQL listener: %s", e, exc_info=True)
+            logger.error("Failed to start Postgres listener: %s", e, exc_info=True)
             self._is_pg_listener_healthy = False
 
     async def stop_pg_listener(self):
-        """Stop PostgreSQL listener and cleanup resources."""
+        """Stop Postgres listener and cleanup resources."""
         # Cancel monitoring task
         if (
             hasattr(self, "monitor_task")
@@ -115,24 +115,24 @@ class PostgresNotificationManager:
                     "Monitor task did not cancel within timeout, forcing completion"
                 )
             except asyncio.CancelledError:
-                logger.info("PostgreSQL connection monitor task cancelled")
+                logger.info("Postgres connection monitor task cancelled")
             except Exception as e:
                 logger.error("Error cancelling monitor task: %s", e)
 
         if self.pg_listener:
             try:
-                logger.debug("Closing PostgreSQL listener...")
+                logger.debug("Closing Postgres listener...")
                 await asyncio.wait_for(self.pg_listener.close(), timeout=5.0)
-                logger.info("PostgreSQL listener stopped")
+                logger.info("Postgres listener stopped")
             except TimeoutError:
-                logger.warning("PostgreSQL connection close timed out")
+                logger.warning("Postgres connection close timed out")
             except Exception as e:
-                logger.error("Error stopping PostgreSQL listener: %s", e, exc_info=True)
+                logger.error("Error stopping Postgres listener: %s", e, exc_info=True)
 
         self._is_pg_listener_healthy = False
 
     async def _check_pg_connection_health(self) -> bool:
-        """Check if PostgreSQL listener connection is healthy."""
+        """Check if Postgres listener connection is healthy."""
         if not self.pg_listener or self.pg_listener.is_closed():
             self._is_pg_listener_healthy = False
             return False
@@ -143,19 +143,19 @@ class PostgresNotificationManager:
             self._is_pg_listener_healthy = True
             return True
         except Exception as e:
-            logger.error("PostgreSQL connection health check failed: %s", e)
+            logger.warning("Postgres connection health check failed: %s", e)
             self._is_pg_listener_healthy = False
             return False
 
     async def _reconnect_pg_listener(self) -> bool:
-        """Attempt to reconnect PostgreSQL listener with exponential backoff."""
+        """Attempt to reconnect Postgres listener with exponential backoff."""
         max_retries = 5
         base_delay = 1  # Start with 1 second
 
         for attempt in range(max_retries):
             try:
                 logger.info(
-                    "Attempting PostgreSQL listener reconnection (attempt %s/%s)",
+                    "Attempting Postgres listener reconnection (attempt %s/%s)",
                     attempt + 1,
                     max_retries,
                 )
@@ -179,7 +179,7 @@ class PostgresNotificationManager:
                         "scraper_status_update", self._handle_scraper_status_notification
                     )
 
-                logger.info("PostgreSQL listener reconnected successfully")
+                logger.info("Postgres listener reconnected successfully")
                 self._is_pg_listener_healthy = True
                 return True
 
@@ -190,22 +190,22 @@ class PostgresNotificationManager:
                 if attempt < max_retries - 1:
                     await asyncio.sleep(delay)
 
-        logger.error("Failed to reconnect PostgreSQL listener after all attempts")
+        logger.error("Failed to reconnect Postgres listener after all attempts")
         self._is_pg_listener_healthy = False
         return False
 
     @property
     def is_pg_listener_healthy(self) -> bool:
-        """Check if PostgreSQL listener is healthy."""
+        """Check if Postgres listener is healthy."""
         return self._is_pg_listener_healthy
 
     async def _monitor_pg_connection(self):
-        """Background task to monitor PostgreSQL connection health."""
+        """Background task to monitor Postgres connection health."""
         while True:
             try:
                 if not await self._check_pg_connection_health():
                     logger.warning(
-                        "PostgreSQL listener connection lost, attempting reconnection..."
+                        "Postgres listener connection lost, attempting reconnection..."
                     )
                     await self._reconnect_pg_listener()
 
@@ -216,16 +216,16 @@ class PostgresNotificationManager:
 
                 # Check every 30 seconds
                 await asyncio.sleep(30)
-                logger.debug("PostgreSQL connection monitor running")
+                logger.debug("Postgres connection monitor running")
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error("Error in PostgreSQL connection monitor: %s", e)
+                logger.error("Error in Postgres connection monitor: %s", e)
                 await asyncio.sleep(5)  # Shorter wait on error
 
     async def _handle_notification(self, connection, pid, channel, payload):
-        """Handle incoming PostgreSQL notifications."""
+        """Handle incoming Postgres notifications."""
         try:
             self.notification_count += 1
             logger.debug(
