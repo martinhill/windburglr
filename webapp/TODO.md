@@ -1,8 +1,6 @@
 # TODO
 
 ## Issues
-* Watchdog does not detect scraper suspension
-  - Add a timeout mechanism to detect scraper suspension
 * Refresh data when frontend has run empty in selected window, currently does not refresh
 * Historical day view starts at 7am?
 * Chart label enable/disable click location is displaced above the label

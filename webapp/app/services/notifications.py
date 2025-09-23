@@ -175,6 +175,9 @@ class PostgresNotificationManager:
                     await self.pg_listener.add_listener(
                         "wind_obs_insert", self._handle_notification
                     )
+                    await self.pg_listener.add_listener(
+                        "scraper_status_update", self._handle_scraper_status_notification
+                    )
 
                 logger.info("PostgreSQL listener reconnected successfully")
                 self._is_pg_listener_healthy = True
@@ -205,6 +208,11 @@ class PostgresNotificationManager:
                         "PostgreSQL listener connection lost, attempting reconnection..."
                     )
                     await self._reconnect_pg_listener()
+
+                # In case of scraper process being suspended, scraper status notifications would not be sent.
+                # Periodically check for stale statuses
+                if self._is_pg_listener_healthy and self.watchdog_service:
+                    await self.watchdog_service.check_and_update_stale_statuses()
 
                 # Check every 30 seconds
                 await asyncio.sleep(30)

@@ -21,6 +21,8 @@ ACQUIRE_CONNECTION_TIMEOUT = float(os.environ.get("ACQUIRE_CONNECTION_TIMEOUT", 
 # Logging configuration
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 
+# Watchdog staleness check configuration
+SCRAPER_STATUS_TIMEOUT_MINUTES = int(os.environ.get("SCRAPER_STATUS_TIMEOUT_MINUTES", "5"))
 
 def get_database_url(pooled: bool = False) -> str:
     """Get database URL from environment variables."""
@@ -38,7 +40,9 @@ def get_cache_config() -> dict[str, Any]:
         },
     }
 
+
 sentry_dotenv_result = load_dotenv(".env.sentry")
+
 
 @cache
 def get_sentry_config() -> dict[str, Any]:

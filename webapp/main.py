@@ -12,7 +12,7 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.starlette import StarletteIntegration
 
 from app.cache import create_cache_from_config
-from app.config import LOG_LEVEL, get_cache_config, get_sentry_config
+from app.config import LOG_LEVEL, get_cache_config, get_sentry_config, SCRAPER_STATUS_TIMEOUT_MINUTES
 from app.database import create_db_pool
 from app.dependencies import (
     get_db_pool,
@@ -95,7 +95,7 @@ def make_app(pg_connection: asyncpg.Connection | None = None):
         set_websocket_manager(websocket_manager)
 
         # Create watchdog service (will be initialized by PostgresNotificationManager)
-        watchdog_service = WatchdogService()
+        watchdog_service = WatchdogService(scraper_status_timeout_minutes=SCRAPER_STATUS_TIMEOUT_MINUTES)
         set_watchdog_service(watchdog_service)
 
         pg_manager = PostgresNotificationManager(
@@ -119,7 +119,6 @@ def make_app(pg_connection: asyncpg.Connection | None = None):
         logger.info("Shutting down WindBurglr application")
         await suspension_detector.stop_monitoring()
         await pg_manager.stop_pg_listener()
-        watchdog_service.cleanup()
         await cache_backend.cleanup()
 
         # Close database pool
