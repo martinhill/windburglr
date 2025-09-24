@@ -664,7 +664,7 @@ class TestScraper:
         mock_tracker = MagicMock()
         mock_tracker.is_new_obs.return_value = False
         # Mock to return a time that's older than the timeout (300 seconds default)
-        mock_tracker.get_last_successful_obs_time.return_value = datetime.now(
+        mock_tracker.get_last_obs_time.return_value = datetime.now(
             UTC
         ) - timedelta(seconds=400)
         mock_retry_handler = MagicMock()
@@ -727,7 +727,7 @@ class TestScraper:
         mock_parser.assert_not_called()
         mock_output_handler.assert_not_called()
         mock_status_handler.assert_called_once_with(
-            sample_station_config.name, "network_error", "HTTP 500: Server Error"
+            sample_station_config.name, "http_error", "HTTP 500: Server Error"
         )
 
     @pytest.mark.asyncio
@@ -855,7 +855,7 @@ class TestScraper:
 
         # Mock tracker to simulate duplicate observation
         mock_tracker.is_new_obs.return_value = False
-        mock_tracker.get_last_successful_obs_time.return_value = datetime.now(
+        mock_tracker.get_last_obs_time.return_value = datetime.now(
             UTC
         ) - timedelta(seconds=30)  # 30 seconds ago
 
@@ -905,7 +905,7 @@ class TestScraper:
 
         # Mock tracker to simulate duplicate observation
         mock_tracker.is_new_obs.return_value = False
-        mock_tracker.get_last_successful_obs_time.return_value = datetime.now(
+        mock_tracker.get_last_obs_time.return_value = datetime.now(
             UTC
         ) - timedelta(seconds=90)  # 90 seconds ago
 
@@ -947,7 +947,7 @@ class TestScraper:
 
         # Mock tracker to simulate first observation
         mock_tracker.is_new_obs.return_value = False
-        mock_tracker.get_last_successful_obs_time.return_value = (
+        mock_tracker.get_last_obs_time.return_value = (
             None  # No previous successful observation
         )
 
@@ -966,7 +966,7 @@ class TestScraper:
         # Should call output handler for first observation
         mock_output_handler.assert_called_once_with(sample_wind_obs)
         # Should set successful timestamp
-        mock_tracker.set_successful_obs_timestamp.assert_called_once_with(
+        mock_tracker.set_obs_last_timestamp.assert_called_once_with(
             sample_wind_obs
         )
         # Should call status handler with healthy

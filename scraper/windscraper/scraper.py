@@ -3,7 +3,7 @@ import json
 import logging
 import sys
 from collections.abc import Awaitable, Callable
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
 import aiohttp
 from aiohttp.web import HTTPClientError
@@ -130,7 +130,9 @@ def create_json_parser(station_config: StationConfig) -> Parser:
 
 
 class Scraper:
-    tracker = ObservationTracker()
+    # Shared class-level instance of ObservationTracker works since it tracks observations by station,
+    # and there is only one Scraper instance per station.
+    tracker: ObservationTracker = ObservationTracker()
 
     def __init__(
         self,
@@ -230,7 +232,7 @@ class Scraper:
                         return
                 else:
                     # First observation, set as successful
-                    self.tracker.set_successful_obs_timestamp(obs)
+                    self.tracker.set_obs_last_timestamp(obs)
                     logger.debug("First observation for station %s", station)
                     await self.output_handler(obs)
                     await self.status_handler(station, "healthy", None)

@@ -1,9 +1,10 @@
+import logging
 import os
 import tomllib
 import zoneinfo
-import logging
 from dataclasses import dataclass, field
 from datetime import UTC, tzinfo
+
 from dotenv import load_dotenv
 
 # from pydantic import Field, HttpUrl

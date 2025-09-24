@@ -3,6 +3,9 @@ import os
 import pytest
 import pytest_asyncio
 from datetime import datetime, UTC
+from contextlib import asynccontextmanager
+
+import asyncpg
 
 from windscraper.config import Config
 from windscraper.database import (
@@ -32,17 +35,47 @@ class TestDatabaseIntegration:
     @pytest_asyncio.fixture
     async def db_handler(self, db_config: Config):
         """Database handler instance wrapped in a transaction with rollback for test isolation."""
+        class MockPool:
+
+            def __init__(self, conn: asyncpg.Connection):
+                self.conn = conn
+
+            @asynccontextmanager
+            async def acquire(self):
+                yield self.conn
+
         async with DatabaseHandler(db_config) as handler:
-            transaction = handler.conn.transaction()
-            try:
-                await transaction.start()
-                await handler.conn.execute("""
-                    INSERT INTO station (name) VALUES ('STATION_1'), ('STATION_2'), ('STATION_3'), ('CYTZ'), ('CYYZ'), ('CYVR')
-                    ON CONFLICT (name) DO NOTHING
-                """)
-                yield handler
-            finally:
-                await transaction.rollback()
+            async with handler.pool.acquire() as conn:
+                handler.pool = MockPool(conn)
+                transaction = conn.transaction()
+                try:
+                    await transaction.start()
+                    await conn.execute("""
+                        INSERT INTO station (name) VALUES ('STATION_1'), ('STATION_2'), ('STATION_3'), ('CYTZ'), ('CYYZ'), ('CYVR')
+                        ON CONFLICT (name) DO NOTHING
+                    """)
+
+                    yield handler
+                finally:
+                    await transaction.rollback()
+
+    @pytest_asyncio.fixture
+    async def concurrent_db_handler(self, db_config: Config):
+        """Concurrent database handler fixture - does not use transaction"""
+        async with DatabaseHandler(db_config) as handler:
+            async with handler.pool.acquire() as conn:
+                try:
+                    await conn.execute("""
+                        INSERT INTO station (name) VALUES ('STATION_1'), ('STATION_2'), ('STATION_3'), ('CYTZ'), ('CYYZ'), ('CYVR')
+                        ON CONFLICT (name) DO NOTHING
+                    """)
+                    yield handler
+                finally:
+                    await conn.execute("""
+                        DELETE FROM wind_obs;
+                        DELETE FROM scraper_status;
+                        DELETE FROM station WHERE name IN ('STATION_1', 'STATION_2', 'STATION_3', 'CYTZ', 'CYYZ', 'CYVR')
+                    """)
 
     @pytest.fixture
     def sample_obs_1(self) -> WindObs:
@@ -70,12 +103,12 @@ class TestDatabaseIntegration:
     async def test_database_connection(self, db_handler: DatabaseHandler):
         """Test database connection establishment."""
         # Connection should be established via context manager
-        assert db_handler.conn is not None
-        assert not db_handler.conn.is_closed()
+        assert db_handler.pool is not None
 
         # Test basic query execution
-        result = await db_handler.conn.fetchval("SELECT 1")
-        assert result == 1
+        async with db_handler.pool.acquire() as conn:
+            result = await conn.fetchval("SELECT 1")
+            assert result == 1
 
     @pytest.mark.asyncio
     async def test_insert_single_observation(
@@ -89,15 +122,16 @@ class TestDatabaseIntegration:
         await db_handler.insert_obs(sample_obs_1)
 
         # Verify insertion
-        result = await db_handler.conn.fetchrow(
-            """
-            SELECT s.name, wo.direction, wo.speed_kts, wo.gust_kts, wo.update_time
-            FROM wind_obs wo
-            JOIN station s ON wo.station_id = s.id
-            WHERE s.name = $1
-        """,
-            sample_obs_1.station,
-        )
+        async with db_handler.pool.acquire() as conn:
+            result = await conn.fetchrow(
+                """
+                SELECT s.name, wo.direction, wo.speed_kts, wo.gust_kts, wo.update_time
+                FROM wind_obs wo
+                JOIN station s ON wo.station_id = s.id
+                WHERE s.name = $1
+                """,
+                sample_obs_1.station,
+            )
 
         assert result is not None
         assert result["name"] == sample_obs_1.station
@@ -115,29 +149,33 @@ class TestDatabaseIntegration:
     ):
         """Test inserting multiple wind observations."""
         # Clean up any existing observations for these stations
-        await db_handler.conn.execute(
-            """
-            DELETE FROM wind_obs
-            WHERE station_id IN (
-                SELECT id FROM station WHERE name IN ($1, $2)
+
+        async with db_handler.pool.acquire() as conn:
+            await conn.execute(
+                """
+                DELETE FROM wind_obs
+                WHERE station_id IN (
+                    SELECT id FROM station WHERE name IN ($1, $2)
+                )
+                """,
+                sample_obs_1.station,
+                sample_obs_2.station,
             )
-        """,
-            sample_obs_1.station,
-            sample_obs_2.station,
-        )
 
         # Insert both observations
         await db_handler.insert_obs(sample_obs_1)
         await db_handler.insert_obs(sample_obs_2)
 
         # Verify both insertions
-        results = await db_handler.conn.fetch("""
-            SELECT s.name, wo.direction, wo.speed_kts, wo.gust_kts
-            FROM wind_obs wo
-            JOIN station s ON wo.station_id = s.id
-            WHERE s.name LIKE 'STATION_%'
-            ORDER BY s.name
-        """)
+
+        async with db_handler.pool.acquire() as conn:
+            results = await conn.fetch("""
+                SELECT s.name, wo.direction, wo.speed_kts, wo.gust_kts
+                FROM wind_obs wo
+                JOIN station s ON wo.station_id = s.id
+                WHERE s.name LIKE 'STATION_%'
+                ORDER BY s.name
+                """)
 
         assert len(results) == 2
 
@@ -161,13 +199,14 @@ class TestDatabaseIntegration:
     ):
         """Test handling of duplicate observations."""
         # Clean up any existing observations for this station
-        await db_handler.conn.execute(
-            """
-            DELETE FROM wind_obs
-            WHERE station_id = (SELECT id FROM station WHERE name = $1)
-        """,
-            sample_obs_1.station,
-        )
+        async with db_handler.pool.acquire() as conn:
+            await conn.execute(
+                """
+                DELETE FROM wind_obs
+                WHERE station_id = (SELECT id FROM station WHERE name = $1)
+                """,
+                sample_obs_1.station,
+            )
 
         # Insert first observation
         await db_handler.insert_obs(sample_obs_1)
@@ -189,17 +228,18 @@ class TestDatabaseIntegration:
 
     @pytest.mark.asyncio
     async def test_concurrent_observation_insertion(
-        self, db_handler: DatabaseHandler, sample_obs_1: WindObs
+        self, concurrent_db_handler: DatabaseHandler, sample_obs_1: WindObs
     ):
         """Test concurrent insertion of observations."""
         # Clean up any existing observations for this station
-        await db_handler.conn.execute(
-            """
-            DELETE FROM wind_obs
-            WHERE station_id = (SELECT id FROM station WHERE name = $1)
-        """,
-            sample_obs_1.station,
-        )
+        async with concurrent_db_handler.pool.acquire() as conn:
+            await conn.execute(
+                """
+                DELETE FROM wind_obs
+                WHERE station_id = (SELECT id FROM station WHERE name = $1)
+                """,
+                sample_obs_1.station,
+            )
 
         # Create multiple observations with different timestamps
         observations = []
@@ -214,18 +254,19 @@ class TestDatabaseIntegration:
             observations.append(obs)
 
         # Insert concurrently
-        tasks = [db_handler.insert_obs(obs) for obs in observations]
+        tasks = [concurrent_db_handler.insert_obs(obs) for obs in observations]
         await asyncio.gather(*tasks)
 
         # Verify all observations were inserted
-        count = await db_handler.conn.fetchval(
-            """
-            SELECT COUNT(*) FROM wind_obs wo
-            JOIN station s ON wo.station_id = s.id
-            WHERE s.name = $1
-        """,
-            sample_obs_1.station,
-        )
+        async with concurrent_db_handler.pool.acquire() as conn:
+            count = await conn.fetchval(
+                """
+                SELECT COUNT(*) FROM wind_obs wo
+                JOIN station s ON wo.station_id = s.id
+                WHERE s.name = $1
+                """,
+                sample_obs_1.station,
+            )
 
         assert count == 5
 
@@ -240,12 +281,13 @@ class TestDatabaseIntegration:
         await db_handler.update_scraper_status(station_name, status, error_message)
 
         # Verify station exists (function creates it if not exists)
-        result = await db_handler.conn.fetchval(
-            """
-            SELECT COUNT(*) FROM station WHERE name = $1
-        """,
-            station_name,
-        )
+        async with db_handler.pool.acquire() as conn:
+            result = await conn.fetchval(
+                """
+                SELECT COUNT(*) FROM station WHERE name = $1
+                """,
+                station_name,
+            )
 
         assert result == 1
 
@@ -260,12 +302,13 @@ class TestDatabaseIntegration:
         await db_handler.update_scraper_status(station_name, status, error_message)
 
         # Verify station exists
-        result = await db_handler.conn.fetchval(
-            """
-            SELECT COUNT(*) FROM station WHERE name = $1
-        """,
-            station_name,
-        )
+        async with db_handler.pool.acquire() as conn:
+            result = await conn.fetchval(
+                """
+                SELECT COUNT(*) FROM station WHERE name = $1
+            """,
+                station_name,
+            )
 
         assert result == 1
 
@@ -283,16 +326,18 @@ class TestDatabaseIntegration:
         await db_handler.insert_obs(obs)
 
         # Verify insertion with NULL values
-        result = await db_handler.conn.fetchrow(
-            """
-            SELECT direction, speed_kts, gust_kts
-            FROM wind_obs wo
-            JOIN station s ON wo.station_id = s.id
-            WHERE s.name = $1 AND wo.update_time = $2
-        """,
-            obs.station,
-            obs.timestamp,
-        )
+
+        async with db_handler.pool.acquire() as conn:
+            result = await conn.fetchrow(
+                """
+                SELECT direction, speed_kts, gust_kts
+                FROM wind_obs wo
+                JOIN station s ON wo.station_id = s.id
+                WHERE s.name = $1 AND wo.update_time = $2
+                """,
+                obs.station,
+                obs.timestamp,
+            )
 
         assert result["direction"] is None
         assert result["speed_kts"] == obs.speed
@@ -304,26 +349,29 @@ class TestDatabaseIntegration:
     ):
         """Test the handle_postgres function."""
         # Clean up any existing observations for this station
-        await db_handler.conn.execute(
-            """
-            DELETE FROM wind_obs
-            WHERE station_id = (SELECT id FROM station WHERE name = $1)
-        """,
-            sample_obs_1.station,
-        )
+        async with db_handler.pool.acquire() as conn:
+            await conn.execute(
+                """
+                DELETE FROM wind_obs
+                WHERE station_id = (SELECT id FROM station WHERE name = $1)
+            """,
+                sample_obs_1.station,
+            )
 
         # Use the handle_postgres function
         await handle_postgres(sample_obs_1, db_handler)
 
         # Verify observation was inserted
-        result = await db_handler.conn.fetchval(
-            """
-            SELECT COUNT(*) FROM wind_obs wo
-            JOIN station s ON wo.station_id = s.id
-            WHERE s.name = $1
-        """,
-            sample_obs_1.station,
-        )
+
+        async with db_handler.pool.acquire() as conn:
+            result = await conn.fetchval(
+                """
+                SELECT COUNT(*) FROM wind_obs wo
+                JOIN station s ON wo.station_id = s.id
+                WHERE s.name = $1
+                """,
+                sample_obs_1.station,
+            )
 
         assert result == 1
 
@@ -338,12 +386,13 @@ class TestDatabaseIntegration:
         await handle_status_postgres(station_name, status, error_message, db_handler)
 
         # Verify station exists
-        result = await db_handler.conn.fetchval(
-            """
-            SELECT COUNT(*) FROM station WHERE name = $1
-        """,
-            station_name,
-        )
+        async with db_handler.pool.acquire() as conn:
+            result = await conn.fetchval(
+                """
+                SELECT COUNT(*) FROM station WHERE name = $1
+            """,
+                station_name,
+            )
 
         assert result == 1
 
@@ -400,13 +449,15 @@ class TestDatabaseIntegration:
         )
 
         # Verify all status updates
-        results = await db_handler.conn.fetch("""
-            SELECT s.name, ss.status, ss.error_message, ss.retry_count
-            FROM station s
-            LEFT JOIN scraper_status ss ON s.id = ss.station_id
-            WHERE s.name LIKE 'STATION_%'
-            ORDER BY s.name
-        """)
+
+        async with db_handler.pool.acquire() as conn:
+            results = await conn.fetch("""
+                SELECT s.name, ss.status, ss.error_message, ss.retry_count
+                FROM station s
+                LEFT JOIN scraper_status ss ON s.id = ss.station_id
+                WHERE s.name LIKE 'STATION_%'
+                ORDER BY s.name
+            """)
 
         assert len(results) == 3
 
@@ -438,9 +489,10 @@ class TestDatabaseIntegration:
         await db_handler.update_scraper_status("CYVR", "network_error", "Timeout")
 
         # Call get_scraper_status function
-        status_results = await db_handler.conn.fetch(
-            "SELECT * FROM get_scraper_status()"
-        )
+        async with db_handler.pool.acquire() as conn:
+            status_results = await conn.fetch(
+                "SELECT * FROM get_scraper_status()"
+            )
 
         # Should return all stations (3 existing + 3 test stations = 6 total)
         assert len(status_results) == 6
@@ -485,9 +537,8 @@ class TestDatabaseIntegration:
         await db_handler.update_scraper_status("CYVR", "healthy", None)
 
         # Call get_scraper_health function
-        health_result = await db_handler.conn.fetchrow(
-            "SELECT * FROM get_scraper_health()"
-        )
+        async with db_handler.pool.acquire() as conn:
+            health_result = await conn.fetchrow("SELECT * FROM get_scraper_health()")
 
         assert health_result["total_stations"] == 6  # 3 existing + 3 test stations
         assert health_result["healthy_stations"] == 3  # Only the 3 we set to healthy
@@ -512,13 +563,14 @@ class TestDatabaseIntegration:
         )
 
         # Call get_scraper_health function
-        health_result = await db_handler.conn.fetchrow(
-            "SELECT * FROM get_scraper_health()"
-        )
+        async with db_handler.pool.acquire() as conn:
+            health_result = await conn.fetchrow("SELECT * FROM get_scraper_health()")
 
         assert health_result["total_stations"] == 6  # 3 existing + 3 test stations
         assert health_result["healthy_stations"] == 1  # STATION_1
-        assert health_result["error_stations"] == 2  # STATION_2 error + STATION_3 network_error
+        assert (
+            health_result["error_stations"] == 2
+        )  # STATION_2 error + STATION_3 network_error
         assert health_result["stale_stations"] == 0
         assert health_result["overall_status"] == "error"  # error takes precedence
 
@@ -533,9 +585,8 @@ class TestDatabaseIntegration:
         await db_handler.update_scraper_status("STATION_3", "stale_data", "Old data")
 
         # Call get_scraper_health function
-        health_result = await db_handler.conn.fetchrow(
-            "SELECT * FROM get_scraper_health()"
-        )
+        async with db_handler.pool.acquire() as conn:
+            health_result = await conn.fetchrow("SELECT * FROM get_scraper_health()")
 
         assert health_result["total_stations"] == 6  # 3 existing + 3 test stations
         assert health_result["healthy_stations"] == 2  # STATION_1 + STATION_2
@@ -553,16 +604,16 @@ class TestDatabaseIntegration:
         await db_handler.update_scraper_status("STATION_1", "healthy", None)
 
         # Manually set last_attempt to be more than 5 minutes ago to simulate staleness
-        await db_handler.conn.execute("""
-            UPDATE scraper_status
-            SET last_attempt = NOW() - INTERVAL '10 minutes'
-            WHERE station_id = (SELECT id FROM station WHERE name = 'STATION_1')
-        """)
+        async with db_handler.pool.acquire() as conn:
+            await conn.execute("""
+                UPDATE scraper_status
+                SET last_attempt = NOW() - INTERVAL '10 minutes'
+                WHERE station_id = (SELECT id FROM station WHERE name = 'STATION_1')
+            """)
 
         # Call get_scraper_health function
-        health_result = await db_handler.conn.fetchrow(
-            "SELECT * FROM get_scraper_health()"
-        )
+        async with db_handler.pool.acquire() as conn:
+            health_result = await conn.fetchrow("SELECT * FROM get_scraper_health()")
 
         # The healthy station that hasn't been updated in 5+ minutes should be counted as error
         assert health_result["total_stations"] == 6  # 3 existing + 3 test stations
@@ -579,56 +630,61 @@ class TestDatabaseIntegration:
         station_name = "STATION_1"
 
         # Clear any existing scraper status for this station
-        await db_handler.conn.execute(
-            """
-            DELETE FROM scraper_status
-            WHERE station_id = (SELECT id FROM station WHERE name = $1)
-        """,
-            station_name,
-        )
+        async with db_handler.pool.acquire() as conn:
+            await conn.execute(
+                """
+                DELETE FROM scraper_status
+                WHERE station_id = (SELECT id FROM station WHERE name = $1)
+                """,
+                station_name,
+            )
 
         # First error
         await db_handler.update_scraper_status(station_name, "error", "First failure")
-        result1 = await db_handler.conn.fetchrow(
-            """
-            SELECT retry_count FROM scraper_status
-            WHERE station_id = (SELECT id FROM station WHERE name = $1)
-        """,
-            station_name,
-        )
+        async with db_handler.pool.acquire() as conn:
+            result1 = await conn.fetchrow(
+                """
+                SELECT retry_count FROM scraper_status
+                WHERE station_id = (SELECT id FROM station WHERE name = $1)
+                """,
+                station_name,
+            )
         assert result1["retry_count"] == 0  # First error, starts at 0
 
         # Second error - should increment
         await db_handler.update_scraper_status(station_name, "error", "Second failure")
-        result2 = await db_handler.conn.fetchrow(
-            """
-            SELECT retry_count FROM scraper_status
-            WHERE station_id = (SELECT id FROM station WHERE name = $1)
-        """,
-            station_name,
-        )
+        async with db_handler.pool.acquire() as conn:
+            result2 = await conn.fetchrow(
+                """
+                SELECT retry_count FROM scraper_status
+                WHERE station_id = (SELECT id FROM station WHERE name = $1)
+                """,
+                station_name,
+            )
         assert result2["retry_count"] == 1
 
         # Third error - should increment further
         await db_handler.update_scraper_status(station_name, "error", "Third failure")
-        result3 = await db_handler.conn.fetchrow(
-            """
-            SELECT retry_count FROM scraper_status
-            WHERE station_id = (SELECT id FROM station WHERE name = $1)
-        """,
-            station_name,
-        )
+        async with db_handler.pool.acquire() as conn:
+            result3 = await conn.fetchrow(
+                """
+                SELECT retry_count FROM scraper_status
+                WHERE station_id = (SELECT id FROM station WHERE name = $1)
+                """,
+                station_name,
+            )
         assert result3["retry_count"] == 2
 
         # Success - should reset to 0
         await db_handler.update_scraper_status(station_name, "healthy", None)
-        result4 = await db_handler.conn.fetchrow(
-            """
-            SELECT retry_count FROM scraper_status
-            WHERE station_id = (SELECT id FROM station WHERE name = $1)
-        """,
-            station_name,
-        )
+        async with db_handler.pool.acquire() as conn:
+            result4 = await conn.fetchrow(
+                """
+                SELECT retry_count FROM scraper_status
+                WHERE station_id = (SELECT id FROM station WHERE name = $1)
+                """,
+                station_name,
+            )
         assert result4["retry_count"] == 0
 
     @pytest.mark.asyncio
@@ -640,46 +696,51 @@ class TestDatabaseIntegration:
 
         # Initial error - no last_success
         await db_handler.update_scraper_status(station_name, "error", "Initial failure")
-        result1 = await db_handler.conn.fetchrow(
-            """
-            SELECT last_success FROM scraper_status
-            WHERE station_id = (SELECT id FROM station WHERE name = $1)
-        """,
-            station_name,
-        )
+        async with db_handler.pool.acquire() as conn:
+            result1 = await conn.fetchrow(
+                """
+                SELECT last_success FROM scraper_status
+                WHERE station_id = (SELECT id FROM station WHERE name = $1)
+                """,
+                station_name,
+            )
         assert result1["last_success"] is None
 
         # First success - should set last_success
         await db_handler.update_scraper_status(station_name, "healthy", None)
-        result2 = await db_handler.conn.fetchrow(
-            """
-            SELECT last_success FROM scraper_status
-            WHERE station_id = (SELECT id FROM station WHERE name = $1)
-        """,
-            station_name,
-        )
+        async with db_handler.pool.acquire() as conn:
+            result2 = await conn.fetchrow(
+                """
+                SELECT last_success FROM scraper_status
+                WHERE station_id = (SELECT id FROM station WHERE name = $1)
+                """,
+                station_name,
+            )
         assert result2["last_success"] is not None
 
         # Subsequent error - should not change last_success
         await db_handler.update_scraper_status(station_name, "error", "Later failure")
-        result3 = await db_handler.conn.fetchrow(
-            """
-            SELECT last_success FROM scraper_status
-            WHERE station_id = (SELECT id FROM station WHERE name = $1)
-        """,
-            station_name,
-        )
+        async with db_handler.pool.acquire() as conn:
+            result3 = await conn.fetchrow(
+                """
+                SELECT last_success FROM scraper_status
+                WHERE station_id = (SELECT id FROM station WHERE name = $1)
+                """,
+                station_name,
+            )
         assert (
             result3["last_success"] == result2["last_success"]
         )  # Should remain the same
 
         # Another success - should update last_success
         await db_handler.update_scraper_status(station_name, "healthy", None)
-        result4 = await db_handler.conn.fetchrow(
-            """
-            SELECT last_success FROM scraper_status
-            WHERE station_id = (SELECT id FROM station WHERE name = $1)
-        """,
-            station_name,
-        )
+
+        async with db_handler.pool.acquire() as conn:
+            result4 = await conn.fetchrow(
+                """
+                SELECT last_success FROM scraper_status
+                WHERE station_id = (SELECT id FROM station WHERE name = $1)
+                """,
+                station_name,
+            )
         assert result4["last_success"] != result2["last_success"]  # Should be updated

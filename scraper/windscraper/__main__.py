@@ -3,11 +3,9 @@ import asyncio
 import sentry_sdk
 from sentry_sdk.integrations.asyncpg import AsyncPGIntegration
 
-from .main import main
-from .config import get_sentry_config
-
-
 from . import logger
+from .config import get_sentry_config
+from .main import main
 
 # Initialize Sentry
 sentry_config: dict[str, str] = get_sentry_config()

@@ -34,6 +34,9 @@ pytest tests/unit/test_api.py::TestAPI::test_endpoint -v
 # Run all tests
 pytest
 
+# Code review
+Run `coderabbit review --plain` to get comprehensive code analysis and improvement suggestions. Apply the feedback to write cleaner, more maintainable code.
+
 ## Code Style Guidelines
 
 ### Python
@@ -44,7 +47,7 @@ pytest
 • Error handling: Custom exceptions inherit from WindburglrError, use async context managers
 • Async/await: All I/O operations must be async
 • Dataclasses: Use for data models, prefer over dicts
-• Logging: Use module-level loggers, appropriate levels (DEBUG/INFO/WARNING/ERROR)
+• Logging: Use module-level loggers, appropriate levels (DEBUG/INFO/WARNING/ERROR) and always use percent-style string formatting with arguments, never use f-strings
 • Line length: 88 characters (ruff default)
 • Docstrings: Use triple quotes for module/class/function docs
 

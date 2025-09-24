@@ -7,7 +7,6 @@ from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
 
 from windscraper.config import Config, StationConfig, load_config_from_toml
-from windscraper.database import DatabaseHandler
 from windscraper.main import StdoutHandler
 from windscraper.main import (
     create_output_handler,
@@ -256,25 +255,6 @@ local_timezone = "America/Vancouver"
         assert len(config.stations) == 0
         assert config.log_level == "INFO"
         assert config.refresh_rate == 60
-
-    @pytest.mark.asyncio
-    async def test_database_handler_context_manager(self):
-        """Test DatabaseHandler as context manager."""
-        # Create a config with a dummy URL (won't actually connect)
-        config = Config(
-            stations=[],
-            log_level="INFO",
-            refresh_rate=60,
-            db_url="postgresql://test:test@localhost/test_db",
-            output_mode="postgres",
-        )
-
-        handler = DatabaseHandler(config)
-
-        # Test that handler has the expected attributes
-        assert hasattr(handler, "config")
-        assert hasattr(handler, "lock")
-        assert isinstance(handler.lock, asyncio.Lock)
 
     def test_config_timezone_conversion(self):
         """Test that string timezones are converted to ZoneInfo objects."""

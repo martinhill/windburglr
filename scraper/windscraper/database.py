@@ -10,14 +10,13 @@ logger = logging.getLogger(__name__)
 
 
 class DatabaseHandler:
-    conn: asyncpg.Connection
+    pool: asyncpg.Pool
 
     def __init__(self, conf: Config):
         self.config = conf
-        self.lock = asyncio.Lock()
 
     async def __aenter__(self):
-        self.conn = await asyncpg.connect(self.config.db_url)
+        self.pool = await asyncpg.create_pool(self.config.db_url)
         for station_config in self.config.stations:
             await self.initialize_station(station_config)
         return self
@@ -30,17 +29,17 @@ class DatabaseHandler:
         except Exception as e:
             logger.error("Error updating station status: %s", e)
 
-        logger.debug("Closing database connection")
+        logger.debug("Closing database connection pool")
         try:
-            await self.conn.close()
+            await asyncio.wait_for(self.pool.close(), timeout=5)
         except Exception as e:
-            logger.error("Error closing database connection: %s", e)
+            logger.error("Error closing database pool: %s", e)
 
     async def initialize_station(self, station_config: StationConfig):
         """Initialize a station in the database"""
-        async with self.lock:
+        async with self.pool.acquire() as conn:
             logger.debug("Initializing station %s", station_config.name)
-            await self.conn.execute(
+            await conn.execute(
                 """
                 INSERT INTO station (name, timezone)
                 VALUES ($1, $2)
@@ -52,9 +51,9 @@ class DatabaseHandler:
 
     async def insert_obs(self, obs: WindObs):
         """Insert an observation to the database"""
-        async with self.lock:
+        async with self.pool.acquire() as conn:
             try:
-                await self.conn.execute(
+                await conn.execute(
                     """
                     INSERT INTO wind_obs (station_id, direction, speed_kts, gust_kts, update_time)
                     VALUES (
@@ -69,15 +68,17 @@ class DatabaseHandler:
                     obs.timestamp,
                 )
             except asyncpg.exceptions.UniqueViolationError as e:
-                raise DuplicateObservationError(f'Observation already exists: {obs}') from e
+                raise DuplicateObservationError(
+                    f"Observation already exists: {obs}"
+                ) from e
 
     async def update_scraper_status(
         self, station: str, status: str, error_message: str | None = None
     ):
         """Update scraper status in the database"""
         try:
-            async with self.lock:
-                await self.conn.execute(
+            async with self.pool.acquire() as conn:
+                await conn.execute(
                     "SELECT update_scraper_status($1, $2, $3)",
                     station,
                     status,

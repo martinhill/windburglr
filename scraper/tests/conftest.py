@@ -87,25 +87,25 @@ User-Agent = "test-agent"
 
 
 @pytest.fixture
-async def test_db_connection() -> AsyncGenerator[asyncpg.Connection, None]:
+async def test_db_connection() -> AsyncGenerator[asyncpg.Pool, None]:
     """Create a test database connection."""
     # Use the test database URL from environment or default
     db_url = os.getenv("TEST_DATABASE_URL", "postgresql://windburglr@/windburglr")
 
-    conn: asyncpg.Connection = await asyncpg.connect(db_url)
+    pool: asyncpg.Pool = await asyncpg.create_pool(db_url)
     try:
-        yield conn
+        yield pool
     finally:
-        await conn.close()
+        await asyncio.wait_for(pool.close(), timeout=10)
 
 
 @pytest.fixture
 async def test_database_handler(
-    sample_config: Config, test_db_connection: asyncpg.Connection
+    sample_config: Config, test_db_connection: asyncpg.Pool
 ) -> AsyncGenerator[DatabaseHandler, None]:
     """Create a test database handler."""
     handler = DatabaseHandler(sample_config)
-    handler.conn = test_db_connection
+    handler.pool = test_db_connection
     yield handler
 
 

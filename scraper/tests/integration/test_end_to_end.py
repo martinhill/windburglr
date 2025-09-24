@@ -76,20 +76,23 @@ local_timezone = "America/Vancouver"
     async def setup_e2e_db(self, db_config):
         """Set up database schema for end-to-end tests."""
         async with DatabaseHandler(db_config) as db_handler:
-            transaction = db_handler.conn.transaction()
-            try:
-                await transaction.start()
-                # Insert test stations
-                await db_handler.conn.execute("""
-                    INSERT INTO station (name) VALUES ('E2E_STN_1'), ('E2E_STN_2')
-                    ON CONFLICT (name) DO NOTHING
-                """)
+            async with db_handler.pool.acquire() as conn:
+                try:
+                    # Insert test stations
+                    await conn.execute("""
+                        INSERT INTO station (name) VALUES ('E2E_STN_1'), ('E2E_STN_2')
+                        ON CONFLICT (name) DO NOTHING
+                    """)
 
-                yield db_handler
-            finally:
-                await transaction.rollback()
-                # Special case for end-to-end tests, needs manual cleanup
-                await db_handler.conn.execute("DELETE FROM station WHERE name IN ('E2E_STN_1', 'E2E_STN_2')")
+                    yield db_handler
+                finally:
+                    # Special case for end-to-end tests, needs manual cleanup
+                    await conn.execute("""
+                        DELETE from wind_obs;
+                        DELETE from scraper_status;
+                        DELETE FROM station WHERE name IN ('E2E_STN_1', 'E2E_STN_2');
+                        """)
+
 
     @pytest.mark.asyncio
     async def test_full_config_loading_and_validation(self, temp_config_file):
@@ -138,15 +141,16 @@ local_timezone = "America/Vancouver"
         await output_handler(sample_obs)
 
         # Verify the observation was inserted
-        result = await db_handler.conn.fetchrow(
-            """
-            SELECT s.name, wo.direction, wo.speed_kts, wo.gust_kts
-            FROM wind_obs wo
-            JOIN station s ON wo.station_id = s.id
-            WHERE s.name = $1
-        """,
-            sample_obs.station,
-        )
+        async with db_handler.pool.acquire() as conn:
+            result = await conn.fetchrow(
+                """
+                SELECT s.name, wo.direction, wo.speed_kts, wo.gust_kts
+                FROM wind_obs wo
+                JOIN station s ON wo.station_id = s.id
+                WHERE s.name = $1
+                """,
+                sample_obs.station,
+            )
 
         assert result is not None
         assert result["name"] == sample_obs.station
@@ -183,13 +187,14 @@ local_timezone = "America/Vancouver"
             await output_handler(obs)
 
         # Verify both observations were inserted
-        results = await db_handler.conn.fetch("""
-            SELECT s.name, wo.direction, wo.speed_kts, wo.gust_kts
-            FROM wind_obs wo
-            JOIN station s ON wo.station_id = s.id
-            WHERE s.name LIKE 'E2E_STN_%'
-            ORDER BY s.name
-        """)
+        async with db_handler.pool.acquire() as conn:
+            results = await conn.fetch("""
+                SELECT s.name, wo.direction, wo.speed_kts, wo.gust_kts
+                FROM wind_obs wo
+                JOIN station s ON wo.station_id = s.id
+                WHERE s.name LIKE 'E2E_STN_%'
+                ORDER BY s.name
+                """)
 
         assert len(results) == 2
 
@@ -215,12 +220,13 @@ local_timezone = "America/Vancouver"
         await status_handler("E2E_STN_1", "success", None)
 
         # Verify station exists (created by status update function)
-        result = await db_handler.conn.fetchval(
-            """
-            SELECT COUNT(*) FROM station WHERE name = $1
-        """,
-            "E2E_STN_1",
-        )
+        async with db_handler.pool.acquire() as conn:
+            result = await conn.fetchval(
+                """
+                SELECT COUNT(*) FROM station WHERE name = $1
+                """,
+                "E2E_STN_1",
+            )
 
         assert result == 1
 
@@ -243,16 +249,17 @@ local_timezone = "America/Vancouver"
         await output_handler(obs_with_nulls)
 
         # Verify insertion with NULL values
-        result = await db_handler.conn.fetchrow(
-            """
-            SELECT direction, speed_kts, gust_kts
-            FROM wind_obs wo
-            JOIN station s ON wo.station_id = s.id
-            WHERE s.name = $1 AND wo.update_time = $2
-        """,
-            obs_with_nulls.station,
-            obs_with_nulls.timestamp,
-        )
+        async with db_handler.pool.acquire() as conn:
+            result = await conn.fetchrow(
+                """
+                SELECT direction, speed_kts, gust_kts
+                FROM wind_obs wo
+                JOIN station s ON wo.station_id = s.id
+                WHERE s.name = $1 AND wo.update_time = $2
+                """,
+                obs_with_nulls.station,
+                obs_with_nulls.timestamp,
+            )
 
         assert result["direction"] is None
         assert result["speed_kts"] == obs_with_nulls.speed
@@ -281,13 +288,14 @@ local_timezone = "America/Vancouver"
         await asyncio.gather(*tasks)
 
         # Verify all observations were inserted
-        count = await db_handler.conn.fetchval(
-            """
-            SELECT COUNT(*) FROM wind_obs wo
-            JOIN station s ON wo.station_id = s.id
-            WHERE s.name = $1
-        """,
-            "E2E_STN_1",
-        )
+        async with db_handler.pool.acquire() as conn:
+            count = await conn.fetchval(
+                """
+                SELECT COUNT(*) FROM wind_obs wo
+                JOIN station s ON wo.station_id = s.id
+                WHERE s.name = $1
+                """,
+                "E2E_STN_1",
+            )
 
         assert count == 5
