@@ -7,9 +7,10 @@ from datetime import UTC, datetime
 
 import aiohttp
 from aiohttp.web import HTTPClientError
+from asyncpg.exceptions import ConnectionDoesNotExistError
 
 from .config import Config, StationConfig
-from .models import MaxRetriesExceededError, StaleWindObservationError, WindObs
+from .models import MaxRetriesExceededError, StaleWindObservationError, WindObs, WindburglrError
 
 logger = logging.getLogger(__name__)
 

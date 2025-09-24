@@ -49,41 +49,54 @@ class DatabaseHandler:
                 str(station_config.local_timezone),
             )
 
+    async def execute_with_retry(self, query: str, *args, max_retries: int = 5, initial_delay: float = 0.1) -> str:
+        for attempt in range(max_retries):
+            try:
+                async with self.pool.acquire() as connection:
+                    return await connection.execute(query, *args)
+            except asyncpg.exceptions.ConnectionDoesNotExistError as e:
+                logger.error("ConnectionDoesNotExistError caught on attempt %s: %s", attempt + 1, e)
+                if attempt < max_retries - 1:
+                    delay = initial_delay * (2 ** attempt)
+                    logger.info(f"Retrying in {delay:.2f} seconds...")
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error("Max retries reached. Raising exception.")
+                    raise # Re-raise the exception if retries are exhausted
+
     async def insert_obs(self, obs: WindObs):
         """Insert an observation to the database"""
-        async with self.pool.acquire() as conn:
-            try:
-                await conn.execute(
-                    """
-                    INSERT INTO wind_obs (station_id, direction, speed_kts, gust_kts, update_time)
-                    VALUES (
-                        (SELECT id FROM station WHERE name = $1),
-                        $2, $3, $4, $5
-                    )
-                    """,
-                    obs.station,
-                    obs.direction,
-                    obs.speed,
-                    obs.gust,
-                    obs.timestamp,
+        try:
+            await self.execute_with_retry(
+                """
+                INSERT INTO wind_obs (station_id, direction, speed_kts, gust_kts, update_time)
+                VALUES (
+                    (SELECT id FROM station WHERE name = $1),
+                    $2, $3, $4, $5
                 )
-            except asyncpg.exceptions.UniqueViolationError as e:
-                raise DuplicateObservationError(
-                    f"Observation already exists: {obs}"
-                ) from e
+                """,
+                obs.station,
+                obs.direction,
+                obs.speed,
+                obs.gust,
+                obs.timestamp,
+            )
+        except asyncpg.exceptions.UniqueViolationError as e:
+            raise DuplicateObservationError(
+                f"Observation already exists: {obs}"
+            ) from e
 
     async def update_scraper_status(
         self, station: str, status: str, error_message: str | None = None
     ):
         """Update scraper status in the database"""
         try:
-            async with self.pool.acquire() as conn:
-                await conn.execute(
-                    "SELECT update_scraper_status($1, $2, $3)",
-                    station,
-                    status,
-                    error_message,
-                )
+            await self.execute_with_retry(
+                "SELECT update_scraper_status($1, $2, $3)",
+                station,
+                status,
+                error_message,
+            )
         except Exception as e:
             # Don't let status update failures break the main scraping logic
             logger.error("Failed to update scraper status for %s: %s", station, e)

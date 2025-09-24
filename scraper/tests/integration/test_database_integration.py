@@ -4,6 +4,7 @@ import pytest
 import pytest_asyncio
 from datetime import datetime, UTC
 from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, patch
 
 import asyncpg
 
@@ -35,8 +36,8 @@ class TestDatabaseIntegration:
     @pytest_asyncio.fixture
     async def db_handler(self, db_config: Config):
         """Database handler instance wrapped in a transaction with rollback for test isolation."""
-        class MockPool:
 
+        class MockPool:
             def __init__(self, conn: asyncpg.Connection):
                 self.conn = conn
 
@@ -490,9 +491,7 @@ class TestDatabaseIntegration:
 
         # Call get_scraper_status function
         async with db_handler.pool.acquire() as conn:
-            status_results = await conn.fetch(
-                "SELECT * FROM get_scraper_status()"
-            )
+            status_results = await conn.fetch("SELECT * FROM get_scraper_status()")
 
         # Should return all stations (3 existing + 3 test stations = 6 total)
         assert len(status_results) == 6
@@ -744,3 +743,92 @@ class TestDatabaseIntegration:
                 station_name,
             )
         assert result4["last_success"] != result2["last_success"]  # Should be updated
+
+    @pytest.mark.asyncio
+    async def test_insert_obs_success_with_connection_error_retry(
+        self, db_handler: DatabaseHandler, sample_obs_1: WindObs
+    ):
+        """Test that insert_obs succeeds despite ConnectionDoesNotExistError with retry."""
+        # Clean up any existing observations for this station
+        async with db_handler.pool.acquire() as conn:
+            await conn.execute(
+                """
+                DELETE FROM wind_obs
+                WHERE station_id = (SELECT id FROM station WHERE name = $1)
+                """,
+                sample_obs_1.station,
+            )
+
+        # Mock pool.acquire to raise ConnectionDoesNotExistError on first call, then succeed
+        call_count = 0
+
+        def mock_acquire():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # Simulate connection error on first attempt
+                raise asyncpg.exceptions.ConnectionDoesNotExistError("Connection lost")
+            else:
+                # Succeed on retry - return a mock context manager
+                cm = AsyncMock()
+                cm.__aenter__ = AsyncMock(return_value=db_handler.pool.conn)
+                cm.__aexit__ = AsyncMock(return_value=None)
+                return cm
+
+        with patch.object(db_handler.pool, "acquire", mock_acquire):
+            # This should succeed despite the initial connection error
+            await db_handler.insert_obs(sample_obs_1)
+
+        # Verify the observation was inserted
+        async with db_handler.pool.acquire() as conn:
+            result = await conn.fetchval(
+                """
+                SELECT COUNT(*) FROM wind_obs wo
+                JOIN station s ON wo.station_id = s.id
+                WHERE s.name = $1
+                """,
+                sample_obs_1.station,
+            )
+
+        assert result == 1
+        assert call_count == 2  # One failure, one success
+
+    @pytest.mark.asyncio
+    async def test_update_scraper_status_success_with_connection_error_retry(
+        self, db_handler: DatabaseHandler
+    ):
+        """Test that update_scraper_status succeeds despite ConnectionDoesNotExistError with retry."""
+        station_name = "STATION_1"
+        status = "healthy"
+
+        # Mock pool.acquire to raise ConnectionDoesNotExistError on first call, then succeed
+        call_count = 0
+
+        def mock_acquire():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # Simulate connection error on first attempt
+                raise asyncpg.exceptions.ConnectionDoesNotExistError("Connection lost")
+            else:
+                # Succeed on retry - return a mock context manager
+                cm = AsyncMock()
+                cm.__aenter__ = AsyncMock(return_value=db_handler.pool.conn)
+                cm.__aexit__ = AsyncMock(return_value=None)
+                return cm
+
+        with patch.object(db_handler.pool, "acquire", mock_acquire):
+            # This should succeed despite the initial connection error
+            await db_handler.update_scraper_status(station_name, status)
+
+        # Verify the status was updated
+        async with db_handler.pool.acquire() as conn:
+            result = await conn.fetchval(
+                """
+                SELECT COUNT(*) FROM station WHERE name = $1
+                """,
+                station_name,
+            )
+
+        assert result == 1
+        assert call_count == 2  # One failure, one success
