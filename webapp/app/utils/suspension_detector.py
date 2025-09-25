@@ -10,7 +10,9 @@ logger = logging.getLogger("windburglr.suspension")
 class SuspensionDetector:
     """Detects system suspension and resumption by monitoring system time."""
 
-    def __init__(self, check_interval: float = 30.0, suspension_threshold: float = 60.0):
+    def __init__(
+        self, check_interval: float = 30.0, suspension_threshold: float = 60.0
+    ):
         self.check_interval = check_interval
         self.suspension_threshold = suspension_threshold  # seconds
         self.last_check_time = time.time()
@@ -67,8 +69,10 @@ class SuspensionDetector:
 
     async def _handle_resumption(self):
         """Handle detected resumption by calling all callbacks."""
-        logger.info("Handling system resumption - calling %d callbacks",
-                   len(self.resumption_callbacks))
+        logger.info(
+            "Handling system resumption - calling %d callbacks",
+            len(self.resumption_callbacks),
+        )
 
         for callback in self.resumption_callbacks:
             try:

@@ -59,7 +59,7 @@ class WindDataService:
                 timestamp=latest_observation[0],
                 direction=latest_observation[1],
                 speed_kts=latest_observation[2],
-                gust_kts=latest_observation[3]
+                gust_kts=latest_observation[3],
             ).model_dump()
 
         # Connection is already acquired and tested by the dependency
@@ -70,7 +70,7 @@ class WindDataService:
             if row:
                 # Ensure update_time is timezone-aware before processing
                 return WindDataPoint(
-                    timestamp=row['update_time'],
+                    timestamp=row["update_time"],
                     direction=row["direction"],
                     speed_kts=row["speed_kts"],
                     gust_kts=row["gust_kts"],

@@ -14,6 +14,7 @@ from sentry_sdk.integrations.starlette import StarletteIntegration
 from app.cache import create_cache_from_config
 from app.config import (
     LOG_LEVEL,
+    POSTGRES_MONITOR_INTERVAL,
     SCRAPER_STATUS_TIMEOUT_MINUTES,
     get_cache_config,
     get_sentry_config,
@@ -67,7 +68,10 @@ if sentry_config["dsn"]:
     logger.info("Sentry initialized with DSN: %s", sentry_config["dsn"][:50] + "...")
 
 
-def make_app(pg_connection: asyncpg.Connection | None = None):
+def make_app(
+    pg_connection: asyncpg.Connection | None = None,
+    config_overrides: dict[str, float] | None = None,
+):
     """Create FastAPI application with proper dependency injection."""
 
     @asynccontextmanager
@@ -100,11 +104,21 @@ def make_app(pg_connection: asyncpg.Connection | None = None):
         set_websocket_manager(websocket_manager)
 
         # Create watchdog service (will be initialized by PostgresNotificationManager)
-        watchdog_service = WatchdogService(scraper_status_timeout_minutes=SCRAPER_STATUS_TIMEOUT_MINUTES)
+        watchdog_service = WatchdogService(
+            scraper_status_timeout_minutes=SCRAPER_STATUS_TIMEOUT_MINUTES
+        )
         set_watchdog_service(watchdog_service)
 
+        postgres_monitor_interval = (
+            config_overrides.get("postgres_monitor_interval", POSTGRES_MONITOR_INTERVAL)
+            if config_overrides
+            else POSTGRES_MONITOR_INTERVAL
+        )
         pg_manager = PostgresNotificationManager(
-            cache_backend, websocket_manager, watchdog_service
+            cache_backend,
+            websocket_manager,
+            watchdog_service,
+            postgres_monitor_interval,
         )
         set_pg_manager(pg_manager)
 

@@ -29,8 +29,11 @@ class MemoryCacheBackend(CacheBackend):
         # First check if this station's cache is stale
         if await self.is_station_stale(station):
             stale_time = self.station_stale_timestamp.get(station)
-            logger.debug("Cache miss for station %s: cache is marked as stale (marked at %s)",
-                        station, datetime.fromtimestamp(stale_time) if stale_time else "unknown")
+            logger.debug(
+                "Cache miss for station %s: cache is marked as stale (marked at %s)",
+                station,
+                datetime.fromtimestamp(stale_time) if stale_time else "unknown",
+            )
             return False
 
         if station not in self.cache_oldest_time or station not in self.wind_data_cache:
@@ -132,7 +135,8 @@ class MemoryCacheBackend(CacheBackend):
             )
 
     async def get_latest_observation(
-        self, station: str) -> list[tuple[float, int, int, int]] | None:
+        self, station: str
+    ) -> list[tuple[float, int, int, int]] | None:
         """Retrieve latest observations for the specified station."""
         if station in self.wind_data_cache and not await self.is_station_stale(station):
             return self.wind_data_cache[station][-1]
@@ -261,7 +265,9 @@ class MemoryCacheBackend(CacheBackend):
             for station in self.wind_data_cache.keys():
                 self.station_stale.add(station)
                 self.station_stale_timestamp[station] = time.time()
-            logger.warning("All cached stations marked as stale due to system resumption")
+            logger.warning(
+                "All cached stations marked as stale due to system resumption"
+            )
 
     async def is_station_stale(self, station: str) -> bool:
         """Check if a specific station's cache is currently marked as stale."""

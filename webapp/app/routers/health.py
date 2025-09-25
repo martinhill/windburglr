@@ -89,14 +89,16 @@ async def health_check(
         except Exception as e:
             health_status["scraper"] = {
                 "error": f"Failed to get scraper health: {str(e)}",
-                "overall_status": "unknown"
+                "overall_status": "unknown",
             }
 
     # Determine overall status
     scraper_status = health_status.get("scraper", {}).get("overall_status", "unknown")
-    if (health_status["database"] == "connected" and
-        pg_manager.is_pg_listener_healthy and
-        scraper_status in ["healthy", "warning"]):
+    if (
+        health_status["database"] == "connected"
+        and pg_manager.is_pg_listener_healthy
+        and scraper_status in ["healthy", "warning"]
+    ):
         health_status["status"] = "healthy"
     else:
         health_status["status"] = "unhealthy"

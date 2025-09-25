@@ -651,12 +651,15 @@ class WindDataGenerator:
 
 
 @pytest.fixture
-def test_client(mock_test_db_manager):
+def test_client(request, mock_test_db_manager):
     """Create a test client for unit tests that uses mock_test_db_manager."""
+    # Get configuration overrides from request.param, defaulting to 60.0
+    config_overrides = getattr(request, "param", {})
+    websocket_timeout = config_overrides.get("websocket_timeout", 60.0)
     import asyncio
     import json
 
-    from app.dependencies import get_db_pool
+    from app.dependencies import get_db_pool, get_websocket_config
     from main import make_app
 
     class MockListenerConnection:
@@ -924,9 +927,13 @@ def test_client(mock_test_db_manager):
     async def get_mock_pool():
         return mock_pool
 
+    async def get_mock_websocket_config():
+        return {"ping_timeout": websocket_timeout}
+
     # Create app with injected mock listener connection
     app = make_app(pg_connection=mock_listener_conn)
     app.dependency_overrides[get_db_pool] = get_mock_pool
+    app.dependency_overrides[get_websocket_config] = get_mock_websocket_config
 
     # Use LifespanManager to properly start the app and register listeners
     async def start_app():
@@ -988,15 +995,18 @@ async def app(test_db_manager, persistent_connection):
 
 
 @pytest.fixture
-async def app_with_bulk_data(test_db_with_bulk_data, persistent_connection):
+async def app_with_bulk_data(test_db_with_bulk_data, persistent_connection, request):
     """App fixture with pre-loaded bulk test data to avoid notification spam."""
     from app.dependencies import get_db_pool
     from main import make_app
 
+    # Get configuration overrides from request.param, defaulting to empty dict
+    config_overrides = getattr(request, "param", {})
+
     async def get_test_db_pool():
         return test_db_with_bulk_data.pool
 
-    app = make_app(persistent_connection)
+    app = make_app(persistent_connection, config_overrides)
     app.dependency_overrides[get_db_pool] = get_test_db_pool
 
     async with LifespanManager(app) as manager:

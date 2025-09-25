@@ -110,3 +110,13 @@ def get_dist_css_files() -> list[str]:
     """Get list of CSS filenames in dist/css directory."""
     css_files = glob.glob("dist/css/main-*.css")
     return [os.path.basename(f) for f in css_files]
+
+
+async def get_websocket_config() -> dict[str, float]:
+    """Get WebSocket configuration."""
+    from .config import WEBSOCKET_PING_TIMEOUT, POSTGRES_MONITOR_INTERVAL
+
+    return {
+        "ping_timeout": WEBSOCKET_PING_TIMEOUT,
+        "postgres_monitor_interval": POSTGRES_MONITOR_INTERVAL,
+    }

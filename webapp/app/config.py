@@ -22,7 +22,16 @@ ACQUIRE_CONNECTION_TIMEOUT = float(os.environ.get("ACQUIRE_CONNECTION_TIMEOUT", 
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 
 # Watchdog staleness check configuration
-SCRAPER_STATUS_TIMEOUT_MINUTES = int(os.environ.get("SCRAPER_STATUS_TIMEOUT_MINUTES", "5"))
+SCRAPER_STATUS_TIMEOUT_MINUTES = int(
+    os.environ.get("SCRAPER_STATUS_TIMEOUT_MINUTES", "5")
+)
+
+# WebSocket configuration
+WEBSOCKET_PING_TIMEOUT = float(os.environ.get("WEBSOCKET_PING_TIMEOUT", "60.0"))
+
+# Postgres listener monitoring configuration
+POSTGRES_MONITOR_INTERVAL = float(os.environ.get("POSTGRES_MONITOR_INTERVAL", "30.0"))
+
 
 def get_database_url(pooled: bool = False) -> str:
     """Get database URL from environment variables."""

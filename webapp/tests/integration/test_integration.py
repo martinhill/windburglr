@@ -150,8 +150,10 @@ class TestIntegration:
         response_time = (end_time - start_time).total_seconds()
         assert response_time < 0.1  # Basic performance check
 
-    @pytest.mark.slow
     @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "app_with_bulk_data", [{"postgres_monitor_interval": 1.0}], indirect=True
+    )
     async def test_listener_reconnection(
         self, ws_integration_client, test_db_with_bulk_data, persistent_connection
     ):
@@ -180,10 +182,7 @@ class TestIntegration:
             await persistent_connection.close()
 
             # Ensure enough time has passed for the listener to reconnect
-            await sleep(35)
-            # Ignore the ping message
-            ping = await websocket.receive_json()
-            assert ping["type"] == "ping"
+            await sleep(2)
 
             # Test live updates continue
             new_obs_time = datetime.now(UTC)

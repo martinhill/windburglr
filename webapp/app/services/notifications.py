@@ -22,10 +22,12 @@ class PostgresNotificationManager:
         cache_backend: CacheBackend,
         websocket_manager: WebSocketManager,
         watchdog_service: WatchdogService | None = None,
+        postgres_monitor_interval: float = 30.0,
     ):
         self.cache_backend = cache_backend
         self.websocket_manager = websocket_manager
         self.watchdog_service = watchdog_service
+        self.postgres_monitor_interval = postgres_monitor_interval
         self.pg_listener: asyncpg.Connection | None = None
         self.notification_count = 0
         self.monitor_task: asyncio.Task | None = None
@@ -44,9 +46,7 @@ class PostgresNotificationManager:
             # Create a new connection if none was injected
             database_url = get_database_url(False)
             if not database_url:
-                logger.warning(
-                    "No database URL configured, skipping Postgres listener"
-                )
+                logger.warning("No database URL configured, skipping Postgres listener")
                 return
 
             try:
@@ -176,7 +176,8 @@ class PostgresNotificationManager:
                         "wind_obs_insert", self._handle_notification
                     )
                     await self.pg_listener.add_listener(
-                        "scraper_status_update", self._handle_scraper_status_notification
+                        "scraper_status_update",
+                        self._handle_scraper_status_notification,
                     )
 
                 logger.info("Postgres listener reconnected successfully")
@@ -214,8 +215,8 @@ class PostgresNotificationManager:
                 if self._is_pg_listener_healthy and self.watchdog_service:
                     await self.watchdog_service.check_and_update_stale_statuses()
 
-                # Check every 30 seconds
-                await asyncio.sleep(30)
+                # Check at configured interval
+                await asyncio.sleep(self.postgres_monitor_interval)
                 logger.debug("Postgres connection monitor running")
 
             except asyncio.CancelledError:

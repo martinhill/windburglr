@@ -109,7 +109,7 @@ def test_websocket_ping_pong(test_client):
         assert ping_response["type"] == "pong"
 
 
-@pytest.mark.slow
+@pytest.mark.parametrize("test_client", [{"websocket_timeout": 0.1}], indirect=True)
 def test_websocket_ping(test_client):
     """Test websocket ping"""
     # Check for ping
