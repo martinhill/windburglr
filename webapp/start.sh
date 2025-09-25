@@ -12,4 +12,4 @@ fi
 export SENTRY_RELEASE=$(git rev-parse HEAD)
 
 # Start the FastAPI application using Poetry
-poetry run fastapi dev main.py --host 0.0.0.0 --port ${PORT:-8000}
+uv run fastapi dev main.py --host 0.0.0.0 --port ${PORT:-8000}

@@ -55,7 +55,7 @@ class DatabaseHandler:
                 async with self.pool.acquire() as connection:
                     return await connection.execute(query, *args)
             except asyncpg.exceptions.ConnectionDoesNotExistError as e:
-                logger.error("ConnectionDoesNotExistError caught on attempt %s: %s", attempt + 1, e)
+                logger.warning("ConnectionDoesNotExistError caught on attempt %s: %s", attempt + 1, e)
                 if attempt < max_retries - 1:
                     delay = initial_delay * (2 ** attempt)
                     logger.info(f"Retrying in {delay:.2f} seconds...")

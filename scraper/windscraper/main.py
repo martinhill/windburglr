@@ -3,7 +3,12 @@ import asyncio
 import logging
 import os
 
-from .config import Config, load_config_from_toml
+from .config import (
+    Config,
+    get_sentry_config,
+    load_config_from_toml,
+    setup_package_logger,
+)
 from .database import (
     DatabaseHandler,
     handle_postgres,
@@ -19,6 +24,7 @@ from .scraper import (
 )
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 async def handle_stdout(obs: WindObs):
     speed_str = f'{obs.speed}-{obs.gust}' if obs.gust else f'{obs.speed}'
@@ -54,13 +60,39 @@ def create_status_handler(config: Config, handler: DatabaseHandler | StdoutHandl
     else:
         return handle_status_stdout
 
+def setup_sentry():
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.asyncpg import AsyncPGIntegration
 
-async def main():
+        # Initialize Sentry
+        sentry_config: dict[str, str] = get_sentry_config()
+        if sentry_config.get("dsn"):
+            sentry_sdk.init(
+                dsn=sentry_config["dsn"],
+                integrations=[
+                    AsyncPGIntegration(),
+                ],
+                environment=sentry_config["environment"],
+                release=sentry_config["release"],
+                traces_sample_rate=1.0,
+                profiles_sample_rate=1.0,
+            )
+    except ImportError:
+        logger.warning("Sentry SDK not found. Skipping Sentry setup.")
+    except Exception as e:
+        logger.error("Failed to initialize Sentry: %s", e)
+
+
+def main():
+    setup_sentry()
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config-file', type=str, default='windburglr.toml', help='Path to config file')
-    parser.add_argument('--log-file', type=str, default='', help='Path to log file')
-    parser.add_argument('--log-level', type=str, default='', help='Log level')
-    parser.add_argument('--database-url', type=str, default='', help='Database URL')
+    parser.add_argument(
+        "--config-file", type=str, default="windburglr.toml", help="Path to config file"
+    )
+    parser.add_argument("--log-file", type=str, default="", help="Path to log file")
+    parser.add_argument("--log-level", type=str, default="", help="Log level")
+    parser.add_argument("--database-url", type=str, default="", help="Database URL")
     args = parser.parse_args()
 
     logger.info("Loading config")
@@ -73,20 +105,16 @@ async def main():
 
     log_level = args.log_level or config.log_level
     logger.info("Log level: %s", log_level)
-    from . import logger as package_logger
-    package_logger.setLevel(getattr(logging, log_level, logging.INFO))
-    if args.log_file:
-        handler = logging.FileHandler(args.log_file)
-        handler.setLevel(getattr(logging, log_level, logging.INFO))
-        package_logger.addHandler(handler)
+    setup_package_logger(log_level, args.log_file if args.log_file else None)
+
     logger.debug("Config = %s", config)
 
     # DB URL order of precedence: command line, environment variable, config file
-    config.db_url = args.database_url or os.environ.get('DATABASE_URL') or config.db_url
+    config.db_url = args.database_url or os.environ.get("DATABASE_URL") or config.db_url
 
     output_handler_cls_map = {
-        'stdout': StdoutHandler,
-        'postgres': DatabaseHandler,
+        "stdout": StdoutHandler,
+        "postgres": DatabaseHandler,
     }
     try:
         output_handler_cls = output_handler_cls_map[config.output_mode]
@@ -94,7 +122,18 @@ async def main():
         logger.error("Invalid output mode: %s", config.output_mode)
         return
 
-    async with WebRequesterContext(config) as requester_builder, output_handler_cls(config) as output_ctx:
+    try:
+        asyncio.run(async_main(config, output_handler_cls))
+    except KeyboardInterrupt:
+        logger.info('KeyboardInterrupt received - pulling QR!')
+
+
+async def async_main(config, output_handler_cls):
+
+    async with (
+        WebRequesterContext(config) as requester_builder,
+        output_handler_cls(config) as output_ctx,
+    ):
         Scraper.set_output_handler(create_output_handler(config, output_ctx))
         Scraper.set_status_handler(create_status_handler(config, output_ctx))
 
@@ -103,7 +142,8 @@ async def main():
                 station_config,
                 requester_builder.create_requester(station_config),
                 create_json_parser(station_config),
-            ) for station_config in config.stations
+            )
+            for station_config in config.stations
         ]
 
         logger.info("Starting main loop")
@@ -111,12 +151,14 @@ async def main():
             tasks = [scraper.fetch_and_process() for scraper in scrapers]
             # Run the scrapers in parallel
             logger.debug("Running all %s scrapers", len(scrapers))
-            results = await asyncio.gather(*tasks, asyncio.sleep(config.refresh_rate), return_exceptions=True)
+            results = await asyncio.gather(
+                *tasks, asyncio.sleep(config.refresh_rate), return_exceptions=True
+            )
             # Check for errors
             for result in results:
                 if isinstance(result, WindburglrError):
-                    logger.warning('Handled exception: %s', result)
+                    logger.warning("Handled exception: %s", result)
                 elif isinstance(result, Exception):
                     # Unexpected exception
-                    logger.error('Oh crap! Unexpected exception: %s', result)
+                    logger.error("Oh crap! Unexpected exception: %s", result)
                     raise result

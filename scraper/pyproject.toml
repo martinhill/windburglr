@@ -21,7 +21,7 @@ dependencies = [
 requires-python = ">=3.13"
 
 [project.scripts]
-windscraper = "windscraper.main:main"
+scraper = "windscraper.__main__:main"
 
 [project.optional-dependencies]
 dev = [
@@ -80,4 +80,4 @@ asyncio_default_fixture_loop_scope = "function"
 exclude_also = ['if __name__ == .__main__.:', 'except Exception']
 
 [tool.uv]
-package = false
+package = true

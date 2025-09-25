@@ -11,6 +11,28 @@ from dotenv import load_dotenv
 # from pydantic.dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+
+def setup_package_logger(level: str = "INFO", log_file: str | None = None):
+    logger = logging.getLogger("windscraper")
+    numeric_level = getattr(logging, level.upper(), logging.INFO)
+    logger.setLevel(numeric_level)
+
+    formatter = logging.Formatter(
+        "%(asctime)s - %(levelname)-6s - %(name)s - %(message)s"
+    )
+    handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
+    handler.setLevel(numeric_level)
+    logger.addHandler(handler)
+
+    if log_file:
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+
+    return logger
 
 
 @dataclass
