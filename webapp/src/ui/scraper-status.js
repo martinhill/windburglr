@@ -36,7 +36,7 @@ export class ScraperStatusManager {
         if (this.bannerElement) {
             document.addEventListener('click', (e) => {
                 if (!this.bannerElement.contains(e.target) &&
-                    !this.statusElement.contains(e.target) &&
+                    (!this.statusElement || !this.statusElement.contains(e.target)) &&
                     this.bannerElement.classList.contains('visible')) {
                     this.hideBanner();
                 }
