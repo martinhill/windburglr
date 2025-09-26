@@ -36,7 +36,7 @@ export class WebSocketManager {
 
             if (this.needsBackfill) {
                 try {
-                    const gapData = await fillDataGap(station, state.lastObservationTime, true);
+                    const gapData = await fillDataGap(station, state.lastObservationTime, state.currentTimeWindowHours, true);
                     if (gapData.length > 0) {
                         store.addWindDataBatch(gapData, 'gap-fill');
                     }

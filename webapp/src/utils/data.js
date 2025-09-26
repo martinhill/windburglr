@@ -17,7 +17,7 @@ export async function loadHistoricalData(station, hours, isLive, dateStart = nul
         } else {
             url = `/api/wind?stn=${station}&from_time=${dateStart}&to_time=${dateEnd}`;
         }
-        
+
         const response = await fetch(url);
         const data = await response.json();
         return data.winddata;
@@ -30,19 +30,25 @@ export async function loadHistoricalData(station, hours, isLive, dateStart = nul
     }
 }
 
-export async function fillDataGap(station, lastObservationTime, isLive) {
-    if (!lastObservationTime || !isLive) {
+export async function fillDataGap(station, lastObservationTime, hours, isLive) {
+    if (!isLive) {
         console.log('No gap filling needed - no last observation time or not in live mode');
         return [];
     }
 
     try {
-        console.log('Filling data gap since:', new Date(lastObservationTime * 1000));
+        var url;
+        if (!lastObservationTime) {
+          console.log(`Reloading data: ${hours} hours`);
+          url = `/api/wind?stn=${station}&hours=${hours}`;
+        }
+        else {
+          console.log(`Filling data gap since: ${new Date(lastObservationTime * 1000)}`);
+          const fromTime = new Date(lastObservationTime * 1000).toISOString().slice(0, 19);
+          const toTime = new Date().toISOString().slice(0, 19);
 
-        const fromTime = new Date(lastObservationTime * 1000).toISOString().slice(0, 19);
-        const toTime = new Date().toISOString().slice(0, 19);
-
-        const url = `/api/wind?stn=${station}&from_time=${fromTime}&to_time=${toTime}`;
+          url = `/api/wind?stn=${station}&from_time=${fromTime}&to_time=${toTime}`;
+        }
         const response = await fetch(url);
         const data = await response.json();
 
@@ -50,7 +56,7 @@ export async function fillDataGap(station, lastObservationTime, isLive) {
             console.log(`Retrieved ${data.winddata.length} data points to fill gap`);
             return data.winddata;
         }
-        
+
         return [];
     } catch (error) {
         console.error('Error filling data gap:', error);

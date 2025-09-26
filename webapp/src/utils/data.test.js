@@ -158,15 +158,20 @@ describe('Data Utilities', () => {
     })
 
     it('should return empty array when not in live mode', async () => {
-      const result = await fillDataGap('CYYZ', 1640995200, false)
+      const result = await fillDataGap('CYYZ', 1640995200, 6, false)
       expect(result).toEqual([])
       expect(global.fetch).not.toHaveBeenCalled()
     })
 
-    it('should return empty array when no last observation time', async () => {
-      const result = await fillDataGap('CYYZ', null, true)
-      expect(result).toEqual([])
-      expect(global.fetch).not.toHaveBeenCalled()
+    it('should load data when no last observation time', async () => {
+      global.fetch.mockResolvedValueOnce({
+        json: () => Promise.resolve(mockResponse)
+      })
+
+      const result = await fillDataGap('CYYZ', null, 6, true)
+
+      expect(global.fetch).toHaveBeenCalledWith('/api/wind?stn=CYYZ&hours=6')
+      expect(result).toEqual(mockResponse.winddata)
     })
 
     it('should fetch data gap successfully', async () => {
@@ -174,7 +179,7 @@ describe('Data Utilities', () => {
         json: () => Promise.resolve(mockResponse)
       })
 
-      const result = await fillDataGap('CYYZ', 1640995200, true)
+      const result = await fillDataGap('CYYZ', 1640995200, 6, true)
 
       expect(global.fetch).toHaveBeenCalledWith(
         expect.stringContaining('/api/wind?stn=CYYZ&from_time=')
@@ -187,7 +192,7 @@ describe('Data Utilities', () => {
         json: () => Promise.resolve({ winddata: [] })
       })
 
-      const result = await fillDataGap('CYYZ', 1640995200, true)
+      const result = await fillDataGap('CYYZ', 1640995200, 6, true)
       expect(result).toEqual([])
     })
 
@@ -196,8 +201,8 @@ describe('Data Utilities', () => {
       global.fetch.mockRejectedValueOnce(error)
       global.Sentry = { captureException: vi.fn() }
 
-      const result = await fillDataGap('CYYZ', 1640995200, true)
-      
+      const result = await fillDataGap('CYYZ', 1640995200, 6, true)
+
       expect(result).toEqual([])
       expect(global.Sentry.captureException).toHaveBeenCalledWith(error)
     })
@@ -224,7 +229,7 @@ describe('Data Utilities', () => {
         }
       }
 
-      await fillDataGap('CYYZ', 1640995200, true)
+      await fillDataGap('CYYZ', 1640995200, 6, true)
 
       expect(global.fetch).toHaveBeenCalledWith(
         '/api/wind?stn=CYYZ&from_time=2022-01-01T11:00:00&to_time=2022-01-01T12:00:00'
