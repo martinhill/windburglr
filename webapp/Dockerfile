@@ -1,6 +1,6 @@
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS builder
 
-ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 UV_LINK_MODE=copy
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1
 WORKDIR /app
 
 # Install Node.js
@@ -13,7 +13,14 @@ COPY pyproject.toml ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --locked --no-install-project --no-dev
+    uv sync --locked --no-install-project --no-dev --no-editable
+
+# Sync the project
+COPY pyproject.toml uv.lock ./
+COPY app/ ./app/
+COPY main.py ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-editable --no-dev
 
 # Install frontend dependencies and build
 COPY package.json package-lock.json ./
@@ -37,10 +44,10 @@ COPY --from=builder /app/dist ./dist/
 COPY --from=builder /app/.env.sentry .
 
 # Copy application files explicitly to avoid overwriting dist/
+COPY main.py .
 COPY app/ ./app/
 COPY templates/ ./templates/
 COPY static/ ./static/
-COPY main.py .
 
 ENV PATH="/app/.venv/bin:$PATH"
 

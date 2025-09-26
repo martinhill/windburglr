@@ -81,7 +81,4 @@ asyncio_default_fixture_loop_scope = "function"
 exclude_also = ['if __name__ == .__main__.:', 'except Exception']
 
 [tool.uv]
-package = false
-
-[tool.poetry]
-package-mode = false
+package = true
