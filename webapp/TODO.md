@@ -15,6 +15,7 @@
 * consider parameterized tests
 
 ## UI/UX
+* move legend to chart controls area
 * optional wind direction arrows in place of right axis point plot
 * configure better chart animation
 * accessibility testing/improvements
@@ -27,9 +28,3 @@
 * shared cache (redis, litefs)
 * /api/wind pagination by date
 * /api/wind/<station>/bydate/?date=YYYY-MM-DD
-* Progressive Web App (PWA) support
-  * Service Worker registration
-  * App Shell architecture
-  * Push notifications
-  * Background sync
-  * Offline support

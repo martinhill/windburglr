@@ -114,7 +114,7 @@ def get_dist_css_files() -> list[str]:
 
 async def get_websocket_config() -> dict[str, float]:
     """Get WebSocket configuration."""
-    from .config import WEBSOCKET_PING_TIMEOUT, POSTGRES_MONITOR_INTERVAL
+    from .config import POSTGRES_MONITOR_INTERVAL, WEBSOCKET_PING_TIMEOUT
 
     return {
         "ping_timeout": WEBSOCKET_PING_TIMEOUT,

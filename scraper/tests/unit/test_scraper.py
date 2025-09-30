@@ -9,6 +9,7 @@ import pytest
 from windscraper.config import StationConfig
 from windscraper.models import (
     WindObs,
+    WindburglrError,
     MaxRetriesExceededError,
     StaleWindObservationError,
 )
@@ -721,7 +722,7 @@ class TestScraper:
             mock_retry_handler,
         )
 
-        with pytest.raises(aiohttp.ClientResponseError):
+        with pytest.raises(WindburglrError):
             await scraper.fetch_and_process()
 
         mock_parser.assert_not_called()
@@ -753,7 +754,7 @@ class TestScraper:
             mock_retry_handler,
         )
 
-        with pytest.raises(json.JSONDecodeError):
+        with pytest.raises(WindburglrError):
             await scraper.fetch_and_process()
 
         mock_output_handler.assert_not_called()
@@ -787,7 +788,7 @@ class TestScraper:
             mock_retry_handler,
         )
 
-        with pytest.raises(TimeoutError):
+        with pytest.raises(WindburglrError):
             await scraper.fetch_and_process()
 
         mock_parser.assert_not_called()

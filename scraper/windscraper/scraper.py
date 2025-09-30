@@ -12,6 +12,7 @@ from .config import Config, StationConfig
 from .models import (
     MaxRetriesExceededError,
     StaleWindObservationError,
+    WindburglrError,
     WindObs,
 )
 
@@ -88,25 +89,7 @@ class WebRequesterContext:
 
 
 def create_json_parser(station_config: StationConfig) -> Parser:
-    value_lookup = {"": None, "CALM": 0, "?": None, "--": None}
-
-    def coerce_int(x):
-        try:
-            return value_lookup[x]
-        except KeyError:
-            return int(x)
-
-    def coerce_float(x):
-        if x is None:
-            return 0.0
-        try:
-            val = value_lookup[x]
-            return 0.0 if val is None else float(val)
-        except KeyError:
-            return float(x)
-
     def json_to_wind_obs(raw_data: str) -> WindObs:
-        """Parse raw JSON to WindObs"""
         sensor_data = json.loads(raw_data)["v2"]["sensor_data"][station_config.name]
 
         wind_dir = sensor_data.get("wind_magnetic_dir_2_mean")
@@ -116,7 +99,6 @@ def create_json_parser(station_config: StationConfig) -> Parser:
         updated_text = sensor_data.get("observation_time")
         try:
             updated = datetime.strptime(updated_text, "%Y-%m-%d %H:%M")
-            # tz = zoneinfo.ZoneInfo(station_config.timezone)
             updated = updated.replace(tzinfo=station_config.timezone)
         except ValueError as ex:
             sys.stdout.write(f'ValueError {ex}: updated_text="{updated_text}"\n')
@@ -124,9 +106,9 @@ def create_json_parser(station_config: StationConfig) -> Parser:
 
         return WindObs(
             station=station_config.name,
-            direction=coerce_int(wind_dir) if wind_dir else None,
-            speed=coerce_float(wind_speed) if wind_speed else 0.0,
-            gust=coerce_float(wind_gust) if wind_gust else None,
+            direction=wind_dir,
+            speed=wind_speed,
+            gust=wind_gust,
             timestamp=updated,
         )
 
@@ -243,15 +225,15 @@ class Scraper:
         except aiohttp.ClientResponseError as e:
             error_msg = f"HTTP {e.status}: {e.message}"
             await self.status_handler(station, "http_error", error_msg)
-            raise
+            raise WindburglrError(error_msg) from e
         except (ValueError, json.JSONDecodeError) as e:
             error_msg = f"Parse error: {e}"
             await self.status_handler(station, "parse_error", error_msg)
-            raise
-        except TimeoutError:
+            raise WindburglrError(error_msg) from e
+        except TimeoutError as e:
             error_msg = "Network timeout"
             await self.status_handler(station, "network_error", error_msg)
-            raise
+            raise WindburglrError(error_msg) from e
         except StaleWindObservationError:
             # Already handled above, just re-raise
             raise

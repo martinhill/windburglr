@@ -1,8 +1,9 @@
-from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel, field_validator
 
 
-# Internal exceptions that must be handled by the scraper
 class WindburglrError(Exception):
     pass
 
@@ -19,15 +20,45 @@ class DuplicateObservationError(WindburglrError):
     pass
 
 
-@dataclass
-class WindObs:
+class WindObs(BaseModel):
     station: str
     direction: int | None
     speed: float
     gust: float | None
     timestamp: datetime
 
-    def __str__(self):
+    @field_validator("direction", mode="before")
+    @classmethod
+    def validate_direction(cls, v: Any) -> int | None:
+        if v is None or v == "":
+            return None
+        if v == "CALM":
+            return 0
+        if v in ("?", "--"):
+            return None
+        return int(v)
+
+    @field_validator("speed", mode="before")
+    @classmethod
+    def validate_speed(cls, v: Any) -> float:
+        if v is None or v == "":
+            return 0.0
+        if v in ("?", "--", "CALM"):
+            return 0.0
+        return float(v)
+
+    @field_validator("gust", mode="before")
+    @classmethod
+    def validate_gust(cls, v: Any) -> float | None:
+        if v is None or v == "":
+            return None
+        if v in ("?", "--"):
+            return 0.0
+        if v == "CALM":
+            return 0.0
+        return float(v)
+
+    def __str__(self) -> str:
         direction_str = (
             f"{self.direction} deg" if self.direction is not None else "unknown deg"
         )
