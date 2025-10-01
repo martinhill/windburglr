@@ -45,7 +45,8 @@ class StationConfig:
     direction_path: str = "direction"
     speed_path: str = "speed"
     gust_path: str = "gust"
-    time_format: str = "%Y-%m-%d %H:%M"
+    timestamp_path: str = "timestamp"
+    timestamp_format: str = "%Y-%m-%d %H:%M"
     # Timezone of data source update time - usually UTC
     timezone: tzinfo = UTC
     # Station's local timezone - usually not UTC
@@ -85,6 +86,11 @@ def load_config_from_toml(file_path: str) -> Config:
                 url=station["url"],
                 timeout=station.get("timeout", 15),
                 headers=headers if headers else None,
+                direction_path=station.get("direction_path", "direction"),
+                speed_path=station.get("speed_path", "speed"),
+                gust_path=station.get("gust_path", "gust"),
+                timestamp_path=station.get("timestamp_path", "timestamp"),
+                timestamp_format=station.get("timestamp_format", "%Y-%m-%d %H:%M"),
                 timezone=station.get("timezone", UTC),
                 local_timezone=station["local_timezone"],
                 stale_data_timeout=station.get("stale_data_timeout", 300),

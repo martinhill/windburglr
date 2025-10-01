@@ -10,13 +10,23 @@ local_timezone = "America/Toronto"
 url = "https://example.ca/service/wind-data/CYTZ"
 timeout = 15
 timezone = "UTC"
+direction_path = "sensor_data.CYTZ.wind_magnetic_dir_2_mean"
+speed_path = "sensor_data.CYTZ.wind_speed_2_mean"
+gust_path = "sensor_data.CYTZ.gust_squall_speed"
+timestamp_path = "sensor_data.CYTZ.observation_time"
+timestamp_format = "%Y-%m-%d %H:%M"
 [stations.headers]
 Bearer = "secret"
 
 [[stations]]
 name = "CYVR"
 local_timezone = "America/Vancouver"
-url = "https://example.ca/service/wind-data/v2/CYVR"
+url = "https://example.ca/service/wind-data/CYVR"
 timeout = 15
+direction_path = "sensor_data.wind_direction"
+speed_path = "sensor_data.wind_speed"
+gust_path = "sensor_data.wind_gust"
+timestamp_path = "sensor_data.updated"
+timestamp_format = "%Y-%m-%d %H:%M"
 [stations.headers]
 Bearer = "secret"

@@ -112,13 +112,11 @@ def test_create_json_parser_missing_fields(sample_station_config: StationConfig)
     """Test create_json_parser handles missing fields gracefully."""
     json_data = json.dumps(
         {
-            "v2": {
-                "sensor_data": {
-                    "TEST_STATION": {
-                        "wind_speed_2_mean": "10.0",
-                        "observation_time": "2024-01-01 12:00",
-                        # Missing direction and gust
-                    }
+            "sensor_data": {
+                "TEST_STATION": {
+                    "wind_speed": "10.0",
+                    "updated": "2024-01-01 12:00",
+                    # Missing direction and gust
                 }
             }
         }
@@ -148,14 +146,12 @@ def test_create_json_parser_value_coercion(sample_station_config: StationConfig)
     """Test create_json_parser value coercion for special cases."""
     json_data = json.dumps(
         {
-            "v2": {
-                "sensor_data": {
-                    "TEST_STATION": {
-                        "wind_magnetic_dir_2_mean": "CALM",  # Should become 0
-                        "wind_speed_2_mean": "?",  # Should become None
-                        "gust_squall_speed": "--",  # Should become None
-                        "observation_time": "2024-01-01 12:00",
-                    }
+            "sensor_data": {
+                "TEST_STATION": {
+                    "wind_direction": "CALM",  # Should become 0
+                    "wind_speed": "?",  # Should become None
+                    "wind_gust": "--",  # Should become None
+                    "updated": "2024-01-01 12:00",
                 }
             }
         }
@@ -173,12 +169,10 @@ def test_create_json_parser_invalid_timestamp(sample_station_config: StationConf
     """Test create_json_parser raises exception for invalid timestamp."""
     json_data = json.dumps(
         {
-            "v2": {
-                "sensor_data": {
-                    "TEST_STATION": {
-                        "wind_speed_2_mean": "10.0",
-                        "observation_time": "invalid-timestamp",
-                    }
+            "sensor_data": {
+                "TEST_STATION": {
+                    "wind_speed": "10.0",
+                    "updated": "invalid-timestamp",
                 }
             }
         }
@@ -465,13 +459,11 @@ class TestCreateJsonParser:
         """Test create_json_parser handles missing fields gracefully."""
         json_data = json.dumps(
             {
-                "v2": {
-                    "sensor_data": {
-                        "TEST_STATION": {
-                            "wind_speed_2_mean": "10.0",
-                            "observation_time": "2024-01-01 12:00",
-                            # Missing direction and gust
-                        }
+                "sensor_data": {
+                    "TEST_STATION": {
+                        "wind_speed": "10.0",
+                        "updated": "2024-01-01 12:00",
+                        # Missing direction and gust
                     }
                 }
             }
@@ -496,14 +488,12 @@ class TestCreateJsonParser:
         """Test create_json_parser value coercion for special cases."""
         json_data = json.dumps(
             {
-                "v2": {
-                    "sensor_data": {
-                        "TEST_STATION": {
-                            "wind_magnetic_dir_2_mean": "CALM",  # Should become 0
-                            "wind_speed_2_mean": "?",  # Should become None
-                            "gust_squall_speed": "--",  # Should become None
-                            "observation_time": "2024-01-01 12:00",
-                        }
+                "sensor_data": {
+                    "TEST_STATION": {
+                        "wind_direction": "CALM",  # Should become 0
+                        "wind_speed": "?",  # Should become 0
+                        "wing_gust": "--",  # Should become None
+                        "updated": "2024-01-01 12:00",
                     }
                 }
             }
@@ -514,18 +504,16 @@ class TestCreateJsonParser:
 
         assert obs.direction == 0  # CALM -> 0
         assert obs.speed == 0.0  # ? -> 0.0 (coerced to float)
-        assert obs.gust == 0.0  # -- -> 0.0
+        assert obs.gust == None
 
     def test_create_json_parser_invalid_timestamp(self, sample_station_config):
         """Test create_json_parser raises exception for invalid timestamp."""
         json_data = json.dumps(
             {
-                "v2": {
-                    "sensor_data": {
-                        "TEST_STATION": {
-                            "wind_speed_2_mean": "10.0",
-                            "observation_time": "invalid-timestamp",
-                        }
+                "sensor_data": {
+                    "TEST_STATION": {
+                        "wind_speed": "10.0",
+                        "updated": "invalid-timestamp",
                     }
                 }
             }

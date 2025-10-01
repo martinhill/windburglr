@@ -29,6 +29,11 @@ def sample_station_config() -> StationConfig:
         url="https://example.com/api/test",
         timeout=10,
         headers={"User-Agent": "test-agent"},
+        direction_path="sensor_data.TEST_STATION.wind_direction",
+        speed_path="sensor_data.TEST_STATION.wind_speed",
+        gust_path="sensor_data.TEST_STATION.wind_gust",
+        timestamp_path="sensor_data.TEST_STATION.updated",
+        timestamp_format="%Y-%m-%d %H:%M",
         timezone=UTC,
         local_timezone=ZoneInfo("America/Toronto"),
     )
@@ -113,14 +118,12 @@ async def test_database_handler(
 def mock_json_response() -> Dict[str, Any]:
     """Mock JSON response from the wind API."""
     return {
-        "v2": {
-            "sensor_data": {
-                "TEST_STATION": {
-                    "wind_magnetic_dir_2_mean": "180",
-                    "wind_speed_2_mean": "15.5",
-                    "gust_squall_speed": "20.0",
-                    "observation_time": "2024-01-01 12:00",
-                }
+        "sensor_data": {
+            "TEST_STATION": {
+                "wind_direction": "180",
+                "wind_speed": "15.5",
+                "wind_gust": "20.0",
+                "updated": "2024-01-01 12:00",
             }
         }
     }

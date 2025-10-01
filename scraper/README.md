@@ -31,16 +31,44 @@ The `stations` section is a list of one or more stations to scrape. Each station
 
 -   `name`: The name of the station (e.g., `CYTZ`).
 -   `url`: The URL of the station's wind data feed.
--   `timeout`: The timeout in seconds for the HTTP request.
+-   `timeout`: The timeout in seconds for the HTTP request (default: `15`).
 -   `headers`: A table of HTTP headers to include in the request.
--   `parser`: The parser to use for the data feed. Currently, only `json` is supported.
--   `direction_path`: The path to the wind direction value in the JSON data.
--   `speed_path`: The path to the wind speed value in the JSON data.
--   `gust_path`: The path to the wind gust value in the JSON data.
--   `time_format`: The format of the timestamp in the data feed.
--   `timezone`: The timezone of the timestamp in the data feed.
+-   `parser`: The parser to use for the data feed. Currently, only `json` is supported (default: `json`).
+-   `direction_path`: Dot-separated path to the wind direction value in the JSON data (e.g., `sensor_data.wind_direction`). Default: `direction`.
+-   `speed_path`: Dot-separated path to the wind speed value in the JSON data (e.g., `sensor_data.wind_speed`). Default: `speed`.
+-   `gust_path`: Dot-separated path to the wind gust value in the JSON data (e.g., `sensor_data.wind_gust`). Default: `gust`.
+-   `timestamp_path`: Dot-separated path to the timestamp value in the JSON data (e.g., `sensor_data.updated`). Default: `timestamp`.
+-   `timestamp_format`: The format of the timestamp in the data feed using Python's `strptime` format codes (e.g., `%Y-%m-%d %H:%M`). See the [Python datetime documentation](https://docs.python.org/3/library/datetime.html#strftime-and-strptime-format-codes) for available format codes. Default: `%Y-%m-%d %H:%M`.
+-   `timezone`: The timezone of the timestamp in the data feed (default: `UTC`).
 -   `local_timezone`: The local timezone of the station.
--   `stale_data_timeout`: The minimum elapsed time in seconds before data is considered stale.
+-   `stale_data_timeout`: The minimum elapsed time in seconds before data is considered stale (default: `300`).
+
+#### JSON Path Configuration
+
+The path fields (`direction_path`, `speed_path`, `gust_path`, `timestamp_path`) use dot notation to traverse nested JSON structures. For example, given this JSON response:
+
+```json
+{
+  "sensor_data": {
+    "SENSOR_ID": {
+      "wind_direction": "180",
+      "wind_speed": "15.5",
+      "wind_gust": "20.0",
+      "updated": "2024-01-01 12:00"
+    }
+  }
+}
+```
+
+You would configure the paths as:
+```toml
+direction_path = "sensor_data.SENSOR_ID.wind_direction"
+speed_path = "sensor_data.SENSOR_ID.wind_speed"
+gust_path = "sensor_data.SENSOR_ID.wind_gust"
+timestamp_path = "sensor_data.SENSOR_ID.updated"
+```
+
+This allows the scraper to work with different JSON structures without code changes.
 
 ## Error Handling
 

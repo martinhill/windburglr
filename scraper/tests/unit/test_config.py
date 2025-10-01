@@ -91,7 +91,8 @@ class TestStationConfig:
             direction_path="wind/dir",
             speed_path="wind/speed",
             gust_path="wind/gust",
-            time_format="%Y-%m-%dT%H:%M:%SZ",
+            timestamp_path="timestamp",
+            timestamp_format="%Y-%m-%dT%H:%M:%SZ",
             timezone=tz,
             local_timezone=local_tz,
         )
@@ -104,7 +105,8 @@ class TestStationConfig:
         assert config.direction_path == "wind/dir"
         assert config.speed_path == "wind/speed"
         assert config.gust_path == "wind/gust"
-        assert config.time_format == "%Y-%m-%dT%H:%M:%SZ"
+        assert config.timestamp_path == "timestamp"
+        assert config.timestamp_format == "%Y-%m-%dT%H:%M:%SZ"
         assert config.timezone == tz
         assert config.local_timezone == local_tz
 

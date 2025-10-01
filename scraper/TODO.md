@@ -7,4 +7,3 @@
 * Review and fix brain-dead genAI test code
 
 ## Enhancements
-* Configurable json parser

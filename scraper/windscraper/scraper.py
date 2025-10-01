@@ -4,6 +4,7 @@ import logging
 import sys
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from typing import Any
 
 import aiohttp
 from aiohttp.web import HTTPClientError
@@ -17,6 +18,19 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _get_nested_value(data: dict[str, Any], path: str) -> Any:
+    keys = path.split(".")
+    value: Any = data
+    for key in keys:
+        if isinstance(value, dict):
+            value = value.get(key)
+            if value is None:
+                return None
+        else:
+            return None
+    return value
 
 
 class ObservationTracker:
@@ -58,7 +72,7 @@ class RetryHandler:
 
 # Callables
 DataRequester = Callable[[], Awaitable[str]]
-Parser = Callable[[str, StationConfig], WindObs]
+Parser = Callable[[str], WindObs]
 OutputHandler = Callable[[WindObs], Awaitable[None]]
 StatusHandler = Callable[[str, str, str | None], Awaitable[None]]
 
@@ -90,15 +104,15 @@ class WebRequesterContext:
 
 def create_json_parser(station_config: StationConfig) -> Parser:
     def json_to_wind_obs(raw_data: str) -> WindObs:
-        sensor_data = json.loads(raw_data)["v2"]["sensor_data"][station_config.name]
+        data = json.loads(raw_data)
 
-        wind_dir = sensor_data.get("wind_magnetic_dir_2_mean")
-        wind_speed = sensor_data.get("wind_speed_2_mean") or 0
-        wind_gust = sensor_data.get("gust_squall_speed")
+        wind_dir = _get_nested_value(data, station_config.direction_path)
+        wind_speed = _get_nested_value(data, station_config.speed_path) or 0
+        wind_gust = _get_nested_value(data, station_config.gust_path)
+        updated_text = _get_nested_value(data, station_config.timestamp_path)
 
-        updated_text = sensor_data.get("observation_time")
         try:
-            updated = datetime.strptime(updated_text, "%Y-%m-%d %H:%M")
+            updated = datetime.strptime(updated_text, station_config.timestamp_format)
             updated = updated.replace(tzinfo=station_config.timezone)
         except ValueError as ex:
             sys.stdout.write(f'ValueError {ex}: updated_text="{updated_text}"\n')
