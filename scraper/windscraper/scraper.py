@@ -197,7 +197,7 @@ class Scraper:
                 self.tracker.set_obs_last_timestamp(obs)
                 logger.debug("Emitting new observation for station %s", station)
                 await self.output_handler(obs)
-                await self.status_handler(station, "healthy", None)
+                await self.status_handler(station, "healthy", "")
             else:
                 # Check if we should mark as stale based on elapsed time
                 last_successful_time = self.tracker.get_last_obs_time(station)
@@ -235,7 +235,7 @@ class Scraper:
                     self.tracker.set_obs_last_timestamp(obs)
                     logger.debug("First observation for station %s", station)
                     await self.output_handler(obs)
-                    await self.status_handler(station, "healthy", None)
+                    await self.status_handler(station, "healthy", "")
         except aiohttp.ClientResponseError as e:
             error_msg = f"HTTP {e.status}: {e.message}"
             await self.status_handler(station, "http_error", error_msg)

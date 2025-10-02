@@ -187,7 +187,10 @@ BEGIN
         UPDATE scraper_status SET
             last_attempt = clock_timestamp(),
             status = new_status,
-            error_message = error_msg,
+            error_message = CASE
+                WHEN error_msg is NULL THEN error_message
+                ELSE error_msg
+            END,
             retry_count = CASE
                 WHEN new_status = 'healthy' THEN 0
                 WHEN new_status IN ('error', 'http_error', 'network_error', 'parse_error') THEN retry_count + 1

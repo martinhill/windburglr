@@ -1,5 +1,6 @@
 import asyncio
 import os
+from aiohttp.typedefs import Handler
 import pytest
 import pytest_asyncio
 from datetime import datetime, UTC
@@ -832,3 +833,377 @@ class TestDatabaseIntegration:
 
         assert result == 1
         assert call_count == 2  # One failure, one success
+
+
+class TestStatusHandlerIntegration:
+    """Integration tests for status_handler with postgres output mode."""
+
+    @pytest_asyncio.fixture
+    async def postgres_config(self) -> Config:
+        """Configuration with postgres output mode."""
+        return Config(
+            stations=[],
+            log_level="DEBUG",
+            refresh_rate=30,
+            db_url=os.getenv(
+                "TEST_DATABASE_URL", "postgresql://windburglr@/windburglr"
+            ),
+            output_mode="postgres",
+        )
+
+    @pytest_asyncio.fixture
+    async def db_handler(self, postgres_config: Config):
+        """Database handler instance wrapped in a transaction with rollback for test isolation."""
+
+        class MockPool:
+            def __init__(self, conn: asyncpg.Connection):
+                self.conn = conn
+
+            @asynccontextmanager
+            async def acquire(self):
+                yield self.conn
+
+        async with DatabaseHandler(postgres_config) as handler:
+            async with handler.pool.acquire() as conn:
+                real_pool = handler.pool
+                handler.pool = MockPool(conn)
+                transaction = conn.transaction()
+                try:
+                    await transaction.start()
+                    await conn.execute("""
+                        INSERT INTO station (name) VALUES ('TEST_A'), ('TEST_B'), ('TEST_C'), ('TEST_D')
+                        ON CONFLICT (name) DO NOTHING
+                    """)
+
+                    yield handler
+                finally:
+                    await transaction.rollback()
+                    handler.pool = real_pool
+
+
+    @pytest.mark.asyncio
+    async def test_status_handler_healthy_status(
+        self, postgres_config: Config, db_handler: DatabaseHandler
+    ):
+        """Test status handler with healthy status updates."""
+        from windscraper.main import create_status_handler
+
+        status_handler = create_status_handler(postgres_config, db_handler)
+
+        await status_handler("TEST_A", "healthy", None)
+
+        async with db_handler.pool.acquire() as conn:
+            status_results = await conn.fetch(
+                "SELECT * FROM get_scraper_status() WHERE station_name = 'TEST_A'"
+            )
+
+        assert len(status_results) == 1
+        result = status_results[0]
+        assert result["station_name"] == "TEST_A"
+        assert result["status"] == "healthy"
+        assert result["error_message"] is None
+        assert result["retry_count"] == 0
+        assert result["last_success"] is not None
+        assert result["time_since_last_attempt"] is not None
+        assert result["time_since_last_success"] is not None
+
+    @pytest.mark.asyncio
+    async def test_status_handler_error_status(
+        self, postgres_config: Config, db_handler: DatabaseHandler
+    ):
+        """Test status handler with error status updates."""
+        from windscraper.main import create_status_handler
+
+        status_handler = create_status_handler(postgres_config, db_handler)
+
+        await status_handler("TEST_B", "error", "Connection timeout occurred")
+
+        async with db_handler.pool.acquire() as conn:
+            status_results = await conn.fetch(
+                "SELECT * FROM get_scraper_status() WHERE station_name = 'TEST_B'"
+            )
+
+        assert len(status_results) == 1
+        result = status_results[0]
+        assert result["station_name"] == "TEST_B"
+        assert result["status"] == "error"
+        assert result["error_message"] == "Connection timeout occurred"
+        assert result["retry_count"] == 0
+        assert result["last_success"] is None
+        assert result["time_since_last_attempt"] is not None
+        assert result["time_since_last_success"] is None
+
+    @pytest.mark.asyncio
+    async def test_status_handler_network_error_status(
+        self, postgres_config: Config, db_handler: DatabaseHandler
+    ):
+        """Test status handler with network_error status."""
+        from windscraper.main import create_status_handler
+
+        status_handler = create_status_handler(postgres_config, db_handler)
+
+        await status_handler("TEST_C", "network_error", "DNS resolution failed")
+
+        async with db_handler.pool.acquire() as conn:
+            status_results = await conn.fetch(
+                "SELECT * FROM get_scraper_status() WHERE station_name = 'TEST_C'"
+            )
+
+        assert len(status_results) == 1
+        result = status_results[0]
+        assert result["station_name"] == "TEST_C"
+        assert result["status"] == "network_error"
+        assert result["error_message"] == "DNS resolution failed"
+        assert result["retry_count"] == 0
+        assert result["last_success"] is None
+
+    @pytest.mark.asyncio
+    async def test_status_handler_parse_error_status(
+        self, postgres_config: Config, db_handler: DatabaseHandler
+    ):
+        """Test status handler with parse_error status."""
+        from windscraper.main import create_status_handler
+
+        status_handler = create_status_handler(postgres_config, db_handler)
+
+        await status_handler("TEST_D", "parse_error", "Invalid JSON response")
+
+        async with db_handler.pool.acquire() as conn:
+            status_results = await conn.fetch(
+                "SELECT * FROM get_scraper_status() WHERE station_name = 'TEST_D'"
+            )
+
+        assert len(status_results) == 1
+        result = status_results[0]
+        assert result["station_name"] == "TEST_D"
+        assert result["status"] == "parse_error"
+        assert result["error_message"] == "Invalid JSON response"
+        assert result["retry_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_status_handler_stale_data_status(
+        self, postgres_config: Config, db_handler: DatabaseHandler
+    ):
+        """Test status handler with stale_data status."""
+        from windscraper.main import create_status_handler
+
+        status_handler = create_status_handler(postgres_config, db_handler)
+
+        await status_handler("TEST_A", "stale_data", "Data older than 5 minutes")
+
+        async with db_handler.pool.acquire() as conn:
+            status_results = await conn.fetch(
+                "SELECT * FROM get_scraper_status() WHERE station_name = 'TEST_A'"
+            )
+
+        assert len(status_results) == 1
+        result = status_results[0]
+        assert result["station_name"] == "TEST_A"
+        assert result["status"] == "stale_data"
+        assert result["error_message"] == "Data older than 5 minutes"
+
+    @pytest.mark.asyncio
+    async def test_status_handler_retry_count_increment(
+        self, postgres_config: Config, db_handler: DatabaseHandler
+    ):
+        """Test that retry_count increments correctly through status handler."""
+        from windscraper.main import create_status_handler
+
+        status_handler = create_status_handler(postgres_config, db_handler)
+
+        await status_handler("TEST_A", "error", "First error")
+        async with db_handler.pool.acquire() as conn:
+            result1 = await conn.fetchrow(
+                "SELECT retry_count FROM get_scraper_status() WHERE station_name = 'TEST_A'"
+            )
+        assert result1["retry_count"] == 0
+
+        await status_handler("TEST_A", "error", "Second error")
+        async with db_handler.pool.acquire() as conn:
+            result2 = await conn.fetchrow(
+                "SELECT retry_count FROM get_scraper_status() WHERE station_name = 'TEST_A'"
+            )
+        assert result2["retry_count"] == 1
+
+        await status_handler("TEST_A", "error", "Third error")
+        async with db_handler.pool.acquire() as conn:
+            result3 = await conn.fetchrow(
+                "SELECT retry_count FROM get_scraper_status() WHERE station_name = 'TEST_A'"
+            )
+        assert result3["retry_count"] == 2
+
+        await status_handler("TEST_A", "healthy", None)
+        async with db_handler.pool.acquire() as conn:
+            result4 = await conn.fetchrow(
+                "SELECT retry_count FROM get_scraper_status() WHERE station_name = 'TEST_A'"
+            )
+        assert result4["retry_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_status_handler_transition_from_error_to_healthy(
+        self, postgres_config: Config, db_handler: DatabaseHandler
+    ):
+        """Test status transition from error to healthy updates last_success."""
+        from windscraper.main import create_status_handler
+
+        status_handler = create_status_handler(postgres_config, db_handler)
+
+        await status_handler("TEST_B", "error", "Network issue")
+        async with db_handler.pool.acquire() as conn:
+            error_result = await conn.fetchrow(
+                "SELECT * FROM get_scraper_status() WHERE station_name = 'TEST_B'"
+            )
+        assert error_result["status"] == "error"
+        assert error_result["last_success"] is None
+        assert error_result["retry_count"] == 0
+
+        await status_handler("TEST_B", "healthy", "")
+        async with db_handler.pool.acquire() as conn:
+            healthy_result = await conn.fetchrow(
+                "SELECT * FROM get_scraper_status() WHERE station_name = 'TEST_B'"
+            )
+        assert healthy_result["status"] == "healthy"
+        assert healthy_result["last_success"] is not None
+        assert healthy_result["retry_count"] == 0
+        assert healthy_result["error_message"] is ""
+
+    @pytest.mark.asyncio
+    async def test_status_handler_multiple_stations_sequential(
+        self, postgres_config: Config, db_handler: DatabaseHandler
+    ):
+        """Test status handler with multiple stations updated sequentially."""
+        from windscraper.main import create_status_handler
+
+        status_handler = create_status_handler(postgres_config, db_handler)
+
+        await status_handler("TEST_A", "healthy", None)
+        await status_handler("TEST_B", "error", "Timeout")
+        await status_handler("TEST_C", "network_error", "DNS failed")
+        await status_handler("TEST_D", "parse_error", "Bad JSON")
+
+        async with db_handler.pool.acquire() as conn:
+            status_results = await conn.fetch(
+                "SELECT * FROM get_scraper_status() WHERE station_name IN ('TEST_A', 'TEST_B', 'TEST_C', 'TEST_D') ORDER BY station_name"
+            )
+
+        assert len(status_results) == 4
+
+        assert status_results[0]["station_name"] == "TEST_A"
+        assert status_results[0]["status"] == "healthy"
+        assert status_results[0]["error_message"] is None
+
+        assert status_results[1]["station_name"] == "TEST_B"
+        assert status_results[1]["status"] == "error"
+        assert status_results[1]["error_message"] == "Timeout"
+
+        assert status_results[2]["station_name"] == "TEST_C"
+        assert status_results[2]["status"] == "network_error"
+        assert status_results[2]["error_message"] == "DNS failed"
+
+        assert status_results[3]["station_name"] == "TEST_D"
+        assert status_results[3]["status"] == "parse_error"
+        assert status_results[3]["error_message"] == "Bad JSON"
+
+    @pytest.mark.asyncio
+    async def test_status_handler_time_fields_populated(
+        self, postgres_config: Config, db_handler: DatabaseHandler
+    ):
+        """Test that time-related fields are properly populated in get_scraper_status."""
+        from datetime import timedelta
+        from windscraper.main import create_status_handler
+
+        status_handler = create_status_handler(postgres_config, db_handler)
+
+        await status_handler("TEST_A", "healthy", None)
+
+        async with db_handler.pool.acquire() as conn:
+            result = await conn.fetchrow(
+                "SELECT * FROM get_scraper_status() WHERE station_name = 'TEST_A'"
+            )
+
+        assert result["time_since_last_attempt"] is not None
+        assert isinstance(result["time_since_last_attempt"], timedelta)
+
+        assert result["time_since_last_success"] is not None
+        assert isinstance(result["time_since_last_success"], timedelta)
+
+        assert result["last_success"] is not None
+
+    @pytest.mark.asyncio
+    async def test_status_handler_all_status_types_comprehensive(
+        self, postgres_config: Config, db_handler: DatabaseHandler
+    ):
+        """Test status handler with all status types and verify get_scraper_status returns correct data."""
+        from windscraper.main import create_status_handler
+
+        status_handler = create_status_handler(postgres_config, db_handler)
+
+        test_cases = [
+            ("TEST_A", "healthy", ""),
+            ("TEST_A", "error", "Connection refused"),
+            ("TEST_A", "healthy", ""),
+            ("TEST_B", "network_error", "Timeout after 30s"),
+            ("TEST_C", "parse_error", "Expected JSON, got HTML"),
+            ("TEST_D", "stale_data", "Data is 10 minutes old"),
+        ]
+
+        for station, status, error_msg in test_cases:
+            await status_handler(station, status, error_msg)
+
+        async with db_handler.pool.acquire() as conn:
+            all_results = await conn.fetch(
+                "SELECT * FROM get_scraper_status() WHERE station_name IN ('TEST_A', 'TEST_B', 'TEST_C', 'TEST_D') ORDER BY station_name"
+            )
+
+        assert len(all_results) == 4
+
+        test_a = next(r for r in all_results if r["station_name"] == "TEST_A")
+        assert test_a["status"] == "healthy"
+        assert test_a["error_message"] is ""
+        assert test_a["last_success"] is not None
+        assert test_a["retry_count"] == 0
+
+        test_b = next(r for r in all_results if r["station_name"] == "TEST_B")
+        assert test_b["status"] == "network_error"
+        assert test_b["error_message"] == "Timeout after 30s"
+        assert test_b["last_success"] is None
+        assert test_b["retry_count"] == 0
+
+        test_c = next(r for r in all_results if r["station_name"] == "TEST_C")
+        assert test_c["status"] == "parse_error"
+        assert test_c["error_message"] == "Expected JSON, got HTML"
+        assert test_c["last_success"] is None
+        assert test_c["retry_count"] == 0
+
+        test_d = next(r for r in all_results if r["station_name"] == "TEST_D")
+        assert test_d["status"] == "stale_data"
+        assert test_d["error_message"] == "Data is 10 minutes old"
+        assert test_d["last_success"] is None
+        assert test_d["retry_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_status_handler_null_error_message(
+        self, postgres_config: Config, db_handler: DatabaseHandler
+    ):
+        """Test status change with null error message preserves previous error message."""
+        from windscraper.main import create_status_handler
+
+        status_handler = create_status_handler(postgres_config, db_handler)
+
+        await status_handler("TEST_B", "error", "Network issue")
+        async with db_handler.pool.acquire() as conn:
+            error_result = await conn.fetchrow(
+                "SELECT * FROM get_scraper_status() WHERE station_name = 'TEST_B'"
+            )
+        assert error_result["status"] == "error"
+        assert error_result["last_success"] is None
+        assert error_result["retry_count"] == 0
+
+        await status_handler("TEST_B", "stopped", None)
+        async with db_handler.pool.acquire() as conn:
+            healthy_result = await conn.fetchrow(
+                "SELECT * FROM get_scraper_status() WHERE station_name = 'TEST_B'"
+            )
+        assert healthy_result["status"] == "stopped"
+        assert healthy_result["retry_count"] == 0
+        assert healthy_result["error_message"] == "Network issue"
