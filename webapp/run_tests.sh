@@ -173,7 +173,7 @@ fi
 
 # Install test dependencies
 print_status "Installing test dependencies..."
-uv sync --extra dev
+uv sync --dev
 # uv pip install pytest-cov pytest-playwright playwright
 playwright install chromium
 

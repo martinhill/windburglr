@@ -119,7 +119,7 @@
             # Install Python dependencies if requirements have changed
             if [ ! -f ".venv/.deps-installed" ] || [ pyproject.toml -nt .venv/.deps-installed ]; then
               echo "📦 Installing Python dependencies..."
-              uv sync --extra dev
+              uv sync --dev
               touch .venv/.deps-installed
             fi
 

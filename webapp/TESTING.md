@@ -33,7 +33,7 @@ The testing suite includes:
    ```
    or using `uv`:
    ```bash
-   uv sync --extra dev
+   uv sync --dev
    playwright install chromium
    ```
 

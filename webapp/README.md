@@ -44,7 +44,7 @@ The Nix environment will automatically:
 
 1. Install dependencies:
 ```bash
-uv sync --extra dev
+uv sync --dev
 ```
 
 2. Set up environment variables:

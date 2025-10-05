@@ -149,7 +149,7 @@ This will run all the unit and integration tests. You can also run specific test
 
 ```bash
 # Install dev dependencies
-uv sync --extra dev
+uv sync --dev
 
 # Run all tests in the tests/unit directory
 pytest tests/unit
