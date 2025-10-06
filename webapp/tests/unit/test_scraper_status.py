@@ -11,12 +11,8 @@ def test_scraper_status_initial_connection(test_client, mock_test_db_manager):
     mock_test_db_manager.create_test_data("CYTZ")
 
     with test_client.websocket_connect("/ws/CYTZ") as websocket:
-        # First receives wind_observation (since status isn't loaded at startup)
         message = websocket.receive_json()
-        assert message["type"] == "wind"
-
-        # Status update might not be sent if no status data is available during startup
-        # This is expected behavior when scraper status isn't pre-loaded
+        assert message["type"] == "status_update"
 
 
 @pytest.mark.timeout(1)
@@ -31,6 +27,8 @@ def test_scraper_status_no_wind_data(test_client, mock_test_db_manager):
         # When no wind data exists and scraper status isn't loaded during startup,
         # the WebSocket connection is established but no initial messages are sent.
         # This is expected behavior.
+        response = websocket.receive_json()
+        assert response["type"] == "status_update"
 
         # Send a ping to verify the connection works
         import json
@@ -47,6 +45,9 @@ async def test_scraper_status_update_notification(test_client, mock_test_db_mana
     # Get the mock listener connection from the test client
     mock_listener_conn = test_client.mock_listener_connection
     mock_test_db_manager.create_test_data("CYTZ")
+
+    # Initialize PostgresNotificationManager
+    test_client.get('/health')
 
     # Simulate a scraper status update notification
     status_update_data = {
@@ -103,6 +104,9 @@ async def test_scraper_status_multiple_stations(test_client, mock_test_db_manage
     mock_test_db_manager.create_test_data("CYTZ")
     mock_test_db_manager.create_test_data("CYYZ")
     mock_listener_conn = test_client.mock_listener_connection
+
+    # Initialize PostgresNotificationManager
+    test_client.get('/health')
 
     # Simulate a scraper status update notification
     status_update_data = {
@@ -164,11 +168,20 @@ async def test_scraper_status_broadcast_to_all_stations(
     mock_test_db_manager.create_test_data("CYTZ")
     mock_test_db_manager.create_test_data("CYYZ")
 
+    # Initialize PostgresNotificationManager
+    test_client.get('/health')
+
     with (
         test_client.websocket_connect("/ws/CYTZ") as ws_cytz,
         test_client.websocket_connect("/ws/CYYZ") as ws_cyyz,
     ):
-        # Clear initial messages - only wind_observation since no status pre-loaded
+        cytz_msg = ws_cytz.receive_json()  # status_update
+        assert cytz_msg["type"] == "status_update"
+
+        cyyz_msg = ws_cyyz.receive_json()  # status_update
+        assert cyyz_msg["type"] == "status_update"
+
+        # Clear initial messages
         cytz_msg = ws_cytz.receive_json()  # wind_observation
         assert cytz_msg["type"] == "wind"
 
@@ -205,6 +218,9 @@ async def test_scraper_status_data_structure(test_client, mock_test_db_manager):
     """Test the structure of scraper status data by triggering a notification."""
     mock_test_db_manager.create_test_data("CYTZ")
     mock_listener_conn = test_client.mock_listener_connection
+
+    # Initialize PostgresNotificationManager
+    test_client.get('/health')
 
     # Create status update data with all required fields
     status_update_data = {
@@ -258,6 +274,8 @@ async def test_scraper_status_update_with_invalid_data(
     mock_test_db_manager.create_test_data("CYTZ")
 
     with test_client.websocket_connect("/ws/CYTZ") as websocket:
+        initial_msg = websocket.receive_json()
+        assert initial_msg["type"] == "status_update"
         # Clear initial messages - just wind_observation
         initial_msg = websocket.receive_json()
         assert initial_msg["type"] == "wind"
@@ -284,6 +302,9 @@ async def test_scraper_status_timing_fields(test_client, mock_test_db_manager):
     """Test that timing fields in status data are properly formatted."""
     mock_test_db_manager.create_test_data("CYTZ")
     mock_listener_conn = test_client.mock_listener_connection
+
+    # Initialize PostgresNotificationManager
+    test_client.get('/health')
 
     # Create valid status update with timing fields
     status_update_data = {
@@ -323,6 +344,9 @@ async def test_get_scraper_status_route(test_client, mock_test_db_manager):
     """Test the GET /health/scraper-details route after populating watchdog with status updates."""
     # Get the mock listener connection from the test client
     mock_listener_conn = test_client.mock_listener_connection
+
+    # Initialize PostgresNotificationManager
+    test_client.get('/health')
 
     # Create status update data for multiple stations
     status_updates = [

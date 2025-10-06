@@ -194,7 +194,7 @@ class TestIntegration:
                 obs_time=new_obs_time,
             )
 
-            updated_message = await websocket.receive_json()
+            updated_message = await websocket.receive_json(timeout=1)
             assert isinstance(updated_message, dict)
             assert updated_message["type"] == "wind"
             updated_wind_obs = updated_message["data"]

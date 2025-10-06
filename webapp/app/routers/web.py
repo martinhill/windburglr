@@ -3,14 +3,13 @@ import zoneinfo
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
-import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from ..config import DEFAULT_STATION, GTAG_ID, get_sentry_config
-from ..dependencies import get_db_pool, get_dist_css_files, get_dist_js_files
-from ..services.station import get_station_timezone
+from ..dependencies import get_dist_css_files, get_dist_js_files, get_station_service
+from ..services.station import StationService
 
 router = APIRouter(tags=["web"])
 templates = Jinja2Templates(directory="templates")
@@ -54,7 +53,7 @@ async def redirect_to_today(stn: str = DEFAULT_STATION, hours: int = 24):
 async def historical_wind_day_chart(
     request: Request,
     date: str,
-    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
+    station_service: Annotated[StationService, Depends(get_station_service)],
     stn: str = DEFAULT_STATION,
     hours: int = 24,
 ):
@@ -68,7 +67,7 @@ async def historical_wind_day_chart(
         next_date = selected_date + timedelta(days=1)
 
         # Get station timezone to convert local day boundaries to UTC
-        station_tz_name = await get_station_timezone(stn, pool)
+        station_tz_name = await station_service.get_station_timezone(stn)
         station_tz = zoneinfo.ZoneInfo(station_tz_name)
 
         # Create day boundaries in station timezone, then convert to UTC

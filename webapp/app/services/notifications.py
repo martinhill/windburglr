@@ -92,7 +92,7 @@ class PostgresNotificationManager:
 
             # Start background monitoring task
             self.monitor_task = asyncio.create_task(self._monitor_pg_connection())
-            logger.info("Postgres connection monitoring started")
+            logger.info("Postgres connection monitoring started, interval=%s", self.postgres_monitor_interval)
 
         except Exception as e:
             logger.error("Failed to start Postgres listener: %s", e, exc_info=True)

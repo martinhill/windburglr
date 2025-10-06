@@ -654,13 +654,29 @@ class WindDataGenerator:
 def test_client(request, mock_test_db_manager):
     """Create a test client for unit tests that uses mock_test_db_manager."""
     # Get configuration overrides from request.param, defaulting to 60.0
+    import app.config
+
     config_overrides = getattr(request, "param", {})
-    websocket_timeout = config_overrides.get("websocket_timeout", 60.0)
+    websocket_ping_timeout = config_overrides.get(
+        "websocket_timeout", app.config.WEBSOCKET_PING_TIMEOUT
+    )
+    postgres_monitor_interval = config_overrides.get(
+        "postgres_monitor_interval", app.config.POSTGRES_MONITOR_INTERVAL
+    )
+
     import asyncio
     import json
 
-    from app.dependencies import get_db_pool, get_websocket_config
-    from main import make_app
+    from app.dependencies import (
+        get_db_pool,
+        get_pg_connection,
+        get_websocket_config,
+        reset_dependencies,
+    )
+    from main import app
+
+    # Reset global dependencies to ensure clean state between tests
+    reset_dependencies()
 
     class MockListenerConnection:
         """Mock asyncpg.Connection that supports listeners for testing."""
@@ -928,12 +944,18 @@ def test_client(request, mock_test_db_manager):
         return mock_pool
 
     async def get_mock_websocket_config():
-        return {"ping_timeout": websocket_timeout}
+        return {
+            "ping_timeout": websocket_ping_timeout,
+            "postgres_monitor_interval": postgres_monitor_interval,
+        }
 
-    # Create app with injected mock listener connection
-    app = make_app(pg_connection=mock_listener_conn)
+    async def get_mock_pg_connection():
+        return mock_listener_conn
+
+    # Use dependency overrides
     app.dependency_overrides[get_db_pool] = get_mock_pool
     app.dependency_overrides[get_websocket_config] = get_mock_websocket_config
+    app.dependency_overrides[get_pg_connection] = get_mock_pg_connection
 
     # Use LifespanManager to properly start the app and register listeners
     async def start_app():
@@ -981,14 +1003,19 @@ async def test_db_with_bulk_data(test_db_manager):
 
 @pytest.fixture
 async def app(test_db_manager, persistent_connection):
-    from app.dependencies import get_db_pool
-    from main import make_app
+    from app.dependencies import get_db_pool, get_pg_connection, reset_dependencies
+    from main import app
+
+    reset_dependencies()
 
     async def get_test_db_pool():
         return test_db_manager.pool
 
-    app = make_app(persistent_connection)
+    async def get_test_pg_connection():
+        return persistent_connection
+
     app.dependency_overrides[get_db_pool] = get_test_db_pool
+    app.dependency_overrides[get_pg_connection] = get_test_pg_connection
 
     async with LifespanManager(app) as manager:
         yield manager.app
@@ -997,20 +1024,48 @@ async def app(test_db_manager, persistent_connection):
 @pytest.fixture
 async def app_with_bulk_data(test_db_with_bulk_data, persistent_connection, request):
     """App fixture with pre-loaded bulk test data to avoid notification spam."""
-    from app.dependencies import get_db_pool
-    from main import make_app
+    import app.config
+    from app.dependencies import (
+        get_db_pool,
+        get_websocket_config,
+        get_pg_connection,
+        reset_dependencies,
+    )
+    from main import app as main_app
 
-    # Get configuration overrides from request.param, defaulting to empty dict
+    # Reset dependencies BEFORE setting overrides to ensure clean state
+    reset_dependencies()
+
     config_overrides = getattr(request, "param", {})
+    websocket_ping_timeout = config_overrides.get(
+        "websocket_timeout", app.config.WEBSOCKET_PING_TIMEOUT
+    )
+    postgres_monitor_interval = config_overrides.get(
+        "postgres_monitor_interval", app.config.POSTGRES_MONITOR_INTERVAL
+    )
+
+    async def get_mock_websocket_config():
+        return {
+            "ping_timeout": websocket_ping_timeout,
+            "postgres_monitor_interval": postgres_monitor_interval,
+        }
 
     async def get_test_db_pool():
         return test_db_with_bulk_data.pool
 
-    app = make_app(persistent_connection, config_overrides)
-    app.dependency_overrides[get_db_pool] = get_test_db_pool
+    async def get_test_pg_connection():
+        return persistent_connection
 
-    async with LifespanManager(app) as manager:
-        yield manager.app
+    main_app.dependency_overrides[get_db_pool] = get_test_db_pool
+    main_app.dependency_overrides[get_websocket_config] = get_mock_websocket_config
+    main_app.dependency_overrides[get_pg_connection] = get_test_pg_connection
+
+    try:
+        async with LifespanManager(main_app) as manager:
+            yield manager.app
+    finally:
+        # Reset dependencies for test isolation
+        reset_dependencies()
 
 
 @pytest.fixture

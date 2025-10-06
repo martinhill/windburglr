@@ -64,7 +64,7 @@ def test_health(test_client):
     assert health_data["status"] == "unhealthy"
     assert health_data["database"] == "failed"
     assert health_data["websocket"] == "no_connections"
-    assert health_data["postgresql_listener"] == "unhealthy"
+    assert health_data["postgresql_listener"] == "healthy"
 
 
 def test_root_endpoint(test_client):

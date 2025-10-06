@@ -11,6 +11,8 @@ def test_websocket_connection(test_client, mock_test_db_manager):
         # Connection should be established
         assert websocket is not None
         message = websocket.receive_json()
+        assert message["type"] == "status_update"
+        message = websocket.receive_json()
         assert message["type"] == "wind"
         data = message["data"]
         assert isinstance(data["timestamp"], float)
@@ -34,6 +36,8 @@ def test_websocket_different_stations(test_client, mock_test_db_manager):
         assert ws2 is not None
 
         message1 = ws1.receive_json()
+        assert message1["type"] == "status_update"
+        message1 = ws1.receive_json()
         assert message1["type"] == "wind"
         data1 = message1["data"]
         assert isinstance(data1["timestamp"], float)
@@ -42,6 +46,8 @@ def test_websocket_different_stations(test_client, mock_test_db_manager):
         assert isinstance(data1["gust_kts"], int)
         assert 0 <= data1["direction"] <= 360
 
+        message2 = ws2.receive_json()
+        assert message2["type"] == "status_update"
         message2 = ws2.receive_json()
         assert message2["type"] == "wind"
         data2 = message2["data"]
@@ -62,6 +68,8 @@ async def test_websocket_new_wind_observation(test_client, mock_test_db_manager)
     with test_client.websocket_connect("/ws/CYTZ") as websocket:
         # Connection should be established
         assert websocket is not None
+        message = websocket.receive_json()
+        assert message["type"] == "status_update"
         message = websocket.receive_json()
         assert message["type"] == "wind"
         data = message["data"]

@@ -5,9 +5,13 @@ and verify API responses against the generated data.
 """
 
 from datetime import UTC, datetime, timedelta
+import logging
 
 import pytest
 
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 @pytest.mark.integration
 class TestAPI:
@@ -132,9 +136,6 @@ class TestAPI:
         self, integration_client_with_bulk_data, test_db_with_bulk_data):
         """Test that API returns consistent data with database."""
 
-        end_time = datetime.now(UTC)
-        start_time = end_time - timedelta(hours=1)  # Use 1 hour for testing
-
         # Test API response structure
         response = await integration_client_with_bulk_data.get("/api/wind?hours=1")
         assert response.status_code == 200
@@ -145,10 +146,12 @@ class TestAPI:
         # Convert database timestamps to match API format if needed
         db_wind_obs = test_db_with_bulk_data.test_wind_data
         db_timestamps = [obs["update_time"] for obs in db_wind_obs]
+        logger.debug("Database timestamps: %s", len(db_timestamps))
         api_timestamps = [
             datetime.fromtimestamp(obs[0], tz=UTC)
             for obs in api_data["winddata"]
         ]
+        logger.debug("API timestamps: %s", len(api_timestamps))
 
         # Check that we have overlapping data points
         overlapping_timestamps = set(db_timestamps) & set(api_timestamps)

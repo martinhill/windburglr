@@ -1,12 +1,12 @@
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
-import asyncpg
 from fastapi import APIRouter, Depends
 
 from ..config import DEFAULT_STATION, ISO_FORMAT
-from ..dependencies import get_db_pool, get_wind_service
-from ..services.station import get_station_timezone
+from ..dependencies import get_pg_manager, get_wind_service, get_station_service
+from ..services.notifications import PostgresNotificationManager
+from ..services.station import StationService
 from ..services.wind_data import WindDataService
 
 router = APIRouter(prefix="/api", tags=["api"])
@@ -14,8 +14,9 @@ router = APIRouter(prefix="/api", tags=["api"])
 
 @router.get("/wind")
 async def get_wind_data(
-    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
     wind_service: Annotated[WindDataService, Depends(get_wind_service)],
+    pg_manager: Annotated[PostgresNotificationManager, Depends(get_pg_manager)],
+    station_service: Annotated[StationService, Depends(get_station_service)],
     stn: str = DEFAULT_STATION,
     from_time: str | None = None,
     to_time: str | None = None,
@@ -23,7 +24,7 @@ async def get_wind_data(
 ) -> dict[str, Any]:
     """Get wind data for a station and time range."""
     # Get station timezone for metadata only
-    station_tz_name = await get_station_timezone(stn, pool)
+    station_tz_name = await station_service.get_station_timezone(stn)
 
     if from_time and to_time:
         # Parse datetime strings as UTC (no timezone conversion)
@@ -41,9 +42,7 @@ async def get_wind_data(
         end_time = now_utc
 
     # Get data from service
-    result = await wind_service.get_cached_or_fresh_data(
-        stn, start_time, end_time, pool
-    )
+    result = await wind_service.get_cached_or_fresh_data(stn, start_time, end_time)
 
     return {
         "station": stn,

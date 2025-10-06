@@ -3,17 +3,17 @@ import json
 import logging
 from typing import Annotated
 
-import asyncpg
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from websockets.exceptions import ConnectionClosedError
 
 from ..dependencies import (
-    get_db_pool,
+    get_pg_manager,
     get_watchdog_service,
     get_websocket_config,
     get_websocket_manager,
     get_wind_service,
 )
+from ..services.notifications import PostgresNotificationManager
 from ..services.watchdog import WatchdogService
 from ..services.websocket import WebSocketManager
 from ..services.wind_data import WindDataService
@@ -27,11 +27,11 @@ router = APIRouter(tags=["websocket"])
 async def websocket_endpoint(
     websocket: WebSocket,
     station: str,
-    pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
     ws_manager: Annotated[WebSocketManager, Depends(get_websocket_manager)],
     wind_service: Annotated[WindDataService, Depends(get_wind_service)],
     watchdog_service: Annotated[WatchdogService, Depends(get_watchdog_service)],
     ws_config: Annotated[dict[str, float], Depends(get_websocket_config)],
+    pg_manager: Annotated[PostgresNotificationManager, Depends(get_pg_manager)],
 ):
     """WebSocket endpoint for real-time wind data updates."""
     await ws_manager.connect(websocket, station)
@@ -48,7 +48,7 @@ async def websocket_endpoint(
             await websocket.send_text(status_message)
 
         # Send initial wind data
-        initial_data = await wind_service.get_latest_wind_data(station, pool)
+        initial_data = await wind_service.get_latest_wind_data(station)
         if initial_data:
             await websocket.send_text(
                 json.dumps({"type": "wind", "data": initial_data})
