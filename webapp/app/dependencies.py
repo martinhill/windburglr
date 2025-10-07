@@ -15,10 +15,10 @@ from . import config
 from .cache.abc import CacheBackend
 from .cache.factory import create_cache_from_config
 from .services.notifications import PostgresNotificationManager
+from .services.station import StationService
 from .services.watchdog import WatchdogService
 from .services.websocket import WebSocketManager
 from .services.wind_data import WindDataService
-from .services.station import StationService
 
 logger = logging.getLogger("windburglr.dependencies")
 

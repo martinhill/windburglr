@@ -4,7 +4,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends
 
 from ..config import DEFAULT_STATION, ISO_FORMAT
-from ..dependencies import get_pg_manager, get_wind_service, get_station_service
+from ..dependencies import get_pg_manager, get_station_service, get_wind_service
 from ..services.notifications import PostgresNotificationManager
 from ..services.station import StationService
 from ..services.wind_data import WindDataService
