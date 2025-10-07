@@ -5,7 +5,6 @@
 * Chart label enable/disable click location is displaced above the label
 
 # Code Quality
-* Remove get_db_pool dependency injection. Provide get_db_pool as initialization for services. Try to remove main.make_app and refactor tests accordingly.
 
 ## CI/CD
 * Github deployment action
