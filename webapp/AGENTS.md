@@ -1,19 +1,23 @@
 # WindBurglr Agent Guidelines
 
 ## Build/Test Commands
+
+# Install dependencies
+uv pip install -e ".[dev]"
+
 ```bash
 # Run application
 ./start.sh
 
 # Type checking
-source .venv/bin/activate && pyright
+uv run pyright
 
 # Linting (if available)
 ruff check .
 ruff format .
 
 # Run tests
-source .venv/bin/activate && TEST_DATABASE_URL=postgresql://postgres:windburglr@localhost:5432/windburglr_test pytest -v
+uv run pytest -v
 ```
 
 ## Code Style Guidelines
@@ -33,6 +37,5 @@ source .venv/bin/activate && TEST_DATABASE_URL=postgresql://postgres:windburglr@
 
 ## Critical Rules
 - **ALL database timestamps are UTC** - never convert in backend
-- Use SQLModel for database models, FastAPI for endpoints
-- WebSocket connections managed via ConnectionManager class
+- Use Pydantic for database models, FastAPI for endpoints
 - Log timezone operations at DEBUG level

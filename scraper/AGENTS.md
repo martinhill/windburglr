@@ -11,17 +11,17 @@ uv pip install -e ".[dev]"
 python -m windscraper.main --config-file windburglr.toml
 
 # Run single test
-pytest tests/test_file.py::test_function -v
+uv run pytest tests/test_file.py::test_function -v
 
 # Run all tests with coverage
-pytest --cov=windscraper --cov-report=term-missing
+uv run pytest --cov=windscraper --cov-report=term-missing
 
 # Lint and format
 ruff check .
 ruff format .
 
 # Type check
-pyright
+uv run pyright
 
 ### Webapp (Python + JavaScript)
 
