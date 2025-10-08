@@ -3,7 +3,7 @@
 ## Build/Test Commands
 
 # Install dependencies
-uv pip install -e ".[dev]"
+uv sync
 
 ```bash
 # Run application

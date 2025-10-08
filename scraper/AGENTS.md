@@ -5,7 +5,7 @@
 ### Scraper (Python)
 
 # Install dependencies
-uv pip install -e ".[dev]"
+uv sync
 
 # Run scraper
 python -m windscraper.main --config-file windburglr.toml
