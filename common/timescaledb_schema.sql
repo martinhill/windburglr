@@ -193,7 +193,7 @@ BEGIN
             END,
             retry_count = CASE
                 WHEN new_status = 'healthy' THEN 0
-                WHEN new_status IN ('error', 'http_error', 'network_error', 'parse_error') THEN retry_count + 1
+                WHEN new_status IN ('error', 'http_error', 'network_error', 'parse_error', 'stale_data') THEN retry_count + 1
                 ELSE retry_count
             END,
             updated_at = clock_timestamp(),
