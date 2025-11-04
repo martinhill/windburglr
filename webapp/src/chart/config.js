@@ -181,12 +181,7 @@ export class ChartManager {
             },
             plugins: {
                 legend: {
-                    position: 'bottom',
-                    labels: {
-                        color: textColor,
-                        // usePointStyle: true,
-                        padding: 20
-                    }
+                    display: false
                 },
                 tooltip: {
                     enabled: false
