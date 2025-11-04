@@ -8,7 +8,7 @@
 uv sync
 
 # Run scraper
-python -m windscraper.main --config-file windburglr.toml
+uv run windscraper
 
 # Run single test
 uv run pytest tests/test_file.py::test_function -v
@@ -73,3 +73,4 @@ Run `coderabbit review --plain` to get comprehensive code analysis and improveme
 • Log at appropriate levels - DEBUG for development, INFO for operations
 • Test database operations - use test database URLs in CI/tests
 • Validate all inputs - use Pydantic models for data validation
+- Do not commit changes without review

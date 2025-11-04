@@ -1,6 +1,7 @@
 # TODO
 
 ## Issues
+* Frontend sometimes fails to request wind data on startup
 * Historical day view starts at 7am?
 * Chart label enable/disable click location is displaced above the label
 
@@ -15,7 +16,6 @@
 * consider parameterized tests
 
 ## UI/UX
-* move legend to chart controls area
 * optional wind direction arrows in place of right axis point plot
 * configure better chart animation
 * accessibility testing/improvements
