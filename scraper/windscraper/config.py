@@ -53,6 +53,14 @@ class StationConfig:
     local_timezone: tzinfo = UTC
     # Minimum elapsed time in seconds before data is considered stale
     stale_data_timeout: int = 300  # 5 minutes default
+    # Encoding applied to the raw response before parsing (e.g. "base64")
+    encoding: str | None = None
+    # Encryption applied to the raw response after decoding (e.g. "aes256cbc")
+    encryption: str | None = None
+    # URL from which to fetch the decryption key
+    key_url: str | None = None
+    # Regex with one capture group that extracts the key from the key_url response
+    key_extract_regex: str | None = None
 
     def __post_init__(self):
         if isinstance(self.timezone, str):
@@ -94,6 +102,10 @@ def load_config_from_toml(file_path: str) -> Config:
                 timezone=station.get("timezone", UTC),
                 local_timezone=station["local_timezone"],
                 stale_data_timeout=station.get("stale_data_timeout", 300),
+                encoding=station.get("encoding"),
+                encryption=station.get("encryption"),
+                key_url=station.get("key_url"),
+                key_extract_regex=station.get("key_extract_regex"),
             )
         )
 

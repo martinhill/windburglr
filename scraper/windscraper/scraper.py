@@ -1,6 +1,8 @@
 import asyncio
+import base64
 import json
 import logging
+import re
 import sys
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
@@ -8,6 +10,8 @@ from typing import Any
 
 import aiohttp
 from aiohttp.web import HTTPClientError
+from Crypto.Cipher import AES  # pyright: ignore[reportMissingModuleSource]
+from Crypto.Util.Padding import unpad  # pyright: ignore[reportMissingModuleSource]
 
 from .config import Config, StationConfig
 from .models import (
@@ -100,6 +104,97 @@ class WebRequesterContext:
             return await response.text()
 
         return fetch_raw_data
+
+
+def create_base64_decoder(inner: Parser) -> Parser:
+    """Wrap a parser with a base64 decoding step."""
+
+    def decode_and_parse(raw_data: str) -> WindObs:
+        decoded = base64.b64decode(raw_data.strip())
+        return inner(decoded.decode("latin-1"))
+
+    return decode_and_parse
+
+
+def create_aes256cbc_decryptor(key: bytes, inner: Parser) -> Parser:
+    """Wrap a parser with an AES-256-CBC decryption step.
+
+    The ciphertext is expected to have the 16-byte IV prepended.
+    """
+
+    def decrypt_and_parse(raw_data: str) -> WindObs:
+        ciphertext = raw_data.encode("latin-1")
+        iv = ciphertext[:16]
+        cipher = AES.new(key, AES.MODE_CBC, iv)
+        plaintext = unpad(cipher.decrypt(ciphertext[16:]), AES.block_size)
+        return inner(plaintext.decode("utf-8"))
+
+    return decrypt_and_parse
+
+
+async def _fetch_key(
+    session: aiohttp.ClientSession,
+    key_url: str,
+    key_extract_regex: str,
+    station_name: str,
+) -> bytes:
+    """Fetch decryption key from a URL and extract it using a regex."""
+    async with session.get(key_url) as response:
+        # Ignore 404 status response.raise_for_status()
+        text = await response.text()
+    match = re.search(key_extract_regex, text)
+    if not match:
+        raise ValueError(
+            f"key_extract_regex {key_extract_regex!r} produced no match for station {station_name}"
+        )
+    return match.group(1).encode("utf-8")
+
+
+async def create_parser(
+    station_config: StationConfig,
+    session: aiohttp.ClientSession,
+) -> Parser:
+    """Factory that returns the appropriate Parser for a station.
+
+    Reads ``station_config.parser`` (currently only ``"json"`` is supported),
+    then wraps the inner parser with decryption and/or decoding layers as
+    dictated by ``station_config.encryption`` and ``station_config.encoding``.
+
+    Layer order (outermost → innermost):
+        encoding  →  encryption  →  json parser
+
+    Supported values:
+        encoding:   ``"base64"``
+        encryption: ``"aes256cbc"``
+    """
+    inner: Parser = create_json_parser(station_config)
+
+    if station_config.encryption == "aes256cbc":
+        if not station_config.key_url or not station_config.key_extract_regex:
+            raise ValueError(
+                f"station {station_config.name}: key_url and key_extract_regex are required for aes256cbc"
+            )
+        key = await _fetch_key(
+            session,
+            station_config.key_url,
+            station_config.key_extract_regex,
+            station_config.name,
+        )
+        logger.info("Fetched decryption key for station %s", station_config.name)
+        inner = create_aes256cbc_decryptor(key, inner)
+    elif station_config.encryption is not None:
+        raise ValueError(
+            f"station {station_config.name}: unsupported encryption {station_config.encryption!r}"
+        )
+
+    if station_config.encoding == "base64":
+        inner = create_base64_decoder(inner)
+    elif station_config.encoding is not None:
+        raise ValueError(
+            f"station {station_config.name}: unsupported encoding {station_config.encoding!r}"
+        )
+
+    return inner
 
 
 def create_json_parser(station_config: StationConfig) -> Parser:

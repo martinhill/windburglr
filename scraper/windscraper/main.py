@@ -20,15 +20,17 @@ from .scraper import (
     Scraper,
     StatusHandler,
     WebRequesterContext,
-    create_json_parser,
+    create_parser,
 )
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+
 async def handle_stdout(obs: WindObs):
-    speed_str = f'{obs.speed}-{obs.gust}' if obs.gust else f'{obs.speed}'
-    print(f'{obs.station}: {obs.direction} deg, {speed_str} kts, {obs.timestamp}')
+    speed_str = f"{obs.speed}-{obs.gust}" if obs.gust else f"{obs.speed}"
+    print(f"{obs.station}: {obs.direction} deg, {speed_str} kts, {obs.timestamp}")
+
 
 async def handle_status_stdout(station: str, status: str, error_message: str | None):
     if error_message:
@@ -48,17 +50,25 @@ class StdoutHandler:
         pass
 
 
-def create_output_handler(config: Config, handler: DatabaseHandler | StdoutHandler) -> OutputHandler:
+def create_output_handler(
+    config: Config, handler: DatabaseHandler | StdoutHandler
+) -> OutputHandler:
     if config.output_mode == "postgres":
         return lambda obs: handle_postgres(obs, handler)
     else:
         return handle_stdout
 
-def create_status_handler(config: Config, handler: DatabaseHandler | StdoutHandler) -> StatusHandler:
+
+def create_status_handler(
+    config: Config, handler: DatabaseHandler | StdoutHandler
+) -> StatusHandler:
     if config.output_mode == "postgres":
-        return lambda station, status, msg: handle_status_postgres(station, status, msg, handler)
+        return lambda station, status, msg: handle_status_postgres(
+            station, status, msg, handler
+        )
     else:
         return handle_status_stdout
+
 
 def setup_sentry():
     try:
@@ -125,11 +135,10 @@ def main():
     try:
         asyncio.run(async_main(config, output_handler_cls))
     except KeyboardInterrupt:
-        logger.info('KeyboardInterrupt received - pulling QR!')
+        logger.info("KeyboardInterrupt received - pulling QR!")
 
 
 async def async_main(config, output_handler_cls):
-
     async with (
         WebRequesterContext(config) as requester_builder,
         output_handler_cls(config) as output_ctx,
@@ -141,7 +150,7 @@ async def async_main(config, output_handler_cls):
             Scraper.create(
                 station_config,
                 requester_builder.create_requester(station_config),
-                create_json_parser(station_config),
+                await create_parser(station_config, requester_builder.session),
             )
             for station_config in config.stations
         ]

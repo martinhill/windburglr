@@ -18,7 +18,10 @@ from windscraper.scraper import (
     RetryHandler,
     WebRequesterContext,
     Scraper,
+    create_aes256cbc_decryptor,
+    create_base64_decoder,
     create_json_parser,
+    create_parser,
 )
 
 
@@ -185,6 +188,204 @@ def test_create_json_parser_invalid_timestamp(sample_station_config: StationConf
         assert False, "Should have raised ValueError"
     except ValueError:
         pass  # Expected
+
+
+class TestCreateBase64Decoder:
+    """Tests for create_base64_decoder."""
+
+    def test_decodes_base64_before_passing_to_inner(
+        self, sample_station_config: StationConfig, mock_raw_json_data: str
+    ):
+        """Decoded bytes are passed to the inner parser and produce a valid WindObs."""
+        import base64
+
+        inner = create_json_parser(sample_station_config)
+        parser = create_base64_decoder(inner)
+        encoded = base64.b64encode(mock_raw_json_data.encode("utf-8")).decode("ascii")
+        obs = parser(encoded)
+        assert obs.station == sample_station_config.name
+        assert obs.direction == 180
+
+    def test_strips_whitespace_before_decoding(
+        self, sample_station_config: StationConfig, mock_raw_json_data: str
+    ):
+        """Leading/trailing whitespace (e.g. newlines) is stripped before decoding."""
+        import base64
+
+        inner = create_json_parser(sample_station_config)
+        parser = create_base64_decoder(inner)
+        encoded = (
+            "\n"
+            + base64.b64encode(mock_raw_json_data.encode("utf-8")).decode("ascii")
+            + "\n"
+        )
+        obs = parser(encoded)
+        assert obs.speed == 15.5
+
+    def test_invalid_base64_raises(self, sample_station_config: StationConfig):
+        """Non-base64 input propagates an error from the decoder."""
+        inner = create_json_parser(sample_station_config)
+        parser = create_base64_decoder(inner)
+        with pytest.raises(Exception):
+            parser("!!!not-base64!!!")
+
+
+class TestCreateAes256CbcDecryptor:
+    """Tests for create_aes256cbc_decryptor."""
+
+    # Deterministic ciphertext: AES-256-CBC, IV=bytes(range(16)), key as below,
+    # plaintext = mock_raw_json_data (the nested sensor_data fixture JSON).
+    _KEY = b"WpSm7Cq4WCmjS3KkWM9yUwcIRas9oKSc"
+    _CIPHERTEXT_B64 = (
+        "AAECAwQFBgcICQoLDA0OD50ixxvtsjLfFM6qYdsB5YGnAAAWSrxihDXeR2JaXUsm"
+        "7W5i6lhsdK9fG27IqaNoIJgcQbSxIVKPPlvx9Deko9Tttp63V4oLIsn1z7q2gGj"
+        "KdiIzhZtq9Pf0bebJxx/Sfkdgmtfkq43Sd928eOwZhLBbcxZyLP64d7LbdTPd3a1"
+        "uI29pcrFRG1J9d1H5VnZ+uQ=="
+    )
+
+    def _raw_ciphertext(self) -> str:
+        """Return the IV-prepended ciphertext as a latin-1 string (as the parser sees it)."""
+        import base64
+
+        return base64.b64decode(self._CIPHERTEXT_B64).decode("latin-1")
+
+    def test_decrypts_to_valid_wind_obs(self, sample_station_config: StationConfig):
+        """Ciphertext with prepended IV decrypts to the expected WindObs."""
+        inner = create_json_parser(sample_station_config)
+        parser = create_aes256cbc_decryptor(self._KEY, inner)
+        obs = parser(self._raw_ciphertext())
+        assert obs.station == sample_station_config.name
+        assert obs.direction == 180
+        assert obs.speed == 15.5
+        assert obs.gust == 20.0
+
+    def test_wrong_key_raises(self, sample_station_config: StationConfig):
+        """A wrong key produces garbage that fails JSON parsing."""
+        bad_key = b"A" * 32
+        inner = create_json_parser(sample_station_config)
+        parser = create_aes256cbc_decryptor(bad_key, inner)
+        with pytest.raises(Exception):
+            parser(self._raw_ciphertext())
+
+
+class TestCreateParser:
+    """Tests for the async create_parser factory."""
+
+    @pytest.fixture
+    def plain_config(self, sample_station_config: StationConfig) -> StationConfig:
+        """Station config with no encoding or encryption."""
+        return sample_station_config
+
+    @pytest.fixture
+    def base64_config(self, sample_station_config: StationConfig) -> StationConfig:
+        sample_station_config.encoding = "base64"
+        return sample_station_config
+
+    @pytest.fixture
+    def aes_base64_config(self, sample_station_config: StationConfig) -> StationConfig:
+        sample_station_config.encoding = "base64"
+        sample_station_config.encryption = "aes256cbc"
+        sample_station_config.key_url = "https://example.com/page"
+        sample_station_config.key_extract_regex = r'aesKey:"([^"]+)"'
+        return sample_station_config
+
+    @pytest.mark.asyncio
+    async def test_plain_json_parser(
+        self, plain_config: StationConfig, mock_raw_json_data: str
+    ):
+        """create_parser with no encoding/encryption returns a plain JSON parser."""
+        mock_session = MagicMock()
+        parser = await create_parser(plain_config, mock_session)
+        obs = parser(mock_raw_json_data)
+        assert obs.direction == 180
+
+    @pytest.mark.asyncio
+    async def test_base64_parser(
+        self, base64_config: StationConfig, mock_raw_json_data: str
+    ):
+        """create_parser with encoding=base64 decodes before parsing."""
+        import base64
+
+        mock_session = MagicMock()
+        parser = await create_parser(base64_config, mock_session)
+        encoded = base64.b64encode(mock_raw_json_data.encode()).decode("ascii")
+        obs = parser(encoded)
+        assert obs.speed == 15.5
+
+    @pytest.mark.asyncio
+    async def test_aes256cbc_base64_parser(self, aes_base64_config: StationConfig):
+        """create_parser with encryption=aes256cbc fetches the key and decrypts."""
+        ciphertext_b64 = (
+            "AAECAwQFBgcICQoLDA0OD50ixxvtsjLfFM6qYdsB5YGnAAAWSrxihDXeR2JaXUsm"
+            "7W5i6lhsdK9fG27IqaNoIJgcQbSxIVKPPlvx9Deko9Tttp63V4oLIsn1z7q2gGj"
+            "KdiIzhZtq9Pf0bebJxx/Sfkdgmtfkq43Sd928eOwZhLBbcxZyLP64d7LbdTPd3a1"
+            "uI29pcrFRG1J9d1H5VnZ+uQ=="
+        )
+
+        # Mock HTTP session: returns a page containing the key
+        page_text = 'aesKey:"WpSm7Cq4WCmjS3KkWM9yUwcIRas9oKSc"'
+        mock_response = AsyncMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.text = AsyncMock(return_value=page_text)
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=False)
+
+        mock_session = MagicMock()
+        mock_session.get = MagicMock(return_value=mock_response)
+
+        parser = await create_parser(aes_base64_config, mock_session)
+        obs = parser(ciphertext_b64)
+        assert obs.direction == 180
+        assert obs.gust == 20.0
+
+    @pytest.mark.asyncio
+    async def test_unsupported_encoding_raises(
+        self, sample_station_config: StationConfig
+    ):
+        """create_parser raises ValueError for an unknown encoding."""
+        sample_station_config.encoding = "hex"
+        mock_session = MagicMock()
+        with pytest.raises(ValueError, match="unsupported encoding"):
+            await create_parser(sample_station_config, mock_session)
+
+    @pytest.mark.asyncio
+    async def test_unsupported_encryption_raises(
+        self, sample_station_config: StationConfig
+    ):
+        """create_parser raises ValueError for an unknown encryption."""
+        sample_station_config.encryption = "rsa"
+        mock_session = MagicMock()
+        with pytest.raises(ValueError, match="unsupported encryption"):
+            await create_parser(sample_station_config, mock_session)
+
+    @pytest.mark.asyncio
+    async def test_aes256cbc_missing_key_url_raises(
+        self, sample_station_config: StationConfig
+    ):
+        """create_parser raises ValueError when key_url is missing for aes256cbc."""
+        sample_station_config.encryption = "aes256cbc"
+        sample_station_config.key_url = None
+        sample_station_config.key_extract_regex = r'key:"([^"]+)"'
+        mock_session = MagicMock()
+        with pytest.raises(ValueError, match="key_url and key_extract_regex"):
+            await create_parser(sample_station_config, mock_session)
+
+    @pytest.mark.asyncio
+    async def test_aes256cbc_key_regex_no_match_raises(
+        self, aes_base64_config: StationConfig
+    ):
+        """_fetch_key raises ValueError when the regex finds no match in the page."""
+        mock_response = AsyncMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.text = AsyncMock(return_value="no key here")
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=False)
+
+        mock_session = MagicMock()
+        mock_session.get = MagicMock(return_value=mock_response)
+
+        with pytest.raises(ValueError, match="produced no match"):
+            await create_parser(aes_base64_config, mock_session)
 
 
 class TestObservationTracker:
@@ -636,7 +837,7 @@ class TestScraper:
         mock_tracker.set_obs_last_timestamp.assert_called_once_with(sample_wind_obs)
         mock_output_handler.assert_called_once_with(sample_wind_obs)
         mock_status_handler.assert_called_once_with(
-            sample_station_config.name, "healthy", None
+            sample_station_config.name, "healthy", ""
         )
 
     @pytest.mark.asyncio
@@ -653,9 +854,9 @@ class TestScraper:
         mock_tracker = MagicMock()
         mock_tracker.is_new_obs.return_value = False
         # Mock to return a time that's older than the timeout (300 seconds default)
-        mock_tracker.get_last_obs_time.return_value = datetime.now(
-            UTC
-        ) - timedelta(seconds=400)
+        mock_tracker.get_last_obs_time.return_value = datetime.now(UTC) - timedelta(
+            seconds=400
+        )
         mock_retry_handler = MagicMock()
         mock_retry_handler.execute_with_retry = AsyncMock(
             return_value='{"test": "data"}'
@@ -844,9 +1045,9 @@ class TestScraper:
 
         # Mock tracker to simulate duplicate observation
         mock_tracker.is_new_obs.return_value = False
-        mock_tracker.get_last_obs_time.return_value = datetime.now(
-            UTC
-        ) - timedelta(seconds=30)  # 30 seconds ago
+        mock_tracker.get_last_obs_time.return_value = datetime.now(UTC) - timedelta(
+            seconds=30
+        )  # 30 seconds ago
 
         scraper = Scraper(
             station_config,
@@ -894,9 +1095,9 @@ class TestScraper:
 
         # Mock tracker to simulate duplicate observation
         mock_tracker.is_new_obs.return_value = False
-        mock_tracker.get_last_obs_time.return_value = datetime.now(
-            UTC
-        ) - timedelta(seconds=90)  # 90 seconds ago
+        mock_tracker.get_last_obs_time.return_value = datetime.now(UTC) - timedelta(
+            seconds=90
+        )  # 90 seconds ago
 
         scraper = Scraper(
             station_config,
@@ -955,10 +1156,8 @@ class TestScraper:
         # Should call output handler for first observation
         mock_output_handler.assert_called_once_with(sample_wind_obs)
         # Should set successful timestamp
-        mock_tracker.set_obs_last_timestamp.assert_called_once_with(
-            sample_wind_obs
-        )
+        mock_tracker.set_obs_last_timestamp.assert_called_once_with(sample_wind_obs)
         # Should call status handler with healthy
         mock_status_handler.assert_called_once_with(
-            sample_station_config.name, "healthy", None
+            sample_station_config.name, "healthy", ""
         )
