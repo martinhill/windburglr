@@ -12,8 +12,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Sync the project
 COPY pyproject.toml uv.lock ./
 COPY windscraper ./windscraper/
+# Always rebuild the project: uv's cached wheel is keyed on pyproject.toml, not the source
+# files, so without this the persistent cache mount can install stale code
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-editable
+    uv sync --locked --no-editable --reinstall-package windscraper
 
 # Capture git SHA for Sentry release tracking
 ARG SENTRY_RELEASE
