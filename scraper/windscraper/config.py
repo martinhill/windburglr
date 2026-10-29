@@ -61,6 +61,10 @@ class StationConfig:
     key_url: str | None = None
     # Regex with one capture group that extracts the key from the key_url response
     key_extract_regex: str | None = None
+    # Optional regex with one capture group that extracts an asset path/URL from the key_url
+    # response; the asset is fetched (resolved relative to key_url) and key_extract_regex is
+    # applied to it instead
+    key_asset_regex: str | None = None
 
     def __post_init__(self):
         if isinstance(self.timezone, str):
@@ -106,6 +110,7 @@ def load_config_from_toml(file_path: str) -> Config:
                 encryption=station.get("encryption"),
                 key_url=station.get("key_url"),
                 key_extract_regex=station.get("key_extract_regex"),
+                key_asset_regex=station.get("key_asset_regex"),
             )
         )
 

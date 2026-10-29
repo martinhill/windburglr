@@ -7,6 +7,7 @@ import sys
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urljoin
 
 import aiohttp
 from aiohttp.web import HTTPClientError
@@ -132,16 +133,35 @@ def create_aes256cbc_decryptor(key: bytes, inner: Parser) -> Parser:
     return decrypt_and_parse
 
 
+async def _fetch_text(session: aiohttp.ClientSession, url: str) -> str:
+    async with session.get(url) as response:
+        # Ignore 404 status response.raise_for_status()
+        return await response.text()
+
+
 async def _fetch_key(
     session: aiohttp.ClientSession,
     key_url: str,
     key_extract_regex: str,
     station_name: str,
+    key_asset_regex: str | None = None,
 ) -> bytes:
-    """Fetch decryption key from a URL and extract it using a regex."""
-    async with session.get(key_url) as response:
-        # Ignore 404 status response.raise_for_status()
-        text = await response.text()
+    """Fetch decryption key from a URL and extract it using a regex.
+
+    If ``key_asset_regex`` is given, the ``key_url`` page is first searched for
+    an asset path (e.g. a content-hashed JS bundle), which is resolved relative
+    to ``key_url`` and fetched; ``key_extract_regex`` is then applied to the asset.
+    """
+    text = await _fetch_text(session, key_url)
+    if key_asset_regex:
+        match = re.search(key_asset_regex, text)
+        if not match:
+            raise ValueError(
+                f"key_asset_regex {key_asset_regex!r} produced no match for station {station_name}"
+            )
+        asset_url = urljoin(key_url, match.group(1))
+        logger.debug("Fetching key asset %s for station %s", asset_url, station_name)
+        text = await _fetch_text(session, asset_url)
     match = re.search(key_extract_regex, text)
     if not match:
         raise ValueError(
@@ -179,6 +199,7 @@ async def create_parser(
             station_config.key_url,
             station_config.key_extract_regex,
             station_config.name,
+            station_config.key_asset_regex,
         )
         logger.info("Fetched decryption key for station %s", station_config.name)
         inner = create_aes256cbc_decryptor(key, inner)

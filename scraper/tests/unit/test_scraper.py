@@ -17,6 +17,7 @@ from windscraper.scraper import (
     ObservationTracker,
     RetryHandler,
     WebRequesterContext,
+    _fetch_key,
     Scraper,
     create_aes256cbc_decryptor,
     create_base64_decoder,
@@ -386,6 +387,60 @@ class TestCreateParser:
 
         with pytest.raises(ValueError, match="produced no match"):
             await create_parser(aes_base64_config, mock_session)
+
+    @staticmethod
+    def _mock_session_for_pages(pages: dict[str, str]) -> MagicMock:
+        """Mock HTTP session that returns the text for each requested URL."""
+
+        def get(url: str):
+            mock_response = AsyncMock()
+            mock_response.text = AsyncMock(return_value=pages[url])
+            mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+            mock_response.__aexit__ = AsyncMock(return_value=False)
+            return mock_response
+
+        mock_session = MagicMock()
+        mock_session.get = MagicMock(side_effect=get)
+        return mock_session
+
+    @pytest.mark.asyncio
+    async def test_fetch_key_via_asset(self):
+        """_fetch_key finds the asset in the key_url page and extracts the key from it."""
+        html = (
+            '<link rel="modulepreload" crossorigin '
+            'href="/assets/__federation_expose_Crypto-D4BUP5mm.js">'
+        )
+        js = 'const rawKey = "WpSm7Cq4WCmjS3KkWM9yUwcIRas9oKSc";'
+        mock_session = self._mock_session_for_pages(
+            {
+                "https://example.com/workspace/CYTZ": html,
+                "https://example.com/assets/__federation_expose_Crypto-D4BUP5mm.js": js,
+            }
+        )
+
+        key = await _fetch_key(
+            mock_session,
+            "https://example.com/workspace/CYTZ",
+            r'rawKey\s*=\s*"([^"]+)"',
+            "CYTZ",
+            key_asset_regex=r'"([^"]*/__federation_expose_Crypto-[\w-]+\.js)"',
+        )
+        assert key == b"WpSm7Cq4WCmjS3KkWM9yUwcIRas9oKSc"
+
+    @pytest.mark.asyncio
+    async def test_fetch_key_asset_regex_no_match_raises(self):
+        """_fetch_key raises ValueError when the asset regex finds no match."""
+        mock_session = self._mock_session_for_pages(
+            {"https://example.com/page": "<html></html>"}
+        )
+        with pytest.raises(ValueError, match="key_asset_regex"):
+            await _fetch_key(
+                mock_session,
+                "https://example.com/page",
+                r'rawKey\s*=\s*"([^"]+)"',
+                "CYTZ",
+                key_asset_regex=r'"([^"]*/Crypto-[\w-]+\.js)"',
+            )
 
 
 class TestObservationTracker:
