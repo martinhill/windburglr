@@ -473,7 +473,7 @@ class TestDatabaseIntegration:
         assert results[1]["name"] == "STATION_2"
         assert results[1]["status"] == "stale_data"
         assert results[1]["error_message"] == "Data older than 1 hour"
-        assert results[1]["retry_count"] == 0  # First error, starts at 0
+        assert results[1]["retry_count"] == 1  # stale_data after error counts as a retry
 
         # Check STATION_3: should be network_error
         assert results[2]["name"] == "STATION_3"
