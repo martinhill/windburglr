@@ -104,19 +104,16 @@ For the best development experience, use Nix to set up a complete development en
 
 3.  **Enter the Development Environment**:
     ```bash
-    nix develop
+    nix develop ..#scraper
     ```
     Or, if you use `direnv`:
     ```bash
     direnv allow
     ```
 
-The Nix environment will automatically:
-- Set up Python 3.13 with all dependencies
-- Initialize a PostgreSQL 15 database
-- Configure development tools (pyright, ruff, etc.)
-- Create a Python virtual environment
-- Install all Python dependencies
+The environment provides Python 3.13, uv and PostgreSQL 18. It does not start anything; see
+[Development environment](../README.md#development-environment) for the shared database
+(`../scripts/db.sh up`). Install dependencies with `uv sync`.
 
 ## Running
 

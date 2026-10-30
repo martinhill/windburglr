@@ -1,7 +1,9 @@
 import logging
 import os
+import subprocess
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -12,6 +14,36 @@ from httpx_ws.transport import ASGIWebSocketTransport
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+_session_database: str | None = None
+
+
+def pytest_sessionstart(session):
+    """Give this test session its own clone of the shared template database (scripts/db.sh).
+
+    Skipped when TEST_DATABASE_URL is set explicitly or the dev environment is not loaded.
+    """
+    global _session_database
+    if os.environ.get("TEST_DATABASE_URL") or not os.environ.get("WINDBURGLR_TEMPLATE_DB"):
+        return
+    _session_database = subprocess.run(
+        [REPO_ROOT / "scripts" / "db.sh", "test-create", "webapp"],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    ).stdout.strip()
+    # Host and user come from PGHOST / PGUSER
+    os.environ["TEST_DATABASE_URL"] = f"postgresql:///{_session_database}"
+
+
+def pytest_sessionfinish(session, exitstatus):
+    if _session_database:
+        subprocess.run(
+            [REPO_ROOT / "scripts" / "db.sh", "test-drop", _session_database],
+            check=False,
+        )
 
 
 @pytest.fixture
