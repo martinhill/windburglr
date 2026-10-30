@@ -25,7 +25,7 @@ fi
 if command -v direnv &> /dev/null; then
     echo "✅ direnv is installed"
     if [ ! -f ".envrc" ]; then
-        echo "use flake" > .envrc
+        echo "use flake ..#webapp" > .envrc
     fi
     direnv allow
 else
@@ -36,7 +36,7 @@ fi
 echo "✅ Development environment configured!"
 echo ""
 echo "To start developing:"
-echo "  nix develop"
+echo "  nix develop ..#webapp && make db-up"
 echo ""
 echo "Or if using direnv:"
 echo "  cd . && direnv allow"

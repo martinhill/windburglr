@@ -1,5 +1,16 @@
 # WindBurglr Agent Guidelines
 
+## Development Environment
+
+- Tools and variables come from the root flake (`nix develop ..#webapp`, or direnv via `.envrc`).
+  Loading it has no side effects; it does not start the database.
+- Start the shared PostgreSQL cluster with `../scripts/db.sh up` before running integration tests
+  or the app. It is socket-only; `PGHOST`, `PGUSER` and `PGDATABASE` point at it.
+- Tests create their own database cloned from `windburglr_template` and drop it afterwards;
+  never point tests at `windburglr_dev`.
+- The development database is `windburglr_dev`; connect as the `webapp` role
+  (`postgresql://webapp@/windburglr_dev`) for production-like permissions.
+
 ## Build/Test Commands
 
 # Install dependencies

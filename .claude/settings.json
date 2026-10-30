@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v direnv >/dev/null && echo 'eval \"$(direnv export ${ZSH_VERSION:+zsh}${BASH_VERSION:+bash} 2>/dev/null)\"' >> \"$CLAUDE_ENV_FILE\" || true"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,6 +1,6 @@
 # WindBurglr Development Makefile
 
-.PHONY: help setup dev backend frontend test test-backend test-frontend lint format type-check clean db-start db-stop db-restart db-status db-connect db-reset
+.PHONY: help setup dev backend frontend test test-backend test-frontend lint format type-check clean db-up db-down db-status db-connect db-reset-dev
 
 help: ## Show this help message
 	@echo "WindBurglr Development Commands:"
@@ -53,29 +53,17 @@ install: ## Install all dependencies
 build: ## Build frontend for production
 	npm run build
 
-db-start: ## Start PostgreSQL database
-	pg_ctl -D .pgdata -l .pgdata/logfile start
+db-up: ## Start the shared PostgreSQL cluster (builds template and dev database if needed)
+	../scripts/db.sh up
 
-db-stop: ## Stop PostgreSQL database
-	pg_ctl -D .pgdata stop
+db-down: ## Stop the shared PostgreSQL cluster
+	../scripts/db.sh down
 
-db-restart: ## Restart PostgreSQL database
-	pg_ctl -D .pgdata restart
+db-status: ## Show cluster state and databases
+	../scripts/db.sh status
 
-db-status: ## Check PostgreSQL database status
-	pg_ctl -D .pgdata status
+db-connect: ## Connect to the development database
+	psql -d windburglr_dev
 
-db-connect: ## Connect to database
-	psql -d windburglr
-
-db-test: ## Test database connection
-	@echo "Testing database connection..."
-	@psql -d windburglr -c "SELECT version();" || echo "❌ Database connection failed"
-	@psql -d windburglr -c "SELECT current_database(), current_user;" || echo "❌ Database query failed"
-
-db-reset: ## Reset database (WARNING: destroys all data)
-	@echo "⚠️  This will destroy all database data. Press Ctrl+C to cancel."
-	@sleep 5
-	pg_ctl -D .pgdata stop || true
-	rm -rf .pgdata
-	@echo "Run 'nix develop' or 'make setup' to reinitialize the database."
+db-reset-dev: ## Recreate the development database from the current schema (destroys its data)
+	../scripts/db.sh reset-dev

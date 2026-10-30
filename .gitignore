@@ -4,7 +4,8 @@ venv*
 .*.swn
 .*.swo
 .*.swp
-.env*
+.env
+.env.sentry
 .vite/
 .zed/
 

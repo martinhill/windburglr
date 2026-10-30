@@ -25,19 +25,16 @@ echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
 
 3. Enter the development environment:
 ```bash
-nix develop
+nix develop ..#webapp
 ```
 or with direnv:
 ```bash
 direnv allow
 ```
 
-The Nix environment will automatically:
-- Set up Python 3.13 with all dependencies
-- Install Node.js 22 for frontend development
-- Initialize PostgreSQL 15
-- Configure development tools (pyright, ruff, etc.)
-- Create a Python virtual environment
+The environment provides Python 3.13, uv, Node.js 22, pyright and PostgreSQL 18. It does not start
+anything; see [Development environment](../README.md#development-environment) for the shared
+database (`make db-up`). Install dependencies with `uv sync` and `npm install`.
 - Install all Python and Node.js dependencies
 
 ### Traditional Installation
@@ -105,20 +102,21 @@ ruff format .              # Format Python code
 pyright                    # Type check Python code
 
 # Database Management
-make db-start              # Start PostgreSQL
-make db-stop               # Stop PostgreSQL
-make db-connect            # Connect to database
-make db-status             # Check database status
+make db-up                 # Start the shared PostgreSQL cluster
+make db-down               # Stop it
+make db-connect            # Connect to the development database
+make db-status             # Show cluster state and databases
+make db-reset-dev          # Recreate the development database
 ```
 
 ### Development Workflow
 
-1. Enter the Nix environment: `nix develop` (automatically starts database)
+1. Enter the Nix environment (`nix develop ..#webapp`, or direnv) and start the database: `make db-up`
 2. Start the backend: `./start.sh`
 3. In another terminal, start the frontend: `npm run dev`
 4. Open http://localhost:5173 for the frontend dev server
 5. The backend API will be available at http://localhost:8000
-  6. Database is available at postgresql://$(whoami)@localhost:5432/windburglr
+6. The development database is `postgresql://webapp@/windburglr_dev` (host from `PGHOST`)
 
 ### Testing
 
