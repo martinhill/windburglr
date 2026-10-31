@@ -2,8 +2,9 @@
 # Local PostgreSQL cluster shared by webapp, scraper and all git worktrees.
 #
 # Databases:
-#   windburglr_template   schema + roles, rebuilt automatically when common/*.sql changes
-#   windburglr_dev        persistent development database (schema, roles, initial data)
+#   windburglr_template   all migrations applied, rebuilt automatically when they change
+#   windburglr_dev        persistent development database (migrations, seed data); `up` applies
+#                         pending migrations to it
 #   windburglr_test_*     per-test-session clones of the template, dropped afterwards
 #
 # Requires the dev environment (nix develop / direnv), which sets PGDATA, PGHOST, PGUSER, etc.
@@ -13,7 +14,8 @@ set -euo pipefail
 : "${WINDBURGLR_TEMPLATE_DB:?load the dev environment first (nix develop, or direnv)}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-COMMON="$ROOT/common"
+MIGRATIONS="$ROOT/webapp/db/migrations"
+SEED="$ROOT/webapp/db/seed.sql"
 TEMPLATE_DB="$WINDBURGLR_TEMPLATE_DB"
 DEV_DB=windburglr_dev
 LOCK_DIR="$PGDATA/.windburglr.lock"
@@ -67,14 +69,22 @@ start() {
   fi
 }
 
+# File names are versions, so they are part of the hash as well as the contents.
 schema_hash() {
-  cat "$COMMON/timescaledb_schema.sql" "$COMMON/roles.sql" | shasum -a 256 | cut -c1-16
+  { ls "$MIGRATIONS"; cat "$MIGRATIONS"/*.sql; } | shasum -a 256 | cut -c1-16
 }
 
-apply_roles() {
-  # Passwords are irrelevant locally (trust auth on the socket) but roles.sql requires them.
-  psql -X -q -d "$1" -v scraper_password=scraper -v webapp_password=webapp \
-    -f "$COMMON/roles.sql" >/dev/null
+# Applies pending migrations. dbmate's output goes to stderr: test-create prints only the name.
+migrate() {
+  dbmate --url "postgres://$PGUSER@/$1?socket=$PGHOST&sslmode=disable" \
+    --migrations-dir "$MIGRATIONS" --no-dump-schema migrate >&2
+}
+
+# Database-level privileges, as in production. The baseline migration sets them, but
+# CREATE DATABASE ... TEMPLATE doesn't copy them, so clones that need them get them here.
+grant_database() {
+  psql_admin -c "REVOKE ALL ON DATABASE $1 FROM PUBLIC" \
+    -c "GRANT CONNECT ON DATABASE $1 TO scraper, webapp"
 }
 
 build_template() {
@@ -90,8 +100,7 @@ build_template() {
     dropdb --force "$TEMPLATE_DB"
   fi
   createdb "$TEMPLATE_DB"
-  psql -X -q -v ON_ERROR_STOP=1 -d "$TEMPLATE_DB" -f "$COMMON/timescaledb_schema.sql" >/dev/null
-  apply_roles "$TEMPLATE_DB"
+  migrate "$TEMPLATE_DB"
   # No connections allowed, so nothing (e.g. TimescaleDB background workers) blocks cloning.
   psql_admin -c "COMMENT ON DATABASE $TEMPLATE_DB IS '$hash'" \
     -c "ALTER DATABASE $TEMPLATE_DB WITH IS_TEMPLATE true ALLOW_CONNECTIONS false"
@@ -107,14 +116,26 @@ clone_template() {
 create_dev() {
   log "creating $DEV_DB"
   clone_template "$DEV_DB"
-  # Database-level grants (CONNECT) are not copied from the template.
-  apply_roles "$DEV_DB"
-  psql -X -q -v ON_ERROR_STOP=1 -d "$DEV_DB" -f "$COMMON/initial_data.sql" >/dev/null
+  grant_database "$DEV_DB"
+  psql -X -q -v ON_ERROR_STOP=1 -d "$DEV_DB" -f "$SEED" >/dev/null
+}
+
+# A dev database created from the SQL files that preceded migrations has the schema but no
+# record of the baseline, so migrating it would fail; leave it alone and say what to do.
+migrate_dev() {
+  if [ "$(psql -X -tA -d "$DEV_DB" -c "SELECT to_regclass('public.schema_migrations') IS NULL
+                                       AND to_regclass('public.station') IS NOT NULL")" = t ]; then
+    log "$DEV_DB predates migrations, so pending migrations were not applied to it."
+    log "  Recreate it with 'scripts/db.sh reset-dev' (destroys its data), or keep its data and"
+    log "  mark the baseline as applied, as for production (README.md, Database)."
+    return
+  fi
+  migrate "$DEV_DB"
 }
 
 prepare() {
   build_template
-  db_exists "$DEV_DB" || create_dev
+  if db_exists "$DEV_DB"; then migrate_dev; else create_dev; fi
 }
 
 cmd_up() {
@@ -189,10 +210,11 @@ case "${1:-}" in
   *)
     cat >&2 <<EOF
 usage: scripts/db.sh <command>
-  up            start the cluster; build the template and dev database if needed
+  up            start the cluster; build the template and dev database if needed, and
+                apply pending migrations to the dev database
   down          stop the cluster
   status        show running state and databases
-  reset-dev     recreate $DEV_DB from the current schema (destroys its data)
+  reset-dev     recreate $DEV_DB from the migrations (destroys its data)
   test-create   clone the template into a new test database and print its name
   test-drop     drop a test database
   test-clean    drop leftover test databases that are not in use

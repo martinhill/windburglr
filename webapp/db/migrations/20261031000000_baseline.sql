@@ -1,13 +1,28 @@
--- PostgreSQL with TimescaleDB
+-- Baseline: the schema and roles as they existed before migrations were introduced
+-- (formerly common/timescaledb_schema.sql and common/roles.sql).
+--
+-- Production already had this schema, so the baseline was marked as applied there without
+-- running it; see "Database" in the root README.md. Running it against a database that already
+-- has the schema fails at the guard below, and the transaction rolls back without changes.
+
+-- migrate:up
+
+DO $$
+BEGIN
+    IF to_regclass('public.station') IS NOT NULL THEN
+        RAISE EXCEPTION 'windburglr schema already exists; mark the baseline as applied instead of running it'
+            USING HINT = 'INSERT INTO schema_migrations (version) VALUES (''20261031000000'')';
+    END IF;
+END $$;
 
 CREATE EXTENSION IF NOT EXISTS timescaledb;
 
-CREATE TABLE IF NOT EXISTS station (
+CREATE TABLE station (
   id serial PRIMARY KEY,
   name VARCHAR(10) UNIQUE NOT NULL,
   timezone VARCHAR(50) NOT NULL DEFAULT 'UTC'
 );
-CREATE TABLE IF NOT EXISTS wind_obs (
+CREATE TABLE wind_obs (
   station_id integer references station (id),
   update_time timestamp with time zone,
   direction numeric,
@@ -16,16 +31,7 @@ CREATE TABLE IF NOT EXISTS wind_obs (
   PRIMARY KEY (station_id, update_time)
 );
 
--- Conditionally create hypertable if TimescaleDB is available, otherwise create regular index
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
-        PERFORM create_hypertable('wind_obs', 'update_time');
-    ELSE
-        -- Fallback for development environments without TimescaleDB
-        CREATE INDEX IF NOT EXISTS idx_wind_obs_update_time ON wind_obs (update_time);
-    END IF;
-END $$;
+SELECT create_hypertable('wind_obs', 'update_time');
 
 -- WindBurglr PostgreSQL Stored Procedures
 -- These functions encapsulate common queries for better performance and maintainability
@@ -128,7 +134,7 @@ $$ LANGUAGE plpgsql STABLE;
 
 
 -- Scraper status tracking table
-CREATE TABLE IF NOT EXISTS scraper_status (
+CREATE TABLE scraper_status (
     station_id INTEGER REFERENCES station(id) PRIMARY KEY,
     last_success TIMESTAMP WITH TIME ZONE,
     last_attempt TIMESTAMP WITH TIME ZONE,
@@ -140,8 +146,8 @@ CREATE TABLE IF NOT EXISTS scraper_status (
 );
 
 -- Index for efficient status queries
-CREATE INDEX IF NOT EXISTS idx_scraper_status_updated_at ON scraper_status (updated_at);
-CREATE INDEX IF NOT EXISTS idx_scraper_status_status ON scraper_status (status);
+CREATE INDEX idx_scraper_status_updated_at ON scraper_status (updated_at);
+CREATE INDEX idx_scraper_status_status ON scraper_status (status);
 
 -- Function to update scraper status
 CREATE OR REPLACE FUNCTION update_scraper_status(
@@ -287,8 +293,6 @@ END;
 $$ LANGUAGE plpgsql STABLE;
 
 -- PostgreSQL trigger function and trigger for wind_obs notifications
--- Run this SQL to set up database-level notifications
-
 
 -- Create trigger function that sends notifications on wind_obs insert
 CREATE OR REPLACE FUNCTION notify_wind_obs_insert()
@@ -365,3 +369,87 @@ CREATE TRIGGER scraper_status_notify_trigger
     AFTER INSERT OR UPDATE ON scraper_status
     FOR EACH ROW
     EXECUTE FUNCTION notify_scraper_status();
+
+-- ---------------------------------------------------------------------------
+-- Roles with least-privilege access
+-- ---------------------------------------------------------------------------
+--
+--  * Roles are cluster-wide, so they are created only if missing. Passwords are not part of
+--    the migration; set them separately (ALTER ROLE ... PASSWORD, or the Aiven console).
+--  * All app functions are SECURITY INVOKER (the default), so callers need
+--    privileges on the underlying tables as well as EXECUTE on the function.
+--  * Trigger functions (notify_wind_obs_insert, notify_scraper_status) do not
+--    require EXECUTE; they run as the inserting role, which therefore needs
+--    SELECT on station (they look up the station name).
+--  * FK checks run as the table owner, so no REFERENCES privilege is needed.
+--  * LISTEN/NOTIFY requires no privileges.
+
+-- Only LOGIN is set: CREATE ROLE already defaults to NOSUPERUSER, NOCREATEDB, NOCREATEROLE,
+-- NOREPLICATION, NOBYPASSRLS, and naming those attributes explicitly requires superuser, which
+-- managed services (e.g. Aiven's avnadmin) don't provide.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'scraper') THEN
+        CREATE ROLE scraper LOGIN;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'webapp') THEN
+        CREATE ROLE webapp LOGIN;
+    END IF;
+END $$;
+
+-- Lock down defaults (PUBLIC can CREATE in schema public before PG15). Database-level
+-- privileges are not copied by CREATE DATABASE ... TEMPLATE; scripts/db.sh reapplies them.
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+DO $$
+BEGIN
+    EXECUTE format('REVOKE ALL ON DATABASE %I FROM PUBLIC', current_database());
+    EXECUTE format('GRANT CONNECT ON DATABASE %I TO scraper, webapp', current_database());
+END $$;
+GRANT USAGE ON SCHEMA public TO scraper, webapp;
+
+-- Functions are executable by PUBLIC by default; restrict them to the roles that use them
+REVOKE ALL ON FUNCTION
+    get_wind_data_by_station_range(TEXT, TIMESTAMPTZ, TIMESTAMPTZ),
+    get_latest_wind_observation(TEXT),
+    get_station_timezone_name(TEXT),
+    get_station_id_by_name(TEXT),
+    get_all_stations(),
+    update_scraper_status(TEXT, TEXT, TEXT),
+    get_scraper_status(),
+    get_scraper_health(),
+    notify_wind_obs_insert(),
+    notify_scraper_status()
+FROM PUBLIC;
+
+-- scraper: upserts stations, inserts observations, maintains scraper_status
+
+-- INSERT ... ON CONFLICT (name) DO UPDATE SET timezone; SELECT id by name
+GRANT SELECT, INSERT ON station TO scraper;
+GRANT UPDATE (timezone) ON station TO scraper;
+GRANT USAGE ON SEQUENCE station_id_seq TO scraper;
+
+-- INSERT INTO wind_obs (append-only)
+GRANT INSERT ON wind_obs TO scraper;
+
+-- update_scraper_status() reads, inserts and updates its row
+GRANT SELECT, INSERT, UPDATE ON scraper_status TO scraper;
+GRANT EXECUTE ON FUNCTION update_scraper_status(TEXT, TEXT, TEXT) TO scraper;
+
+-- webapp: read-only access via query functions + LISTEN
+
+GRANT SELECT ON station, wind_obs, scraper_status TO webapp;
+
+GRANT EXECUTE ON FUNCTION
+    get_wind_data_by_station_range(TEXT, TIMESTAMPTZ, TIMESTAMPTZ),
+    get_latest_wind_observation(TEXT),
+    get_station_timezone_name(TEXT),
+    get_scraper_status(),
+    get_scraper_health()
+TO webapp;
+
+-- migrate:down
+
+DO $$
+BEGIN
+    RAISE EXCEPTION 'the baseline cannot be rolled back';
+END $$;

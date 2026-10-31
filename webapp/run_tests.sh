@@ -184,7 +184,7 @@ fi
 
 # Run database setup
 print_status "Setting up test database schema..."
-psql "$TEST_DATABASE_URL" -f ../common/timescaledb_schema.sql
+dbmate --url "$TEST_DATABASE_URL" --migrations-dir db/migrations --no-dump-schema migrate
 
 # Run tests based on arguments
 if [[ "$2" == "unit" || ("$1" == "unit" && "$2" == "") ]]; then
