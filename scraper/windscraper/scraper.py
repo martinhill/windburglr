@@ -12,7 +12,6 @@ from urllib.parse import urljoin
 
 import aiohttp
 import sentry_sdk
-from aiohttp.web import HTTPClientError
 from Crypto.Cipher import AES  # pyright: ignore[reportMissingModuleSource]
 from Crypto.Util.Padding import unpad  # pyright: ignore[reportMissingModuleSource]
 
@@ -75,9 +74,10 @@ class RetryHandler:
         while True:
             try:
                 return await func(*args, **kwargs)
-            except (aiohttp.ClientResponseError, HTTPClientError) as e:
-                # Further retries will not succeed, so don't retry
-                raise e
+            except aiohttp.ClientResponseError:
+                # The server answered with an error status (raise_for_status); retrying
+                # won't change it. Connection errors and timeouts are retried below
+                raise
             except Exception as e:
                 if retry_count < self.max_retries:
                     logger.info(f"Error: {e}, retrying...")
