@@ -84,4 +84,3 @@ Run `coderabbit review --plain` to get comprehensive code analysis and improveme
 • Log at appropriate levels - DEBUG for development, INFO for operations
 • Test database operations - use test database URLs in CI/tests
 • Validate all inputs - use Pydantic models for data validation
-- Do not commit changes without review
