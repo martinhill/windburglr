@@ -1,22 +1,28 @@
 # WindBurglr Development Makefile
 
-.PHONY: help setup dev backend frontend test test-backend test-frontend lint format type-check clean db-up db-down db-status db-connect db-reset-dev
+.PHONY: help install dev backend frontend build test test-backend test-frontend lint format type-check clean db-up db-down db-status db-connect db-reset-dev
+
+PORT ?= 8000
+
+# Exports .env (if present) to the backend, which doesn't read it itself
+LOAD_ENV = set -a; if [ -f .env ]; then . ./.env; fi; set +a
 
 help: ## Show this help message
 	@echo "WindBurglr Development Commands:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-15s %s\n", $$1, $$2}'
 
-setup: ## Set up development environment
-	./dev-setup.sh
+install: ## Install Python and Node.js dependencies
+	uv sync
+	npm install
 
-dev: ## Start both backend and frontend in development mode
-	@echo "Starting development servers..."
-	@./start.sh &
-	@sleep 2
-	@npm run dev
+dev: ## Start the backend with Vite hot reloading (Ctrl-C stops both)
+	@$(LOAD_ENV); export DEV_MODE=true; \
+	uv run fastapi dev --host 0.0.0.0 --port $(PORT) & backend=$$!; \
+	trap 'kill $$backend 2>/dev/null; wait $$backend 2>/dev/null' EXIT INT TERM; \
+	npm run dev
 
-backend: ## Start backend server
-	uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+backend: ## Start the backend, serving the built frontend from dist/ (run `make build` first)
+	@$(LOAD_ENV); uv run fastapi dev --host 0.0.0.0 --port $(PORT)
 
 frontend: ## Start frontend development server
 	npm run dev
@@ -44,11 +50,6 @@ clean: ## Clean up generated files
 	rm -rf dist/ build/ htmlcov/ .coverage .pytest_cache/
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
-
-install: ## Install all dependencies
-	uv pip install -e .
-	uv pip install -e ".[dev]"
-	npm install
 
 build: ## Build frontend for production
 	npm run build

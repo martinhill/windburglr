@@ -9,10 +9,7 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:run": "vitest run",
-    "test:coverage": "vitest run --coverage",
-    "test:legacy": "python -m http.server 3000",
-    "test:store": "npm run dev & sleep 3 && open http://localhost:5173/src/test/test-store.html",
-    "test:nav": "npm run dev & sleep 3 && open http://localhost:5173/src/test/test-navigation.html"
+    "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
     "@sentry/vite-plugin": "^4.9.1",
