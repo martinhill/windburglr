@@ -191,13 +191,15 @@ describe('Time Utilities', () => {
         writable: true
       })
 
-      // Mock URLSearchParams
-      global.URLSearchParams = vi.fn().mockImplementation((search) => ({
-        get: vi.fn().mockImplementation((key) => {
-          if (key === 'stn' && search === '?stn=CYYZ') return 'CYYZ'
-          if (key === 'stn' && search === '') return null
-          return null
-        })
+      // Mock URLSearchParams; a regular function, since it's called with `new`
+      vi.stubGlobal('URLSearchParams', vi.fn().mockImplementation(function (search) {
+        return {
+          get: vi.fn().mockImplementation((key) => {
+            if (key === 'stn' && search === '?stn=CYYZ') return 'CYYZ'
+            if (key === 'stn' && search === '') return null
+            return null
+          })
+        }
       }))
 
       mockLocation.href = ''
@@ -206,6 +208,7 @@ describe('Time Utilities', () => {
 
     afterEach(() => {
       vi.restoreAllMocks()
+      vi.unstubAllGlobals()
     })
 
     it('should navigate with provided station', () => {
