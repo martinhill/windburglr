@@ -1,7 +1,8 @@
+import json
 import logging
 import os
 import subprocess
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager, nullcontext
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,8 @@ from asgi_lifespan import LifespanManager
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 from httpx_ws.transport import ASGIWebSocketTransport
+
+from app.lifespan import StartupOptions
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -104,6 +107,10 @@ async def test_db_manager():
                         station_names = list(self.test_stations)
                         await conn.execute(
                             "DELETE FROM wind_obs WHERE station_id IN (SELECT id FROM station WHERE name = ANY($1))",
+                            station_names,
+                        )
+                        await conn.execute(
+                            "DELETE FROM scraper_status WHERE station_id IN (SELECT id FROM station WHERE name = ANY($1))",
                             station_names,
                         )
                         # Delete test stations
@@ -689,164 +696,108 @@ class WindDataGenerator:
         return data
 
 
-@pytest.fixture
-def test_client(request, mock_test_db_manager):
-    """Create a test client for unit tests that uses mock_test_db_manager."""
-    # Get configuration overrides from request.param, defaulting to 60.0
-    import app.config
+class MockListenerConnection:
+    """Mock asyncpg.Connection that supports listeners for testing."""
 
-    config_overrides = getattr(request, "param", {})
-    websocket_ping_timeout = config_overrides.get(
-        "websocket_timeout", app.config.WEBSOCKET_PING_TIMEOUT
-    )
-    postgres_monitor_interval = config_overrides.get(
-        "postgres_monitor_interval", app.config.POSTGRES_MONITOR_INTERVAL
-    )
+    def __init__(self, mock_manager):
+        self.mock_manager = mock_manager
+        self._listeners = {}
+        self._termination_listeners = []
+        self._closed = False
 
-    import asyncio
-    import json
+    def is_closed(self):
+        return self._closed
 
-    from app.dependencies import (
-        get_db_pool,
-        get_pg_connection,
-        get_websocket_config,
-        reset_dependencies,
-    )
-    from main import app
+    async def close(self):
+        # Don't actually close for testing purposes
+        # self._closed = True
+        pass
 
-    # Reset global dependencies to ensure clean state between tests
-    reset_dependencies()
+    def terminate(self):
+        pass
 
-    class MockListenerConnection:
-        """Mock asyncpg.Connection that supports listeners for testing."""
+    def add_termination_listener(self, callback):
+        self._termination_listeners.append(callback)
 
-        def __init__(self, mock_manager):
-            self.mock_manager = mock_manager
-            self._listeners = {}
-            self._closed = False
+    def drop(self):
+        """Test helper: simulate the server closing the connection."""
+        self._closed = True
+        for callback in self._termination_listeners:
+            callback(self)
 
-        def is_closed(self):
-            return self._closed
+    async def fetchval(self, query, *args):
+        """Mock fetchval for health checks."""
+        if query == "SELECT 1":
+            return 1
+        return None
 
-        async def close(self):
-            # Don't actually close for testing purposes
-            # self._closed = True
-            pass
+    async def fetch(self, query, *args):
+        """Mock fetch method - delegate to the mock connection."""
+        mock_connection = MockConnection(self.mock_manager)
+        return await mock_connection.fetch(query, *args)
 
-        async def fetchval(self, query, *args):
-            """Mock fetchval for health checks."""
-            if query == "SELECT 1":
-                return 1
-            return None
+    async def add_listener(self, channel, callback):
+        """Mock add_listener to register notification handlers."""
+        self._listeners[channel] = callback
 
-        async def fetch(self, query, *args):
-            """Mock fetch method - delegate to the mock connection."""
-            mock_connection = MockConnection(self.mock_manager)
-            return await mock_connection.fetch(query, *args)
+    async def trigger_notification(self, channel, payload_data):
+        """Test helper to trigger notifications to registered listeners."""
+        if channel in self._listeners:
+            # Simulate the asyncpg notification format
+            payload = json.dumps(payload_data)
+            logger.debug(
+                "Triggering notification for channel %s: %s", channel, payload
+            )
+            await self._listeners[channel](self, 12345, channel, payload)
 
-        async def add_listener(self, channel, callback):
-            """Mock add_listener to register notification handlers."""
-            self._listeners[channel] = callback
+class MockPool:
+    """Mock database connection pool that uses mock_test_db_manager data."""
 
-        async def trigger_notification(self, channel, payload_data):
-            """Test helper to trigger notifications to registered listeners."""
-            if channel in self._listeners:
-                # Simulate the asyncpg notification format
-                payload = json.dumps(payload_data)
-                logger.debug(
-                    "Triggering notification for channel %s: %s", channel, payload
-                )
-                await self._listeners[channel](self, 12345, channel, payload)
+    def __init__(self, mock_manager):
+        self.mock_manager = mock_manager
 
-    class MockPool:
-        """Mock database connection pool that uses mock_test_db_manager data."""
+    @asynccontextmanager
+    async def acquire(self):
+        """Mock acquire method that returns a mock connection."""
+        yield MockConnection(self.mock_manager)
 
-        def __init__(self, mock_manager):
-            self.mock_manager = mock_manager
 
-        @asynccontextmanager
-        async def acquire(self):
-            """Mock acquire method that returns a mock connection."""
-            yield MockConnection(self.mock_manager)
+class MockConnection:
+    """Mock database connection that uses mock_test_db_manager data."""
 
-        # async def fetchval(self, query, *args):
-        #     """Mock fetchval method."""
-        #     async with self.acquire() as conn:
-        #         return await conn.fetchval(query, *args)
+    def __init__(self, mock_manager):
+        self.mock_manager = mock_manager
 
-        # async def fetch(self, query, *args):
-        #     """Mock fetch method."""
-        #     async with self.acquire() as conn:
-        #         return await conn.fetch(query, *args)
+    async def fetch(self, query, *args):
+        """Mock fetch method that returns data from mock_test_db_manager."""
+        # Record the query
+        self.mock_manager.record_query("fetch", query, args)
 
-        # async def fetchrow(self, query, *args):
-        #     """Mock fetchrow method."""
-        #     async with self.acquire() as conn:
-        #         return await conn.fetchrow(query, *args)
+        if "get_scraper_status" in query.lower():
+            logger.debug("Mocking scraper status data")
+            # Return mock scraper status data based on test data
+            now = datetime.now(UTC)
+            test_data = self.mock_manager.test_data
+            stations_with_scraper_status = []
 
-    class MockConnection:
-        """Mock database connection that uses mock_test_db_manager data."""
+            # Check if we have stations with scraper_status info
+            if test_data:
+                stations_with_data = [
+                    item for item in test_data if "scraper_status" in item
+                ]
 
-        def __init__(self, mock_manager):
-            self.mock_manager = mock_manager
-
-        async def fetch(self, query, *args):
-            """Mock fetch method that returns data from mock_test_db_manager."""
-            # Record the query
-            self.mock_manager.record_query("fetch", query, args)
-
-            if "get_scraper_status" in query.lower():
-                logger.debug("Mocking scraper status data")
-                # Return mock scraper status data based on test data
-                now = datetime.now(UTC)
-                test_data = self.mock_manager.test_data
-                stations_with_scraper_status = []
-
-                # Check if we have stations with scraper_status info
-                if test_data:
-                    stations_with_data = [
-                        item for item in test_data if "scraper_status" in item
-                    ]
-
-                    for item in stations_with_data:
-                        station_name = item.get("station", "CYTZ")
-                        stations_with_scraper_status.append(
-                            {
-                                "station_name": station_name,
-                                "status": item.get("scraper_status", "unknown"),
-                                "last_success": (
-                                    now - timedelta(minutes=5)
-                                ).isoformat(),
-                                "last_attempt": (
-                                    now - timedelta(minutes=1)
-                                ).isoformat(),
-                                "error_message": None,
-                                "retry_count": 0,
-                                "updated_at": now.isoformat(),
-                                "time_since_last_attempt": "0:01:00",
-                                "time_since_last_success": "0:05:00",
-                            }
-                        )
-
-                # For stations that have wind data but no explicit scraper status, assume "active"
-                stations_with_wind_data = set()
-                if test_data:
-                    for item in test_data:
-                        if (
-                            "direction" in item and "speed_kts" in item
-                        ):  # Wind observation
-                            stations_with_wind_data.add(item.get("station", "CYTZ"))
-
-                existing_stations = {
-                    s["station_name"] for s in stations_with_scraper_status
-                }
-                for station_name in stations_with_wind_data - existing_stations:
+                for item in stations_with_data:
+                    station_name = item.get("station", "CYTZ")
                     stations_with_scraper_status.append(
                         {
                             "station_name": station_name,
-                            "status": "active",  # Default to active for stations with wind data
-                            "last_success": (now - timedelta(minutes=5)).isoformat(),
-                            "last_attempt": (now - timedelta(minutes=1)).isoformat(),
+                            "status": item.get("scraper_status", "unknown"),
+                            "last_success": (
+                                now - timedelta(minutes=5)
+                            ).isoformat(),
+                            "last_attempt": (
+                                now - timedelta(minutes=1)
+                            ).isoformat(),
                             "error_message": None,
                             "retry_count": 0,
                             "updated_at": now.isoformat(),
@@ -855,181 +806,245 @@ def test_client(request, mock_test_db_manager):
                         }
                     )
 
-                # For stations created without wind data (create_test_stations), add "unknown" status
-                all_stations = set()
-                logger.debug("all_stations %s", str(all_stations))
-                if test_data:
-                    for item in test_data:
-                        if "station" in item:
-                            all_stations.add(item["station"])
+            # For stations that have wind data but no explicit scraper status, assume "active"
+            stations_with_wind_data = set()
+            if test_data:
+                for item in test_data:
+                    if (
+                        "direction" in item and "speed_kts" in item
+                    ):  # Wind observation
+                        stations_with_wind_data.add(item.get("station", "CYTZ"))
 
-                stations_without_wind = (
-                    all_stations - stations_with_wind_data - existing_stations
+            existing_stations = {
+                s["station_name"] for s in stations_with_scraper_status
+            }
+            for station_name in stations_with_wind_data - existing_stations:
+                stations_with_scraper_status.append(
+                    {
+                        "station_name": station_name,
+                        "status": "active",  # Default to active for stations with wind data
+                        "last_success": (now - timedelta(minutes=5)).isoformat(),
+                        "last_attempt": (now - timedelta(minutes=1)).isoformat(),
+                        "error_message": None,
+                        "retry_count": 0,
+                        "updated_at": now.isoformat(),
+                        "time_since_last_attempt": "0:01:00",
+                        "time_since_last_success": "0:05:00",
+                    }
                 )
-                for station_name in stations_without_wind:
-                    stations_with_scraper_status.append(
+
+            # For stations created without wind data (create_test_stations), add "unknown" status
+            all_stations = set()
+            logger.debug("all_stations %s", str(all_stations))
+            if test_data:
+                for item in test_data:
+                    if "station" in item:
+                        all_stations.add(item["station"])
+
+            stations_without_wind = (
+                all_stations - stations_with_wind_data - existing_stations
+            )
+            for station_name in stations_without_wind:
+                stations_with_scraper_status.append(
+                    {
+                        "station_name": station_name,
+                        "status": "unknown",
+                        "last_success": None,
+                        "last_attempt": None,
+                        "error_message": None,
+                        "retry_count": 0,
+                        "updated_at": None,
+                        "time_since_last_attempt": None,
+                        "time_since_last_success": None,
+                    }
+                )
+
+            logger.debug(
+                "Returning stations_with_scraper_status %s",
+                str(stations_with_scraper_status),
+            )
+            return stations_with_scraper_status
+
+        if "get_wind_data_by_station_range" in query.lower():
+            # Return data from mock_test_db_manager
+            station = args[0] if len(args) > 0 else "CYTZ"
+            start_time = args[1] if len(args) > 1 else None
+            end_time = args[2] if len(args) > 2 else None
+
+            # Use the mock manager's test data
+            test_data = self.mock_manager.test_data
+
+            # Filter and format data for API response
+            filtered_data = []
+            for obs in test_data:
+                if obs.get("station", station) == station:
+                    # Filter by time range if provided
+                    if start_time and end_time:
+                        # Convert timezone-aware start_time and end_time to timezone-naive for comparison
+                        if not (start_time <= obs["update_time"] <= end_time):
+                            continue
+                    filtered_data.append(
                         {
-                            "station_name": station_name,
-                            "status": "unknown",
-                            "last_success": None,
-                            "last_attempt": None,
-                            "error_message": None,
-                            "retry_count": 0,
-                            "updated_at": None,
-                            "time_since_last_attempt": None,
-                            "time_since_last_success": None,
+                            "update_time": obs["update_time"],
+                            "direction": obs["direction"],
+                            "speed_kts": obs["speed_kts"],
+                            "gust_kts": obs["gust_kts"],
                         }
                     )
+            logger.debug(
+                "Mocking fetch (%s, %s, %s): %d",
+                station,
+                start_time,
+                end_time,
+                len(filtered_data),
+            )
 
-                logger.debug(
-                    "Returning stations_with_scraper_status %s",
-                    str(stations_with_scraper_status),
-                )
-                return stations_with_scraper_status
+            return filtered_data
 
-            if "get_wind_data_by_station_range" in query.lower():
-                # Return data from mock_test_db_manager
-                station = args[0] if len(args) > 0 else "CYTZ"
-                start_time = args[1] if len(args) > 1 else None
-                end_time = args[2] if len(args) > 2 else None
+        if "station" in query.lower():
+            # Return mock station data
+            station_name = args[0] if args else "CYTZ"
+            return [{"name": station_name, "timezone_name": "America/Toronto"}]
 
-                # Use the mock manager's test data
-                test_data = self.mock_manager.test_data
+        return []
 
-                # Filter and format data for API response
-                filtered_data = []
-                for obs in test_data:
-                    if obs.get("station", station) == station:
-                        # Filter by time range if provided
-                        if start_time and end_time:
-                            # Convert timezone-aware start_time and end_time to timezone-naive for comparison
-                            if not (start_time <= obs["update_time"] <= end_time):
-                                continue
-                        filtered_data.append(
-                            {
-                                "update_time": obs["update_time"],
-                                "direction": obs["direction"],
-                                "speed_kts": obs["speed_kts"],
-                                "gust_kts": obs["gust_kts"],
-                            }
-                        )
-                logger.debug(
-                    "Mocking fetch (%s, %s, %s): %d",
-                    station,
-                    start_time,
-                    end_time,
-                    len(filtered_data),
-                )
+    async def fetchrow(self, query, *args):
+        """Mock fetchrow method for single row queries."""
+        # Record the query
+        self.mock_manager.record_query("fetchrow", query, args)
 
-                return filtered_data
-
-            if "station" in query.lower():
-                # Return mock station data
-                station_name = args[0] if args else "CYTZ"
-                return [{"name": station_name, "timezone_name": "America/Toronto"}]
-
-            return []
-
-        async def fetchrow(self, query, *args):
-            """Mock fetchrow method for single row queries."""
-            # Record the query
-            self.mock_manager.record_query("fetchrow", query, args)
-
-            if "get_latest_wind_observation" in query.lower():
-                station = args[0] if args else "CYTZ"
-                test_data = self.mock_manager.test_data
-                if test_data:
-                    # Look for wind observations for this specific station
-                    wind_observations = [
-                        item
-                        for item in test_data
-                        if all(
-                            key in item
-                            for key in ["direction", "speed_kts", "gust_kts"]
-                        )
-                        and item.get("station") == station
-                    ]
-                    if wind_observations:
-                        # Return the most recent observation
-                        latest = wind_observations[0]  # Assuming sorted by time
-                        return {
-                            "direction": latest["direction"],
-                            "speed_kts": latest["speed_kts"],
-                            "gust_kts": latest["gust_kts"],
-                            "update_time": latest["update_time"],
-                            "name": latest.get("station", station),
-                        }
-                # No wind data available
-                return None
-
-            if "station" in query.lower() and "timezone" in query.lower():
-                return {"timezone_name": "America/Toronto"}
-
+        if "get_latest_wind_observation" in query.lower():
+            station = args[0] if args else "CYTZ"
+            test_data = self.mock_manager.test_data
+            if test_data:
+                # Look for wind observations for this specific station
+                wind_observations = [
+                    item
+                    for item in test_data
+                    if all(
+                        key in item
+                        for key in ["direction", "speed_kts", "gust_kts"]
+                    )
+                    and item.get("station") == station
+                ]
+                if wind_observations:
+                    # Return the most recent observation
+                    latest = wind_observations[0]  # Assuming sorted by time
+                    return {
+                        "direction": latest["direction"],
+                        "speed_kts": latest["speed_kts"],
+                        "gust_kts": latest["gust_kts"],
+                        "update_time": latest["update_time"],
+                        "name": latest.get("station", station),
+                    }
+            # No wind data available
             return None
 
-        async def fetchval(self, query, *args):
-            """Mock fetchval method for single value queries."""
-            # Record the query
-            self.mock_manager.record_query("fetchval", query, args)
+        if "station" in query.lower() and "timezone" in query.lower():
+            return {"timezone_name": "America/Toronto"}
 
-            if "get_station_timezone_name" in query.lower():
-                return "America/Toronto"
-            return None
+        return None
 
-    mock_pool = MockPool(mock_test_db_manager)
-    mock_listener_conn = MockListenerConnection(mock_test_db_manager)
+    async def fetchval(self, query, *args):
+        """Mock fetchval method for single value queries."""
+        # Record the query
+        self.mock_manager.record_query("fetchval", query, args)
 
-    async def get_mock_pool():
-        return mock_pool
+        if "get_station_timezone_name" in query.lower():
+            return "America/Toronto"
+        return None
 
-    async def get_mock_websocket_config():
-        return {
-            "ping_timeout": websocket_ping_timeout,
-            "postgres_monitor_interval": postgres_monitor_interval,
-        }
 
-    async def get_mock_pg_connection():
-        return mock_listener_conn
+def mock_startup_options(mock_manager, listener_connection, **overrides) -> StartupOptions:
+    """Startup options for an app backed by the mock database."""
+    async def connect_listener():
+        return listener_connection
 
-    # Use dependency overrides
-    app.dependency_overrides[get_db_pool] = get_mock_pool
-    app.dependency_overrides[get_websocket_config] = get_mock_websocket_config
-    app.dependency_overrides[get_pg_connection] = get_mock_pg_connection
-
-    # Use LifespanManager to properly start the app and register listeners
-    async def start_app():
-        async with LifespanManager(app) as manager_app:
-            # Create test client with the actual FastAPI app from the manager
-            client = TestClient(manager_app.app)
-            # Store reference to the mock connection for direct access
-            client.mock_listener_connection = mock_listener_conn
-            return client
-
-    # Run the async startup and return the client
-    return asyncio.run(start_app())
+    options = {
+        "open_db_pool": lambda: nullcontext(MockPool(mock_manager)),
+        "connect_listener": connect_listener,
+        # Tests count database queries; enable hydration where it's under test
+        "cache_hydration_hours": 0,
+        "listener_retry_delay": 0.01,
+    }
+    return StartupOptions(**(options | overrides))
 
 
 @pytest.fixture
-async def set_env_database_url():
-    os.environ["DATABASE_URL"] = os.environ["TEST_DATABASE_URL"]
+def mock_listener_connection(mock_test_db_manager):
+    return MockListenerConnection(mock_test_db_manager)
 
 
 @pytest.fixture
-async def persistent_connection():
-    """Provide a persistent database connection for the listener."""
+def make_mock_app(mock_test_db_manager, mock_listener_connection):
+    """Build an app on the mock database; StartupOptions fields can be overridden."""
+
+    def make(**overrides):
+        from main import create_app
+
+        return create_app(
+            mock_startup_options(
+                mock_test_db_manager, mock_listener_connection, **overrides
+            )
+        )
+
+    return make
+
+
+@pytest.fixture
+def make_test_client(make_mock_app, mock_listener_connection):
+    """Start an app on the mock database through its lifespan; use as a context manager.
+
+    For tests that need data in place before startup, e.g. the scraper status the
+    watchdog loads when the listener connects.
+    """
+
+    @contextmanager
+    def make(**overrides):
+        with TestClient(make_mock_app(**overrides)) as client:
+            # Lets tests trigger notifications directly
+            client.mock_listener_connection = mock_listener_connection
+            yield client
+
+    return make
+
+
+@pytest.fixture
+def test_client(request, make_test_client):
+    """A running app on the mock database; parametrize indirectly to override StartupOptions."""
+    with make_test_client(**getattr(request, "param", {})) as client:
+        yield client
+
+
+def integration_startup_options(db_manager, **overrides) -> StartupOptions:
+    """Startup options for an app on the test database; the pool stays the test's."""
     import asyncpg
-    # from main import manager
 
-    database_url = os.environ.get("TEST_DATABASE_URL")
-    if not database_url:
-        skip_without_database("TEST_DATABASE_URL not set - skipping real database tests")
+    async def connect_listener():
+        return await asyncpg.connect(db_manager.database_url)
 
-    connection = await asyncpg.connect(database_url)
-    # manager.set_pg_listener(connection)
+    options = {
+        "open_db_pool": lambda: nullcontext(db_manager.pool),
+        "connect_listener": connect_listener,
+        "cache_hydration_hours": 0,
+        "listener_retry_delay": 0.1,
+    }
+    return StartupOptions(**(options | overrides))
 
-    yield connection
 
-    await connection.close()
+@asynccontextmanager
+async def running_app(db_manager, **overrides):
+    from main import create_app
+
+    application = create_app(integration_startup_options(db_manager, **overrides))
+    async with LifespanManager(application):
+        yield application
+
+
+@pytest.fixture
+async def app(test_db_manager, request):
+    async with running_app(test_db_manager, **getattr(request, "param", {})) as application:
+        yield application
 
 
 @pytest.fixture
@@ -1041,70 +1056,12 @@ async def test_db_with_bulk_data(test_db_manager):
 
 
 @pytest.fixture
-async def app(test_db_manager, persistent_connection):
-    from app.dependencies import get_db_pool, get_pg_connection, reset_dependencies
-    from main import app
-
-    reset_dependencies()
-
-    async def get_test_db_pool():
-        return test_db_manager.pool
-
-    async def get_test_pg_connection():
-        return persistent_connection
-
-    app.dependency_overrides[get_db_pool] = get_test_db_pool
-    app.dependency_overrides[get_pg_connection] = get_test_pg_connection
-
-    async with LifespanManager(app) as manager:
-        yield manager.app
-
-
-@pytest.fixture
-async def app_with_bulk_data(test_db_with_bulk_data, persistent_connection, request):
+async def app_with_bulk_data(test_db_with_bulk_data, request):
     """App fixture with pre-loaded bulk test data to avoid notification spam."""
-    import app.config
-    from app.dependencies import (
-        get_db_pool,
-        get_websocket_config,
-        get_pg_connection,
-        reset_dependencies,
-    )
-    from main import app as main_app
-
-    # Reset dependencies BEFORE setting overrides to ensure clean state
-    reset_dependencies()
-
-    config_overrides = getattr(request, "param", {})
-    websocket_ping_timeout = config_overrides.get(
-        "websocket_timeout", app.config.WEBSOCKET_PING_TIMEOUT
-    )
-    postgres_monitor_interval = config_overrides.get(
-        "postgres_monitor_interval", app.config.POSTGRES_MONITOR_INTERVAL
-    )
-
-    async def get_mock_websocket_config():
-        return {
-            "ping_timeout": websocket_ping_timeout,
-            "postgres_monitor_interval": postgres_monitor_interval,
-        }
-
-    async def get_test_db_pool():
-        return test_db_with_bulk_data.pool
-
-    async def get_test_pg_connection():
-        return persistent_connection
-
-    main_app.dependency_overrides[get_db_pool] = get_test_db_pool
-    main_app.dependency_overrides[get_websocket_config] = get_mock_websocket_config
-    main_app.dependency_overrides[get_pg_connection] = get_test_pg_connection
-
-    try:
-        async with LifespanManager(main_app) as manager:
-            yield manager.app
-    finally:
-        # Reset dependencies for test isolation
-        reset_dependencies()
+    async with running_app(
+        test_db_with_bulk_data, **getattr(request, "param", {})
+    ) as application:
+        yield application
 
 
 @pytest.fixture
@@ -1126,7 +1083,7 @@ async def integration_client_with_bulk_data(app_with_bulk_data):
 
 
 @pytest.fixture
-async def ws_integration_client(set_env_database_url, app_with_bulk_data):
+async def ws_integration_client(app_with_bulk_data):
     """Create a test client with real database for integration tests."""
     async with AsyncClient(
         transport=ASGIWebSocketTransport(app=app_with_bulk_data),

@@ -42,6 +42,15 @@ npm run test:run                             # frontend tests (Vitest)
 - Camel case for variables, kebab-case for CSS classes
 - Put unit tests next to the module as `*.test.js`
 
+## Application wiring
+
+- `app/lifespan.py` creates every service once at startup (pool, cache, services, WebSocket
+  manager, Postgres listener, cache hydration) and stores it on `app.state`; it shuts them down
+  in reverse. Routes get them through `app/dependencies.py`, which reads `app.state`; don't add
+  module-level singletons.
+- Tests build apps with `main.create_app(StartupOptions(...))` rather than overriding
+  dependencies. `make_test_client` starts the app after the test has seeded mock data.
+
 ## Critical Rules
 - **ALL database timestamps are UTC** - never convert in backend
 - Use Pydantic for data models, FastAPI for endpoints

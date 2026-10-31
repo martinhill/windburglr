@@ -8,12 +8,14 @@ from fastapi import APIRouter, Depends
 from ..cache.abc import CacheBackend
 from ..dependencies import (
     get_cache_backend,
+    get_cache_hydrator,
     get_db_pool,
     get_pg_manager,
     get_watchdog_service,
     get_websocket_manager,
 )
 from ..models import ScraperHealth, ScraperStatus
+from ..services.cache_hydration import CacheHydrator
 from ..services.notifications import PostgresNotificationManager
 from ..services.watchdog import WatchdogService
 from ..services.websocket import WebSocketManager
@@ -39,6 +41,7 @@ async def health_check(
     ws_manager: Annotated[WebSocketManager, Depends(get_websocket_manager)],
     pg_manager: Annotated[PostgresNotificationManager, Depends(get_pg_manager)],
     cache_backend: Annotated[CacheBackend, Depends(get_cache_backend)],
+    cache_hydrator: Annotated[CacheHydrator, Depends(get_cache_hydrator)],
 ):
     """Health check endpoint for monitoring and load balancers."""
     health_status = {
@@ -81,6 +84,7 @@ async def health_check(
         # Add cache statistics
         cache_stats = await cache_backend.get_cache_stats()
         health_status["cache"] = cache_stats
+        health_status["cache_hydration"] = cache_hydrator.last_run
 
         # Add scraper health status
         try:

@@ -4,8 +4,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..config import DEFAULT_STATION, ISO_FORMAT, MAX_QUERY_HOURS
-from ..dependencies import get_pg_manager, get_station_service, get_wind_service
-from ..services.notifications import PostgresNotificationManager
+from ..dependencies import get_station_service, get_wind_service
 from ..services.station import StationService
 from ..services.wind_data import WindDataService
 
@@ -15,7 +14,6 @@ router = APIRouter(prefix="/api", tags=["api"])
 @router.get("/wind")
 async def get_wind_data(
     wind_service: Annotated[WindDataService, Depends(get_wind_service)],
-    pg_manager: Annotated[PostgresNotificationManager, Depends(get_pg_manager)],
     station_service: Annotated[StationService, Depends(get_station_service)],
     stn: str = DEFAULT_STATION,
     from_time: str | None = None,

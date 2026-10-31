@@ -1,9 +1,13 @@
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 import asyncpg
 
 from app.models import ScraperStatus
+
+if TYPE_CHECKING:
+    from .websocket import WebSocketManager
 
 logger = logging.getLogger("windburglr.watchdog")
 
@@ -13,7 +17,7 @@ class WatchdogService:
 
     def __init__(self, scraper_status_timeout_minutes: int = 5):
         self.scraper_status: dict[str, ScraperStatus] = {}
-        self.websocket_manager = None
+        self.websocket_manager: WebSocketManager | None = None
         self.staleness_threshold = timedelta(minutes=scraper_status_timeout_minutes)
 
     async def initialize(self, pg_connection: asyncpg.Connection):
@@ -86,7 +90,7 @@ class WatchdogService:
             status.error_message = "No recent status update"
             await self.handle_scraper_status_update(status)
 
-    def set_websocket_manager(self, websocket_manager):
+    def set_websocket_manager(self, websocket_manager: "WebSocketManager"):
         """Set the websocket manager for sending status updates."""
         self.websocket_manager = websocket_manager
 

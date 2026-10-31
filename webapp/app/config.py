@@ -23,6 +23,12 @@ GTAG_ID = os.environ.get("GOOGLE_TAG_MANAGER_ID", "")
 # Cache configuration
 DATA_CACHE_HOURS = int(os.environ.get("DATA_CACHE_HOURS", "48"))
 CACHE_DURATION = timedelta(hours=DATA_CACHE_HOURS)
+# Hours of observations loaded into the cache at startup and after a resume, so the
+# first page load is served from memory. 24 covers every live view window the UI
+# offers; 0 disables it.
+CACHE_HYDRATION_HOURS = min(
+    int(os.environ.get("CACHE_HYDRATION_HOURS", "24")), DATA_CACHE_HOURS
+)
 ACQUIRE_CONNECTION_TIMEOUT = float(os.environ.get("ACQUIRE_CONNECTION_TIMEOUT", "5.0"))
 
 # Logging configuration

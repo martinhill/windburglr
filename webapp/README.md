@@ -18,12 +18,14 @@ direction with Chart.js.
 ## Layout
 
 ```
-main.py            FastAPI app: lifespan (DB pool, suspension detector), routers, static mounts
+main.py            create_app(): routers, static mounts and the lifespan; logging and Sentry setup
 app/
   config.py        settings from environment variables
-  dependencies.py  DB pool, cache, services and built-asset lookup for templates
+  lifespan.py      builds the DB pool, cache and services at startup, onto app.state; shuts them down
+  dependencies.py  route dependencies reading the services from app.state; built-asset lookup
   routers/         web pages, /api, /ws, /health
-  services/        wind data, stations, Postgres LISTEN/NOTIFY, WebSocket fan-out, scraper watchdog
+  services/        wind data, stations, Postgres LISTEN/NOTIFY, WebSocket fan-out, scraper watchdog,
+                   cache hydration
   cache/           in-memory wind data cache
 templates/         Jinja2 pages (base, index, day)
 static/            icons, manifest and images, served as-is
@@ -78,6 +80,7 @@ Environment variables, read in `app/config.py` and `main.py`:
 | `DEV_MODE` | `false` | Load frontend assets from the Vite dev server |
 | `LOG_LEVEL` | `INFO` | |
 | `DATA_CACHE_HOURS` | `48` | Hours of observations kept in the in-memory cache |
+| `CACHE_HYDRATION_HOURS` | `24` | Hours loaded into the cache at startup and after a resume or listener reconnect (at most `DATA_CACHE_HOURS`; `0` disables) |
 | `SCRAPER_STATUS_TIMEOUT_MINUTES` | `5` | When the watchdog considers scraper status stale |
 | `WEBSOCKET_PING_TIMEOUT` | `60` | Seconds |
 | `POSTGRES_MONITOR_INTERVAL` | `30` | Seconds between LISTEN connection health checks |
@@ -94,8 +97,8 @@ Environment variables, read in `app/config.py` and `main.py`:
 - `GET /api/wind?stn=CYTZ`: observations as JSON. Either `from_time` and `to_time`
   (`YYYY-MM-DDTHH:MM:SS`, UTC) or `hours`; defaults to the last 24 hours
 - `WS /ws/{station}`: live observations and scraper status
-- `GET /health/live`: liveness (the Fly.io check); `GET /health`: database, WebSocket and
-  LISTEN connection status; `GET /health/scraper`, `GET /health/scraper-details`: scraper status
+- `GET /health/live`: liveness (the Fly.io check); `GET /health`: database, WebSocket,
+  LISTEN connection, cache and cache hydration status; `GET /health/scraper`, `GET /health/scraper-details`: scraper status
 
 ## Testing
 
@@ -105,6 +108,10 @@ npm run build                               # the app mounts dist/ at import tim
 uv run pytest tests/unit tests/integration  # what CI runs
 npm run test:run                            # Vitest; `npm test` watches
 ```
+
+Tests build the app with `create_app(StartupOptions(...))` and run its real lifespan, swapping
+in a mock or test database pool and listener connection (see `tests/conftest.py`); cache
+hydration is off unless a test turns it on.
 
 Each pytest session clones its own database from the template and drops it afterwards (see
 `tests/conftest.py`). Set `TEST_DATABASE_URL` to use a specific database. Without the dev
