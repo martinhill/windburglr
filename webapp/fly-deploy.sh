@@ -10,12 +10,15 @@ if [ -n "$(git status --porcelain -- .)" ] && [ -z "${ALLOW_DIRTY:-}" ]; then
 fi
 SENTRY_RELEASE=$(git rev-parse HEAD)
 
-build_secret_args=()
-if [ -f .env.sentry-build-plugin ]; then
+# The Sentry token comes from the environment (CI, or direnv) or .env.sentry-build-plugin
+if [ -z "${SENTRY_AUTH_TOKEN:-}" ] && [ -f .env.sentry-build-plugin ]; then
     SENTRY_AUTH_TOKEN=$(sed -n 's/^SENTRY_AUTH_TOKEN=//p' .env.sentry-build-plugin)
+fi
+build_secret_args=()
+if [ -n "${SENTRY_AUTH_TOKEN:-}" ]; then
     build_secret_args=(--build-secret "SENTRY_AUTH_TOKEN=$SENTRY_AUTH_TOKEN")
 else
-    echo "No .env.sentry-build-plugin; source maps won't be uploaded to Sentry" >&2
+    echo "No SENTRY_AUTH_TOKEN; source maps won't be uploaded to Sentry" >&2
 fi
 
 echo "Deploying with SENTRY_RELEASE=$SENTRY_RELEASE"

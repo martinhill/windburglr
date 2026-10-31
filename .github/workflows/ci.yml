@@ -4,13 +4,24 @@ on:
   pull_request:
   push:
     branches: [master]
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Apps to deploy after the checks pass (master only)
+        type: choice
+        options: [none, scraper, webapp, both]
+        default: none
 
+# Superseded PR runs are cancelled; runs on master queue instead, so a deploy is never
+# interrupted
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
+
+# Pushes to master deploy the apps whose directories changed, once every check has passed.
 
 # The test jobs run inside the flake's dev shells, so CI uses the same Python, uv, Node and
 # PostgreSQL/TimescaleDB as local development, and the same scripts/db.sh database setup.
@@ -80,3 +91,53 @@ jobs:
           push: false
           cache-from: type=gha,scope=${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+
+  # Which apps to deploy: those changed by a push to master, or the manual choice
+  changes:
+    if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      apps: ${{ steps.apps.outputs.apps }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4
+        id: filter
+        if: github.event_name == 'push'
+        with:
+          filters: |
+            scraper: scraper/**
+            webapp: webapp/**
+      - id: apps
+        env:
+          EVENT: ${{ github.event_name }}
+          CHOICE: ${{ inputs.deploy }}
+          CHANGED: ${{ steps.filter.outputs.changes }}
+        run: |
+          case "$EVENT:$CHOICE" in
+            push:*) apps="$CHANGED" ;;
+            *:both) apps='["scraper","webapp"]' ;;
+            *:scraper|*:webapp) apps="[\"$CHOICE\"]" ;;
+            *) apps='[]' ;;
+          esac
+          echo "apps=$apps" >> "$GITHUB_OUTPUT"
+          echo "Deploying: $apps"
+
+  deploy:
+    needs: [changes, scraper, webapp, docker]
+    if: needs.changes.outputs.apps != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(needs.changes.outputs.apps) }}
+    concurrency:
+      group: deploy-${{ matrix.app }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+      - uses: superfly/flyctl-actions/setup-flyctl@1.5
+      - name: Deploy ${{ matrix.app }}
+        run: ${{ matrix.app }}/fly-deploy.sh
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
