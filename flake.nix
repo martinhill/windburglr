@@ -40,7 +40,7 @@
         devShells = {
           default = mkShell [ ];
           scraper = mkShell [ ];
-          webapp = mkShell [ pkgs.nodejs_22 pkgs.pyright ];
+          webapp = mkShell [ pkgs.nodejs_24 pkgs.pyright ];
         };
       });
 }

@@ -3,7 +3,7 @@
 ARG PYTHON_IMAGE=python:3.13.18-slim-bookworm
 
 # Frontend
-FROM node:22.23.4-bookworm-slim AS frontend
+FROM node:24.22.2-bookworm-slim AS frontend
 # sentry-cli, which uploads the source maps, verifies TLS against the system CA store; Node
 # bundles its own, so the slim image doesn't ship one
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
