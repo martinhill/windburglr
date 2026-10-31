@@ -20,6 +20,15 @@ class DuplicateObservationError(WindburglrError):
     pass
 
 
+class ConfigurationError(WindburglrError):
+    """The remote data no longer matches the station config or the parsing logic.
+
+    For example, the payload format changed, or the decryption key can no longer be found
+    or no longer works. Unlike network errors or stale data, this needs a code or config
+    change, so it's reported to Sentry as an error.
+    """
+
+
 class WindObs(BaseModel):
     station: str
     direction: int | None

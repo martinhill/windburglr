@@ -5,17 +5,20 @@ import logging
 import re
 import sys
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from dataclasses import fields
+from datetime import UTC, datetime, tzinfo
 from typing import Any
 from urllib.parse import urljoin
 
 import aiohttp
+import sentry_sdk
 from aiohttp.web import HTTPClientError
 from Crypto.Cipher import AES  # pyright: ignore[reportMissingModuleSource]
 from Crypto.Util.Padding import unpad  # pyright: ignore[reportMissingModuleSource]
 
 from .config import Config, StationConfig
 from .models import (
+    ConfigurationError,
     MaxRetriesExceededError,
     StaleWindObservationError,
     WindburglrError,
@@ -36,6 +39,15 @@ def _get_nested_value(data: dict[str, Any], path: str) -> Any:
         else:
             return None
     return value
+
+
+def station_config_context(station_config: StationConfig) -> dict[str, Any]:
+    """The complete station config, in a form Sentry can serialize."""
+    context: dict[str, Any] = {}
+    for f in fields(station_config):
+        value = getattr(station_config, f.name)
+        context[f.name] = str(value) if isinstance(value, tzinfo) else value
+    return context
 
 
 class ObservationTracker:
@@ -78,6 +90,7 @@ class RetryHandler:
 # Callables
 DataRequester = Callable[[], Awaitable[str]]
 Parser = Callable[[str], WindObs]
+ParserFactory = Callable[[], Awaitable[Parser]]
 OutputHandler = Callable[[WindObs], Awaitable[None]]
 StatusHandler = Callable[[str, str, str | None], Awaitable[None]]
 
@@ -254,15 +267,20 @@ class Scraper:
         self,
         station_config: StationConfig,
         data_requester: DataRequester,
-        parser: Parser,
+        parser: Parser | None,
         output_handler: OutputHandler,
         status_handler: StatusHandler,
         tracker: ObservationTracker,
         retry_handler: RetryHandler,
+        parser_factory: ParserFactory | None = None,
     ):
+        """Either ``parser`` or ``parser_factory`` is required. With a factory, the parser
+        is created on first use, and created again after a parse failure, so a decryption
+        key that changed is fetched again."""
         self.station_config = station_config
         self.data_requester = data_requester
         self.parser = parser
+        self.parser_factory = parser_factory
         self.output_handler = output_handler
         self.status_handler = status_handler
         self.tracker = tracker
@@ -281,7 +299,8 @@ class Scraper:
         cls,
         station_config: StationConfig,
         data_requester: DataRequester,
-        parser: Parser,
+        parser: Parser | None = None,
+        parser_factory: ParserFactory | None = None,
     ):
         """Factory method to create a Scraper instance."""
         if cls.output_handler is None:
@@ -296,7 +315,46 @@ class Scraper:
             cls.status_handler,
             cls.tracker,
             RetryHandler(),
+            parser_factory,
         )
+
+    async def _get_parser(self) -> Parser:
+        if self.parser is None:
+            if self.parser_factory is None:
+                raise ValueError("Scraper has neither a parser nor a parser factory")
+            try:
+                self.parser = await self.parser_factory()
+            except ValueError as e:
+                # Key not found, or invalid config; network errors propagate as they are
+                raise ConfigurationError(f"Parser setup failed: {e}") from e
+        return self.parser
+
+    async def run_once(self):
+        """Fetch and process once, logging any failure for this station.
+
+        Runs in its own Sentry isolation scope, so events (and breadcrumbs) from this
+        station's processing carry its tag and complete config, and don't mix with those
+        of stations processed concurrently.
+        """
+        station = self.station_config.name
+        with sentry_sdk.isolation_scope() as scope:
+            scope.set_tag("station", station)
+            scope.set_context(
+                "station_config", station_config_context(self.station_config)
+            )
+            try:
+                await self.fetch_and_process()
+            except ConfigurationError:
+                logger.error(
+                    "Configuration error for station %s", station, exc_info=True
+                )
+                raise
+            except WindburglrError as e:
+                logger.warning("Handled exception for station %s: %s", station, e)
+                raise
+            except Exception:
+                logger.exception("Unexpected error for station %s", station)
+                raise
 
     async def fetch_and_process(self):
         """Fetches and processes wind observations for a station.
@@ -307,8 +365,15 @@ class Scraper:
         try:
             logger.debug("Fetching data for station %s", station)
             raw_data = await self.retry_handler.execute_with_retry(self.data_requester)
+            parser = await self._get_parser()
             logger.debug("Parsing data for station %s", station)
-            obs = self.parser(raw_data)
+            try:
+                obs = parser(raw_data)
+            except Exception as e:
+                if self.parser_factory:
+                    # Start again from the factory next time, e.g. to fetch a changed key
+                    self.parser = None
+                raise ConfigurationError(f"Parse error: {e}") from e
             if self.tracker.is_new_obs(obs):
                 self.tracker.set_obs_last_timestamp(obs)
                 logger.debug("Emitting new observation for station %s", station)
@@ -352,6 +417,9 @@ class Scraper:
                     logger.debug("First observation for station %s", station)
                     await self.output_handler(obs)
                     await self.status_handler(station, "healthy", "")
+        except ConfigurationError as e:
+            await self.status_handler(station, "parse_error", str(e))
+            raise
         except aiohttp.ClientResponseError as e:
             error_msg = f"HTTP {e.status}: {e.message}"
             await self.status_handler(station, "http_error", error_msg)
