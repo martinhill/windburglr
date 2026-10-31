@@ -55,10 +55,12 @@ async def lifespan(app: FastAPI):
 
     # Create suspension detector
     suspension_detector = SuspensionDetector()
+    app.state.suspension_detector = suspension_detector
 
     # Add callback to mark cache as stale on resumption
     async def handle_resumption():
         logger.warning("System resumption detected - marking cache as stale")
+        cache_backend = await get_cache_backend()
         await cache_backend.mark_cache_stale()
 
     suspension_detector.add_resumption_callback(handle_resumption)

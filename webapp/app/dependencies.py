@@ -105,6 +105,12 @@ async def get_wind_service(
 
 async def get_pg_connection() -> asyncpg.Connection | None:
     """Get PostgreSQL connection for notifications listener. Override in tests."""
+    # FastAPI resolves this on every request that depends on get_pg_manager, but the
+    # connection is only used to create the manager; don't open one that would be
+    # discarded
+    if _pg_manager is not None:
+        return None
+
     database_url = config.get_database_url(False)
     if not database_url:
         logger.warning("No database URL configured, skipping Postgres listener")
@@ -113,8 +119,8 @@ async def get_pg_connection() -> asyncpg.Connection | None:
     try:
         # Create separate connection for notifications
         logger.info(
-            "Connecting to Postgres for notifications: %s...",
-            database_url[:50],
+            "Connecting to Postgres for notifications: %s",
+            config.describe_database_url(database_url),
         )
         return await asyncpg.connect(database_url)
     except Exception as e:
@@ -140,6 +146,9 @@ async def get_pg_manager(
         if pg_connection:
             _pg_manager.set_pg_listener(pg_connection)
             await _pg_manager.start_pg_listener()
+    elif pg_connection and pg_connection is not _pg_manager.pg_listener:
+        # Concurrent first requests can each open a connection before the manager exists
+        await pg_connection.close()
     return _pg_manager
 
 

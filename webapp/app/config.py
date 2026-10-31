@@ -3,6 +3,7 @@ import os
 from datetime import timedelta
 from functools import cache
 from typing import Any
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
@@ -38,6 +39,14 @@ def get_database_url(pooled: bool = False) -> str:
     if pooled:
         return os.environ.get("DATABASE_POOL_URL", os.environ.get("DATABASE_URL", ""))
     return os.environ.get("DATABASE_URL", "")
+
+
+def describe_database_url(database_url: str) -> str:
+    """Describe a database URL for logging, without credentials or query parameters."""
+    parsed = urlsplit(database_url)
+    host = parsed.hostname or "(local socket)"
+    port = f":{parsed.port}" if parsed.port else ""
+    return f"{host}{port}{parsed.path}"
 
 
 def get_cache_config() -> dict[str, Any]:
