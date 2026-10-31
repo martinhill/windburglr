@@ -30,7 +30,7 @@ dev = [
 [tool.ruff]
 target-version = "py313"
 line-length = 88
-exclude = ["__pycache__", ".venv", ".git", "htmlcov", "tests/", "scrape-iids.py"]
+exclude = ["__pycache__", ".venv", ".git", "htmlcov", "tests/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "S", "B", "A", "C4", "T20"]
@@ -46,8 +46,9 @@ typeCheckingMode = "strict"
 pythonVersion = "3.13"
 exclude = ["__pycache__", ".venv", ".git", "htmlcov"]
 
+# asyncio_mode stays at its default, strict: async tests and fixtures must be marked
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests/unit", "tests/integration"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
@@ -56,8 +57,7 @@ addopts = [
     "--tb=short",
     "--strict-markers",
     "--strict-config",
-    "--cov=main",
-    "--cov=app",
+    "--cov=windscraper",
     "--cov-report=term-missing",
     "--cov-report=html",
     "--cov-report=xml",
@@ -68,8 +68,6 @@ markers = [
     "slow: Slow tests",
     "asyncio: Async tests",
 ]
-asyncio_mode = "auto"
-asyncio_default_fixture_loop_scope = "function"
 
 [tool.coverage.report]
 exclude_also = ['if __name__ == .__main__.:', 'except Exception']
