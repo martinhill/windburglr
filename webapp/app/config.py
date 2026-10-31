@@ -67,8 +67,6 @@ def get_sentry_config() -> dict[str, Any]:
     """Get Sentry configuration from environment."""
     if sentry_dotenv_result:
         logger.info("Loaded Sentry environment variables from dotfile")
-    else:
-        logger.warning("No Sentry dotfile found, using environment variables")
 
     environment = os.environ.get("SENTRY_ENVIRONMENT", "development")
     release = os.environ.get("SENTRY_RELEASE", "unknown")

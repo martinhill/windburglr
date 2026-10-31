@@ -1,15 +1,7 @@
-# flyctl launch added from .pytest_cache/.gitignore
-# Created by pytest automatically.
-.pytest_cache/**/*
-
-# flyctl launch added from .ruff_cache/.gitignore
-# Automatically created by ruff.
-.ruff_cache/**/*
-
-# flyctl launch added from .venv/.gitignore
-.venv/**/*
-
-# flyctl launch added from htmlcov/.gitignore
-# Created by coverage.py
-htmlcov/**/*
-fly.toml
+# Only what the Dockerfile copies is sent to the builder; in particular the station configs
+# (windburglr*.toml) and .env files stay local
+*
+!pyproject.toml
+!uv.lock
+!windscraper/
+**/__pycache__

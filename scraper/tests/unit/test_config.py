@@ -1,3 +1,4 @@
+import base64
 import os
 import tempfile
 from datetime import UTC
@@ -5,7 +6,12 @@ from datetime import UTC
 import pytest
 from zoneinfo import ZoneInfo
 
-from windscraper.config import Config, StationConfig, load_config_from_toml
+from windscraper.config import (
+    Config,
+    StationConfig,
+    load_config_from_base64,
+    load_config_from_toml,
+)
 
 
 class TestStationConfig:
@@ -356,3 +362,16 @@ log_level = "DEBUG"  # Missing closing bracket
                 load_config_from_toml(temp_path)
         finally:
             os.unlink(temp_path)
+
+
+class TestLoadConfigFromBase64:
+    """Test cases for load_config_from_base64 (config supplied as a deployment secret)."""
+
+    def test_load_config_from_base64_matches_file(self, temp_config_file: str):
+        """Base64-encoded TOML loads the same config as the file it came from."""
+        with open(temp_config_file, "rb") as f:
+            encoded = base64.b64encode(f.read()).decode()
+
+        assert load_config_from_base64(encoded) == load_config_from_toml(
+            temp_config_file
+        )

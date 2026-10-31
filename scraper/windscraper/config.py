@@ -1,9 +1,11 @@
+import base64
 import logging
 import os
 import tomllib
 import zoneinfo
 from dataclasses import dataclass, field
 from datetime import UTC, tzinfo
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -84,8 +86,15 @@ class Config:
 
 def load_config_from_toml(file_path: str) -> Config:
     with open(file_path, "rb") as f:
-        data = tomllib.load(f)
+        return config_from_dict(tomllib.load(f))
 
+
+def load_config_from_base64(value: str) -> Config:
+    """Load config from base64-encoded TOML, as stored in a deployment secret."""
+    return config_from_dict(tomllib.loads(base64.b64decode(value).decode()))
+
+
+def config_from_dict(data: dict[str, Any]) -> Config:
     general = data.get("general", {})
     stations_data = data.get("stations", [])
 
@@ -130,8 +139,6 @@ def get_sentry_config() -> dict[str, str]:
     """Get Sentry configuration from environment."""
     if sentry_dotenv_result:
         logger.info("Loaded Sentry environment variables from dotfile")
-    else:
-        logger.warning("No Sentry dotfile found, using environment variables")
 
     environment = os.environ.get("SENTRY_ENVIRONMENT", "development")
     release = os.environ.get("SENTRY_RELEASE", "unknown")

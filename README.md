@@ -59,3 +59,19 @@ You can use a tool like `psql` to run these files. For example:
 psql -U <username> -d <database_name> -f common/timescaledb_schema.sql
 psql -U <username> -d <database_name> -f common/initial_data.sql
 ```
+
+## Deployment
+
+Both sub-projects deploy to [Fly.io](https://fly.io) (apps `windburglr` and `windburglr-scraper`) with
+their `fly-deploy.sh`, run from a clean checkout. The script tags the build with the commit SHA as the
+Sentry release; set `ALLOW_DIRTY=1` to deploy uncommitted changes anyway. Extra arguments go to
+`flyctl deploy`.
+
+-   **webapp**: if `webapp/.env.sentry-build-plugin` (`SENTRY_AUTH_TOKEN=...`) exists, the build uploads
+    source maps to Sentry. The maps are not served.
+-   **scraper**: station config is kept out of the repository and the image. The scraper reads it from
+    the `SCRAPER_CONFIG` secret (base64-encoded TOML). When `scraper/windburglr.prod.toml` exists, the
+    deploy script stages it as that secret first. Use `SCRAPER_CONFIG_FILE` to name a different file.
+    Locally, the scraper reads `--config-file` (default `windburglr.toml`) when `SCRAPER_CONFIG` is unset.
+
+Runtime settings such as `DATABASE_URL` and `SENTRY_DSN` are Fly secrets (`flyctl secrets list`).
