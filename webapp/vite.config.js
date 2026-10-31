@@ -48,5 +48,7 @@ export default defineConfig({
     org: "martin-hill",
     project: "windburglr",
     authToken: process.env.SENTRY_AUTH_TOKEN,
+    // Docker builds have no .git to detect the release from, so the Dockerfile passes it
+    release: { name: process.env.SENTRY_RELEASE },
   })]
 })
