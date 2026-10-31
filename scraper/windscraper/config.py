@@ -135,7 +135,7 @@ def config_from_dict(data: dict[str, Any]) -> Config:
 sentry_dotenv_result = load_dotenv(".env.sentry")
 
 
-def get_sentry_config() -> dict[str, str]:
+def get_sentry_config() -> dict[str, Any]:
     """Get Sentry configuration from environment."""
     if sentry_dotenv_result:
         logger.info("Loaded Sentry environment variables from dotfile")
@@ -150,4 +150,19 @@ def get_sentry_config() -> dict[str, str]:
         "dsn": os.environ.get("SENTRY_DSN", ""),
         "environment": environment,
         "release": release,
+        "traces_sample_rate": _sample_rate("SENTRY_TRACES_SAMPLE_RATE", 0.1),
+        "profiles_sample_rate": _sample_rate("SENTRY_PROFILES_SAMPLE_RATE", 0.0),
     }
+
+
+def _sample_rate(name: str, default: float) -> float:
+    """Read a Sentry sample rate (0.0-1.0) from the environment."""
+    value = os.environ.get(name)
+    if value is None or value == "":
+        return default
+    try:
+        rate = float(value)
+    except ValueError:
+        logger.warning("Ignoring invalid %s=%r, using %s", name, value, default)
+        return default
+    return min(max(rate, 0.0), 1.0)

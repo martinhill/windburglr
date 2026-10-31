@@ -1,9 +1,9 @@
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from ..config import DEFAULT_STATION, ISO_FORMAT
+from ..config import DEFAULT_STATION, ISO_FORMAT, MAX_QUERY_HOURS
 from ..dependencies import get_pg_manager, get_station_service, get_wind_service
 from ..services.notifications import PostgresNotificationManager
 from ..services.station import StationService
@@ -20,16 +20,33 @@ async def get_wind_data(
     stn: str = DEFAULT_STATION,
     from_time: str | None = None,
     to_time: str | None = None,
-    hours: int | None = None,
+    hours: Annotated[int | None, Query(ge=1, le=MAX_QUERY_HOURS)] = None,
 ) -> dict[str, Any]:
     """Get wind data for a station and time range."""
-    # Get station timezone for metadata only
-    station_tz_name = await station_service.get_station_timezone(stn)
+    if bool(from_time) != bool(to_time):
+        raise HTTPException(
+            status_code=400, detail="from_time and to_time must be given together"
+        )
 
     if from_time and to_time:
         # Parse datetime strings as UTC (no timezone conversion)
-        start_time = datetime.strptime(from_time, ISO_FORMAT).replace(tzinfo=UTC)
-        end_time = datetime.strptime(to_time, ISO_FORMAT).replace(tzinfo=UTC)
+        try:
+            start_time = datetime.strptime(from_time, ISO_FORMAT).replace(tzinfo=UTC)
+            end_time = datetime.strptime(to_time, ISO_FORMAT).replace(tzinfo=UTC)
+        except ValueError as err:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid from_time or to_time. Use YYYY-MM-DDTHH:MM:SS (UTC)",
+            ) from err
+        if start_time >= end_time:
+            raise HTTPException(
+                status_code=400, detail="from_time must be before to_time"
+            )
+        if end_time - start_time > timedelta(hours=MAX_QUERY_HOURS):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Time range must not exceed {MAX_QUERY_HOURS} hours",
+            )
     elif hours:
         # For relative time queries, use current UTC time
         now_utc = datetime.now(UTC)
@@ -40,6 +57,9 @@ async def get_wind_data(
         now_utc = datetime.now(UTC)
         start_time = now_utc - timedelta(hours=24)
         end_time = now_utc
+
+    # Get station timezone for metadata only
+    station_tz_name = await station_service.get_station_timezone(stn)
 
     # Get data from service
     result = await wind_service.get_cached_or_fresh_data(stn, start_time, end_time)

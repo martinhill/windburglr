@@ -36,6 +36,7 @@ async def live_wind_chart(
             "sentry_dsn": sentry_config["dsn"],
             "sentry_environment": sentry_config["environment"],
             "sentry_release": sentry_config["release"],
+            "sentry_traces_sample_rate": sentry_config["traces_sample_rate"],
         },
     )
 
@@ -107,6 +108,7 @@ async def historical_wind_day_chart(
                 "sentry_dsn": sentry_config["dsn"],
                 "sentry_environment": sentry_config["environment"],
                 "sentry_release": sentry_config["release"],
+                "sentry_traces_sample_rate": sentry_config["traces_sample_rate"],
             },
         )
     except ValueError as err:
