@@ -1,39 +1,38 @@
-FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS builder
+# Base images are pinned; bump them together. The builder and runtime stages share one
+# base image so the virtualenv's interpreter matches the one it runs on.
+ARG PYTHON_IMAGE=python:3.13.18-slim-bookworm
 
-ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1
+FROM ${PYTHON_IMAGE} AS builder
+COPY --from=ghcr.io/astral-sh/uv:0.13.6 /uv /usr/local/bin/uv
+
+ENV UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1 UV_PYTHON_DOWNLOADS=never
 WORKDIR /app
 
-# Install Python dependencies
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --locked --no-dev --no-install-project --no-editable
 
-# Sync the project
 COPY pyproject.toml uv.lock ./
-COPY windscraper ./windscraper/
+COPY windscraper/ ./windscraper/
 # Always rebuild the project: uv's cached wheel is keyed on pyproject.toml, not the source
 # files, so without this the persistent cache mount can install stale code
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-editable --reinstall-package windscraper
+    uv sync --locked --no-dev --no-editable --reinstall-package windscraper
 
-# Capture git SHA for Sentry release tracking
+FROM ${PYTHON_IMAGE}
+
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PATH="/app/.venv/bin:$PATH"
+RUN useradd --system --uid 1000 --no-create-home app
+WORKDIR /app
+
+COPY --from=builder /app/.venv .venv/
+
+# Station config isn't in the image: it's read from the SCRAPER_CONFIG secret (see fly-deploy.sh)
 ARG SENTRY_RELEASE
 ARG SENTRY_ENVIRONMENT=production
-RUN if [ -z "$SENTRY_RELEASE" ]; then echo "ERROR: SENTRY_RELEASE not set"; exit 1; fi
-RUN echo SENTRY_RELEASE=$SENTRY_RELEASE >> .env.sentry
-RUN echo SENTRY_ENVIRONMENT=$SENTRY_ENVIRONMENT >> .env.sentry
+RUN test -n "$SENTRY_RELEASE" || { echo "ERROR: SENTRY_RELEASE not set"; exit 1; }
+ENV SENTRY_RELEASE=$SENTRY_RELEASE SENTRY_ENVIRONMENT=$SENTRY_ENVIRONMENT
 
-FROM python:3.13-slim
-WORKDIR /app
-COPY --from=builder /app/.venv .venv/
-COPY --from=builder /app/.env.sentry .
-
-# Copy application files explicitly to avoid overwriting dist/
-# COPY windscraper /app/windscraper/
-ARG SCRAPER_CONFIG_FILE=windburglr.prod.toml
-COPY ${SCRAPER_CONFIG_FILE} /app/windburglr.toml
-
-ENV PATH="/app/.venv/bin:$PATH"
-
+USER app
 CMD ["scraper"]

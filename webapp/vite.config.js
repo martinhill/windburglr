@@ -29,7 +29,9 @@ export default defineConfig({
       }
     },
 
-    sourcemap: true
+    // Maps are uploaded to Sentry and then deleted; 'hidden' omits the sourceMappingURL
+    // comment so browsers don't request them
+    sourcemap: 'hidden'
   },
 
   server: {

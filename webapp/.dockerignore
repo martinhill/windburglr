@@ -1,5 +1,17 @@
-fly.toml
-.git/
-__pycache__/
-.envrc
-.venv/
+# Only what the Dockerfile copies is sent to the builder; everything else (node_modules,
+# dist, tests, coverage output, .env files) stays local
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!main.py
+!app/
+!templates/
+!static/
+!package.json
+!package-lock.json
+!vite.config.js
+!src/
+**/__pycache__
+src/**/*.test.js
+src/test/

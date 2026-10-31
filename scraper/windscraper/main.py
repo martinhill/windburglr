@@ -2,10 +2,12 @@ import argparse
 import asyncio
 import logging
 import os
+import sys
 
 from .config import (
     Config,
     get_sentry_config,
+    load_config_from_base64,
     load_config_from_toml,
     setup_package_logger,
 )
@@ -107,11 +109,15 @@ def main():
 
     logger.info("Loading config")
 
-    if os.path.exists(args.config_file):
+    # Deployments supply the config as a secret, so it's neither in the repo nor the image
+    if encoded_config := os.environ.get("SCRAPER_CONFIG"):
+        logger.info("Loading config from SCRAPER_CONFIG environment variable")
+        config = load_config_from_base64(encoded_config)
+    elif os.path.exists(args.config_file):
         config = load_config_from_toml(args.config_file)
     else:
         logger.error(f"Config file {args.config_file} not found")
-        return
+        sys.exit(1)
 
     log_level = args.log_level or config.log_level
     logger.info("Log level: %s", log_level)

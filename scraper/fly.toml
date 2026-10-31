@@ -11,3 +11,7 @@ primary_region = 'yyz'
 
 [[vm]]
   size = 'shared-cpu-1x'
+
+# The scraper is a long-running daemon: restart it whatever the exit code
+[[restart]]
+  policy = 'always'
