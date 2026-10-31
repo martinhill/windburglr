@@ -41,9 +41,14 @@ async def live_wind_chart(
 
 
 @router.get("/day")
-async def redirect_to_today(stn: str = DEFAULT_STATION, hours: int = 24):
-    """Redirect to current date when no date is specified."""
-    today = datetime.now().strftime("%Y-%m-%d")
+async def redirect_to_today(
+    station_service: Annotated[StationService, Depends(get_station_service)],
+    stn: str = DEFAULT_STATION,
+    hours: int = 24,
+):
+    """Redirect to the station's current local date when no date is specified."""
+    station_tz_name = await station_service.get_station_timezone(stn)
+    today = datetime.now(zoneinfo.ZoneInfo(station_tz_name)).strftime("%Y-%m-%d")
     return RedirectResponse(
         url=f"/day/{today}?stn={stn}&hours={hours}", status_code=302
     )

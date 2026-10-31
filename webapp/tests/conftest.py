@@ -20,6 +20,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 _session_database: str | None = None
 
 
+def skip_without_database(reason: str):
+    """Skip a database test locally, but fail in CI, where a skip would hide a broken setup."""
+    if os.environ.get("CI"):
+        pytest.fail(reason)
+    pytest.skip(reason)
+
+
 def pytest_sessionstart(session):
     """Give this test session its own clone of the shared template database (scripts/db.sh).
 
@@ -63,7 +70,7 @@ async def test_db_manager():
 
     database_url = os.environ.get("TEST_DATABASE_URL")
     if not database_url:
-        pytest.skip("TEST_DATABASE_URL not set - skipping real database tests")
+        skip_without_database("TEST_DATABASE_URL not set - skipping real database tests")
 
     class TestDatabaseManager:
         """Real database manager for integration testing."""
@@ -468,7 +475,7 @@ async def test_db_manager():
     manager = TestDatabaseManager()
     setup_success = await manager.setup(database_url)
     if not setup_success:
-        pytest.skip(f"Could not connect to test database {database_url}")
+        skip_without_database(f"Could not connect to test database {database_url}")
 
     try:
         yield manager
@@ -1015,7 +1022,7 @@ async def persistent_connection():
 
     database_url = os.environ.get("TEST_DATABASE_URL")
     if not database_url:
-        pytest.skip("TEST_DATABASE_URL not set - skipping real database tests")
+        skip_without_database("TEST_DATABASE_URL not set - skipping real database tests")
 
     connection = await asyncpg.connect(database_url)
     # manager.set_pg_listener(connection)

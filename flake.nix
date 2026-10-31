@@ -27,6 +27,10 @@
         # (direnv, agent shells). Start the database explicitly with `scripts/db.sh up`.
         mkShell = extraPackages: pkgs.mkShell {
           packages = basePackages ++ extraPackages;
+          # On Linux, prebuilt (manylinux) wheels such as greenlet need libstdc++, which the
+          # Nix Python can't find by itself
+          LD_LIBRARY_PATH = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux
+            (pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib ]);
           shellHook = ''
             source "$(git rev-parse --show-toplevel)/scripts/dev-env.sh"
           '';
