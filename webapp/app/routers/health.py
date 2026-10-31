@@ -23,6 +23,16 @@ logger = logging.getLogger("windburglr.health")
 router = APIRouter(prefix="/health", tags=["health"])
 
 
+@router.get("/live")
+async def liveness_check():
+    """Liveness check for the platform: the process is up and serving requests.
+
+    Deliberately has no dependencies, so a database or scraper outage doesn't get a
+    healthy machine restarted or taken out of rotation.
+    """
+    return {"status": "ok"}
+
+
 @router.get("")
 async def health_check(
     pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],

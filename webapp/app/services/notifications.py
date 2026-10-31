@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 import asyncpg
 
 from ..cache.abc import CacheBackend
-from ..config import get_database_url
+from ..config import describe_database_url, get_database_url
 from ..models import ScraperStatus, WindDataPoint
 from .watchdog import WatchdogService
 from .websocket import WebSocketManager
@@ -52,8 +52,8 @@ class PostgresNotificationManager:
             try:
                 # Create separate connection for notifications
                 logger.info(
-                    "Connecting to Postgres for notifications: %s...",
-                    database_url[:50],
+                    "Connecting to Postgres for notifications: %s",
+                    describe_database_url(database_url),
                 )
                 self.pg_listener = await asyncpg.connect(database_url)
             except Exception as e:
