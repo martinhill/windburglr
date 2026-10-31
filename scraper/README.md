@@ -1,51 +1,57 @@
 # Windburglr scraper
 
-This sub-project is responsible for scraping wind data from various sources and storing it in the database.
+Scrapes wind observations from the configured stations and stores them in the database, where
+the webapp picks them up.
 
 ## Operation
 
-The scraper fetches wind observation data from one or more configured stations in a continuous loop. For each station, it performs the following steps:
+The scraper fetches every configured station concurrently, once per `refresh_rate` seconds.
+For each station it:
 
-1.  **Fetch**: It makes an HTTP request to the station's configured URL to retrieve the latest wind data.
-2.  **Parse**: It parses the raw data (JSON is currently supported) to extract the wind direction, speed, gust, and timestamp.
-3.  **Store**: It stores the parsed data in a PostgreSQL database.
-
-The scraper is designed to be resilient, with a retry mechanism for network errors and the ability to handle stale data. It also tracks the status of each station and can report errors to the database.
+1.  **Fetches** the station's URL.
+2.  **Decodes and parses** the response: optionally base64-decodes and AES-256-CBC-decrypts it,
+    then extracts direction, speed, gust and timestamp from the JSON.
+3.  **Stores** new observations in PostgreSQL (or prints them, with `output_mode = "stdout"`)
+    and records the station's status in the `scraper_status` table, which the webapp shows.
 
 ## Configuration
 
-The scraper is configured through a TOML file (e.g., `windburglr.toml.example`). The configuration file is divided into two sections: `general` and `stations`.
+The scraper reads its configuration from the `SCRAPER_CONFIG` environment variable
+(base64-encoded TOML, as deployed) or, when that is unset, from `--config-file` (default
+`windburglr.toml`). See `windburglr.toml.example`. Station configs are kept out of the
+repository; see [Deployment](../README.md#deployment).
 
-### General Configuration
+### `[general]`
 
-The `general` section contains the following parameters:
+-   `log_level`: logging level (e.g. `INFO`, `DEBUG`); `--log-level` overrides it.
+-   `refresh_rate`: seconds between scraping cycles (default `60`).
+-   `db_url`: PostgreSQL URL. `--database-url` and then `DATABASE_URL` take precedence.
+-   `output_mode`: `postgres` (default) or `stdout`.
 
--   `log_level`: The logging level (e.g., `INFO`, `DEBUG`).
--   `refresh_rate`: The number of seconds to wait between scraping cycles.
--   `db_url`: The URL of the PostgreSQL database. This can also be provided via the `--database-url` command-line argument or the `DATABASE_URL` environment variable.
--   `output_mode`: The output mode. Can be `postgres` (to store data in a PostgreSQL database) or `stdout` (to print data to the console).
+### `[[stations]]`
 
-### Station Configuration
+-   `name`: station name (e.g. `CYTZ`).
+-   `url`: URL of the station's wind data feed.
+-   `local_timezone` (required): the station's local timezone, e.g. `America/Toronto`.
+-   `timeout`: request timeout in seconds (default `15`).
+-   `headers`: table of HTTP headers to send.
+-   `direction_path`, `speed_path`, `gust_path`, `timestamp_path`: dot-separated paths to the
+    values in the JSON (defaults `direction`, `speed`, `gust`, `timestamp`).
+-   `timestamp_format`: [`strptime` format](https://docs.python.org/3/library/datetime.html#strftime-and-strptime-format-codes)
+    of the timestamp (default `%Y-%m-%d %H:%M`).
+-   `timezone`: timezone of the feed's timestamps (default `UTC`).
+-   `stale_data_timeout`: seconds without a new observation before the station is reported
+    stale (default `300`).
+-   `encoding`: `base64` if the response is base64-encoded.
+-   `encryption`: `aes256cbc` if the (decoded) response is encrypted, with the 16-byte IV
+    prepended. Requires:
+    -   `key_url`: page to fetch the key from;
+    -   `key_extract_regex`: regex whose first group extracts the key;
+    -   `key_asset_regex` (optional): regex whose first group finds an asset (e.g. a
+        content-hashed JS bundle) on the `key_url` page; the asset is fetched and
+        `key_extract_regex` is applied to it instead.
 
-The `stations` section is a list of one or more stations to scrape. Each station has the following parameters:
-
--   `name`: The name of the station (e.g., `CYTZ`).
--   `url`: The URL of the station's wind data feed.
--   `timeout`: The timeout in seconds for the HTTP request (default: `15`).
--   `headers`: A table of HTTP headers to include in the request.
--   `parser`: The parser to use for the data feed. Currently, only `json` is supported (default: `json`).
--   `direction_path`: Dot-separated path to the wind direction value in the JSON data (e.g., `sensor_data.wind_direction`). Default: `direction`.
--   `speed_path`: Dot-separated path to the wind speed value in the JSON data (e.g., `sensor_data.wind_speed`). Default: `speed`.
--   `gust_path`: Dot-separated path to the wind gust value in the JSON data (e.g., `sensor_data.wind_gust`). Default: `gust`.
--   `timestamp_path`: Dot-separated path to the timestamp value in the JSON data (e.g., `sensor_data.updated`). Default: `timestamp`.
--   `timestamp_format`: The format of the timestamp in the data feed using Python's `strptime` format codes (e.g., `%Y-%m-%d %H:%M`). See the [Python datetime documentation](https://docs.python.org/3/library/datetime.html#strftime-and-strptime-format-codes) for available format codes. Default: `%Y-%m-%d %H:%M`.
--   `timezone`: The timezone of the timestamp in the data feed (default: `UTC`).
--   `local_timezone`: The local timezone of the station.
--   `stale_data_timeout`: The minimum elapsed time in seconds before data is considered stale (default: `300`).
-
-#### JSON Path Configuration
-
-The path fields (`direction_path`, `speed_path`, `gust_path`, `timestamp_path`) use dot notation to traverse nested JSON structures. For example, given this JSON response:
+For example, given this response:
 
 ```json
 {
@@ -60,7 +66,8 @@ The path fields (`direction_path`, `speed_path`, `gust_path`, `timestamp_path`) 
 }
 ```
 
-You would configure the paths as:
+configure the paths as:
+
 ```toml
 direction_path = "sensor_data.SENSOR_ID.wind_direction"
 speed_path = "sensor_data.SENSOR_ID.wind_speed"
@@ -68,93 +75,53 @@ gust_path = "sensor_data.SENSOR_ID.wind_gust"
 timestamp_path = "sensor_data.SENSOR_ID.updated"
 ```
 
-This allows the scraper to work with different JSON structures without code changes.
+## Error handling
 
-## Error Handling
+A failing station doesn't stop the others. Errors are recorded in `scraper_status`
+(`http_error`, `parse_error`, `network_error`, `stale_data`, `error`) and logged:
 
-The scraper has robust error handling and can recover from transient errors. It catches and logs various exceptions, including:
+-   Connection errors and timeouts are retried (up to 10 times, 5 seconds apart). HTTP error
+    statuses are not retried within a cycle.
+-   Repeated observations are ignored until `stale_data_timeout` passes, then the station is
+    reported stale.
+-   Configuration errors (the payload no longer matches the config, or the decryption key
+    can't be found or no longer works) need a code or config change, so they're reported to
+    Sentry as errors with the station's config attached.
 
--   HTTP errors
--   Parsing errors
--   Network timeouts
--   Stale data
+Sentry is enabled when `SENTRY_DSN` is set, from the environment or a `.env.sentry` file,
+along with `SENTRY_ENVIRONMENT` and `SENTRY_RELEASE`. `SENTRY_TRACES_SAMPLE_RATE` (default
+`0.1`) and `SENTRY_PROFILES_SAMPLE_RATE` (default `0.0`, off) set the fraction of transactions
+traced and of traced transactions profiled, 0.0-1.0.
 
-The scraper also uses Sentry for error reporting. To enable Sentry, create a `.env.sentry` file with the following environment variables:
+## Development
 
--   `SENTRY_DSN`: Your Sentry DSN.
--   `SENTRY_ENVIRONMENT`: The Sentry environment (e.g., `production`, `development`).
--   `SENTRY_RELEASE`: The Sentry release.
--   `SENTRY_TRACES_SAMPLE_RATE`: Fraction of transactions to trace, 0.0-1.0 (default `0.1`).
--   `SENTRY_PROFILES_SAMPLE_RATE`: Fraction of traced transactions to profile, 0.0-1.0 (default `0.0`, off).
-
-## Development Environment
-
-### Requirements
-
-- Python 3.13 or later
-- UV
-- Postgres with TimescaleDB (for storage - optional)
-
-For the best development experience, use Nix to set up a complete development environment. This is the recommended approach as it automatically provides a PostgreSQL database for running integration tests.
-
-1.  **Install Nix**: Follow the instructions at https://nixos.org/download.html to install Nix.
-
-2.  **Enable Flakes**: If you haven't already, enable Nix flakes:
-    ```bash
-    echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
-    ```
-
-3.  **Enter the Development Environment**:
-    ```bash
-    nix develop ..#scraper
-    ```
-    Or, if you use `direnv`:
-    ```bash
-    direnv allow
-    ```
-
-The environment provides Python 3.13, uv and PostgreSQL 18. It does not start anything; see
-[Development environment](../README.md#development-environment) for the shared database
-(`../scripts/db.sh up`). Install dependencies with `uv sync`.
-
-## Running
+The root Nix flake provides Python 3.13, uv and PostgreSQL. Enter it with
+`nix develop ..#scraper` or direnv (`direnv allow`); see
+[Development environment](../README.md#development-environment) for the shared database.
 
 ```bash
-# Install dependencies
-uv pip install -e .
-
-# Run the scraper with default configuration from ./windburglr.toml
-scraper
-
-# Run the scraper with a custom configuration file
-scraper --config-file custom.windburglr.toml
+../scripts/db.sh up                   # start the shared PostgreSQL cluster
+uv sync                               # install dependencies
+uv run scraper --config-file my.toml  # run; --help lists the options
 ```
 
-You can also use the `--help` flag to see a list of all available command-line arguments:
-
-```bash
-scraper --help
-```
+Locally, connect as the `scraper` role for production-like permissions:
+`--database-url postgresql://scraper@/windburglr_dev`.
 
 ## Testing
 
-To run the tests, you need to have pytest installed. You can then run the tests using the following command:
-
 ```bash
-pytest
+uv run pytest                         # unit and integration tests
+uv run pytest tests/unit/test_scraper.py
+uv run ruff check .
 ```
 
-This will run all the unit and integration tests. You can also run specific tests by providing a path to a test file or directory. For example:
+The integration tests need the shared database: each session clones its own database from the
+template and drops it afterwards. pytest settings live in `pyproject.toml`; pytest-asyncio runs
+in strict mode, so async tests need `@pytest.mark.asyncio`. Coverage reports are written to
+`htmlcov/` and `coverage.xml`; pass `--no-cov` to skip them.
 
-```bash
-# Install dev dependencies
-uv sync --dev
+## To do
 
-# Run all tests in the tests/unit directory
-pytest tests/unit
-
-# Run a specific test file
-pytest tests/unit/test_scraper.py
-```
-
-**Note**: The integration tests require a running PostgreSQL database. The recommended way to run the tests is within the Nix development environment, which automatically provides a PostgreSQL database.
+-   Logging messages are missing at startup
+-   Review and fix the generated test code

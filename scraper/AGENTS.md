@@ -1,4 +1,6 @@
-# WindBurglr Agent Guidelines
+# WindBurglr scraper: agent guidelines
+
+See [README.md](README.md) for configuration, error handling and commands.
 
 ## Development Environment
 
@@ -13,39 +15,17 @@
 
 ## Build/Test Commands
 
-### Scraper (Python)
+```bash
+uv sync                                                  # install dependencies
+uv run scraper --config-file windburglr.toml             # run the scraper
+uv run pytest                                            # all tests, with coverage
+uv run pytest tests/unit/test_scraper.py::TestClass::test_name  # a single test
+uv run ruff check . && uv run ruff format .              # lint, format
+uv run pyright                                           # type check
+```
 
-# Install dependencies
-uv sync
+## Code review
 
-# Run scraper
-uv run windscraper
-
-# Run single test
-uv run pytest tests/test_file.py::test_function -v
-
-# Run all tests with coverage
-uv run pytest --cov=windscraper --cov-report=term-missing
-
-# Lint and format
-ruff check .
-ruff format .
-
-# Type check
-uv run pyright
-
-### Webapp (Python + JavaScript)
-
-# Full development setup
-nix develop
-
-# Run single test
-pytest tests/unit/test_api.py::TestAPI::test_endpoint -v
-
-# Run all tests
-pytest
-
-# Code review
 Run `coderabbit review --plain` to get comprehensive code analysis and improvement suggestions. Apply the feedback to write cleaner, more maintainable code.
 
 ## Code Style Guidelines
@@ -53,22 +33,14 @@ Run `coderabbit review --plain` to get comprehensive code analysis and improveme
 ### Python
 
 • Imports: stdlib → third-party → local modules (blank lines between groups)
-• Type hints: Required for all functions, use Union/Optional from typing
+• Type hints: Required for all functions, in modern syntax (`str | None`, `list[str]`)
 • Naming: snake_case for functions/variables, PascalCase for classes
 • Error handling: Custom exceptions inherit from WindburglrError, use async context managers
 • Async/await: All I/O operations must be async
-• Dataclasses: Use for data models, prefer over dicts
+• Data models: dataclasses for configuration, Pydantic for observations; prefer either over dicts
 • Logging: Use module-level loggers, appropriate levels (DEBUG/INFO/WARNING/ERROR) and always use percent-style string formatting with arguments, never use f-strings
 • Line length: 88 characters (ruff default)
 • Docstrings: Use triple quotes for module/class/function docs
-
-### JavaScript
-
-• Modules: Use ES6 imports/exports
-• Naming: camelCase for variables/functions, PascalCase for classes
-• Async: Use async/await, avoid promises directly
-• DOM: Use modern APIs, prefer querySelector over getElementById
-• Events: Use addEventListener, avoid inline handlers
 
 ### Database
 

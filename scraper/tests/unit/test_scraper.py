@@ -586,7 +586,7 @@ class TestRetryHandler:
 
     @pytest.mark.asyncio
     async def test_execute_with_retry_client_error_no_retry(self):
-        """Test that ClientResponseError and HTTPClientError don't trigger retries."""
+        """Test that ClientResponseError doesn't trigger retries."""
         handler = RetryHandler(max_retries=5)
         mock_request_info = MagicMock()
         mock_func = AsyncMock(
@@ -605,15 +605,36 @@ class TestRetryHandler:
         assert mock_func.call_count == 1  # No retries for client errors
 
     @pytest.mark.asyncio
-    async def test_execute_with_retry_http_client_error_no_retry(self):
-        """Test that HTTPClientError doesn't trigger retries."""
+    async def test_execute_with_retry_server_error_no_retry(self):
+        """Test that a 5xx ClientResponseError doesn't trigger retries either."""
         handler = RetryHandler(max_retries=5)
-        mock_func = AsyncMock(side_effect=aiohttp.web.HTTPClientError())
+        mock_func = AsyncMock(
+            side_effect=aiohttp.ClientResponseError(
+                request_info=MagicMock(),
+                status=503,
+                message="Service Unavailable",
+                headers={},
+                history=(),
+            )
+        )
 
-        with pytest.raises(aiohttp.web.HTTPClientError):
+        with pytest.raises(aiohttp.ClientResponseError):
             await handler.execute_with_retry(mock_func)
 
-        assert mock_func.call_count == 1  # No retries for HTTP client errors
+        assert mock_func.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_execute_with_retry_connection_error_retries(self):
+        """Test that client connection errors are retried."""
+        handler = RetryHandler(max_retries=2, retry_delay=0)
+        mock_func = AsyncMock(
+            side_effect=[aiohttp.ClientConnectionError("refused"), "success"]
+        )
+
+        result = await handler.execute_with_retry(mock_func)
+
+        assert result == "success"
+        assert mock_func.call_count == 2
 
     @pytest.mark.asyncio
     @patch("asyncio.sleep")
