@@ -43,6 +43,18 @@ class WebSocketManager:
                     "Failed to remove WebSocket connection for station %s", station
                 )
 
+    async def close_all(self, code: int = 1001) -> None:
+        """Close every connection, e.g. on shutdown (1001: going away)."""
+        for station, connections in list(self.active_connections.items()):
+            for websocket in list(connections):
+                try:
+                    await websocket.close(code=code)
+                except Exception as e:
+                    logger.debug(
+                        "Error closing WebSocket for station %s: %s", station, e
+                    )
+        self.active_connections.clear()
+
     async def broadcast_to_station(self, message: str, station: str):
         """Broadcast a message to all connections for a specific station."""
         if station in self.active_connections:

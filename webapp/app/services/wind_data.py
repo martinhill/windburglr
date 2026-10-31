@@ -108,13 +108,7 @@ class WindDataService:
             self.cache.cache_miss_count += 1
             logger.debug("Cache miss for station %s, querying database", station)
 
-            # Query database
-            winddata = [
-                (point.timestamp, point.direction, point.speed_kts, point.gust_kts)
-                for point in await self.query_wind_data(
-                    station, start_time, end_time
-                )
-            ]
+            winddata = await self._query_wind_tuples(station, start_time, end_time)
 
             # Update cache with fresh data
             logger.debug(
@@ -129,3 +123,22 @@ class WindDataService:
             "winddata": winddata,
             "cache_hit": is_cache_hit,
         }
+
+    async def prefill_cache(
+        self, station: str, start_time: datetime, end_time: datetime
+    ) -> int:
+        """Load a time range into the cache, without counting a cache miss.
+
+        Returns the number of observations loaded.
+        """
+        winddata = await self._query_wind_tuples(station, start_time, end_time)
+        await self.cache.update_cache(station, start_time, end_time, winddata)
+        return len(winddata)
+
+    async def _query_wind_tuples(
+        self, station: str, start_time: datetime, end_time: datetime
+    ) -> list[tuple[float, int | None, int | None, int | None]]:
+        return [
+            (point.timestamp, point.direction, point.speed_kts, point.gust_kts)
+            for point in await self.query_wind_data(station, start_time, end_time)
+        ]

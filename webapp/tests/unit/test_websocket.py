@@ -4,105 +4,111 @@ import pytest
 
 
 @pytest.mark.timeout(1)
-def test_websocket_connection(test_client, mock_test_db_manager):
+def test_websocket_connection(make_test_client, mock_test_db_manager):
     """Test WebSocket connection establishment."""
     mock_test_db_manager.create_test_data()
-    with test_client.websocket_connect("/ws/CYTZ") as websocket:
-        # Connection should be established
-        assert websocket is not None
-        message = websocket.receive_json()
-        assert message["type"] == "status_update"
-        message = websocket.receive_json()
-        assert message["type"] == "wind"
-        data = message["data"]
-        assert isinstance(data["timestamp"], float)
-        assert isinstance(data["direction"], int)
-        assert isinstance(data["speed_kts"], int)
-        assert isinstance(data["gust_kts"], int)
-        assert 0 <= data["direction"] <= 360
+
+    with make_test_client() as test_client:
+        with test_client.websocket_connect("/ws/CYTZ") as websocket:
+            # Connection should be established
+            assert websocket is not None
+            message = websocket.receive_json()
+            assert message["type"] == "status_update"
+            message = websocket.receive_json()
+            assert message["type"] == "wind"
+            data = message["data"]
+            assert isinstance(data["timestamp"], float)
+            assert isinstance(data["direction"], int)
+            assert isinstance(data["speed_kts"], int)
+            assert isinstance(data["gust_kts"], int)
+            assert 0 <= data["direction"] <= 360
 
 
 @pytest.mark.timeout(1)
-def test_websocket_different_stations(test_client, mock_test_db_manager):
+def test_websocket_different_stations(make_test_client, mock_test_db_manager):
     """Test WebSocket connections to different stations."""
     mock_test_db_manager.create_test_data("CYTZ")
     mock_test_db_manager.create_test_data("CYYZ")
-    with (
-        test_client.websocket_connect("/ws/CYTZ") as ws1,
-        test_client.websocket_connect("/ws/CYYZ") as ws2,
-    ):
-        # Both connections should be active
-        assert ws1 is not None
-        assert ws2 is not None
 
-        message1 = ws1.receive_json()
-        assert message1["type"] == "status_update"
-        message1 = ws1.receive_json()
-        assert message1["type"] == "wind"
-        data1 = message1["data"]
-        assert isinstance(data1["timestamp"], float)
-        assert isinstance(data1["direction"], int)
-        assert isinstance(data1["speed_kts"], int)
-        assert isinstance(data1["gust_kts"], int)
-        assert 0 <= data1["direction"] <= 360
+    with make_test_client() as test_client:
+        with (
+            test_client.websocket_connect("/ws/CYTZ") as ws1,
+            test_client.websocket_connect("/ws/CYYZ") as ws2,
+        ):
+            # Both connections should be active
+            assert ws1 is not None
+            assert ws2 is not None
 
-        message2 = ws2.receive_json()
-        assert message2["type"] == "status_update"
-        message2 = ws2.receive_json()
-        assert message2["type"] == "wind"
-        data2 = message2["data"]
-        assert isinstance(data2["timestamp"], float)
-        assert isinstance(data2["direction"], int)
-        assert isinstance(data2["speed_kts"], int)
-        assert isinstance(data2["gust_kts"], int)
-        assert 0 <= data2["direction"] <= 360
+            message1 = ws1.receive_json()
+            assert message1["type"] == "status_update"
+            message1 = ws1.receive_json()
+            assert message1["type"] == "wind"
+            data1 = message1["data"]
+            assert isinstance(data1["timestamp"], float)
+            assert isinstance(data1["direction"], int)
+            assert isinstance(data1["speed_kts"], int)
+            assert isinstance(data1["gust_kts"], int)
+            assert 0 <= data1["direction"] <= 360
+
+            message2 = ws2.receive_json()
+            assert message2["type"] == "status_update"
+            message2 = ws2.receive_json()
+            assert message2["type"] == "wind"
+            data2 = message2["data"]
+            assert isinstance(data2["timestamp"], float)
+            assert isinstance(data2["direction"], int)
+            assert isinstance(data2["speed_kts"], int)
+            assert isinstance(data2["gust_kts"], int)
+            assert 0 <= data2["direction"] <= 360
 
 
 @pytest.mark.asyncio
 @pytest.mark.timeout(1)
-async def test_websocket_new_wind_observation(test_client, mock_test_db_manager):
+async def test_websocket_new_wind_observation(make_test_client, mock_listener_connection, mock_test_db_manager):
     """Test websocket wind observation"""
     # Get the mock listener connection from the test client
-    mock_listener_conn = test_client.mock_listener_connection
+    mock_listener_conn = mock_listener_connection
     mock_test_db_manager.create_test_data("CYTZ")
-    with test_client.websocket_connect("/ws/CYTZ") as websocket:
-        # Connection should be established
-        assert websocket is not None
-        message = websocket.receive_json()
-        assert message["type"] == "status_update"
-        message = websocket.receive_json()
-        assert message["type"] == "wind"
-        data = message["data"]
-        assert isinstance(data["timestamp"], float)
-        assert isinstance(data["direction"], int)
-        assert isinstance(data["speed_kts"], int)
-        assert isinstance(data["gust_kts"], int)
-        assert 0 <= data["direction"] <= 360
 
-        # Triger notification
-        new_wind_obs_update_time = datetime.now()
-        notification_data = {
-            "station_name": "CYTZ",
-            "update_time": new_wind_obs_update_time.timestamp(),
-            "direction": 270,
-            "speed_kts": 15,
-            "gust_kts": None,
-        }
+    with make_test_client() as test_client:
+        with test_client.websocket_connect("/ws/CYTZ") as websocket:
+            # Connection should be established
+            assert websocket is not None
+            message = websocket.receive_json()
+            assert message["type"] == "status_update"
+            message = websocket.receive_json()
+            assert message["type"] == "wind"
+            data = message["data"]
+            assert isinstance(data["timestamp"], float)
+            assert isinstance(data["direction"], int)
+            assert isinstance(data["speed_kts"], int)
+            assert isinstance(data["gust_kts"], int)
+            assert 0 <= data["direction"] <= 360
 
-        # Trigger a notification to test the ConnectionManager._handle_notification method
-        # This simulates what would happen when PostgreSQL sends a NOTIFY wind_obs_insert
-        await mock_listener_conn.trigger_notification(
-            "wind_obs_insert", notification_data
-        )
+            # Triger notification
+            new_wind_obs_update_time = datetime.now()
+            notification_data = {
+                "station_name": "CYTZ",
+                "update_time": new_wind_obs_update_time.timestamp(),
+                "direction": 270,
+                "speed_kts": 15,
+                "gust_kts": None,
+            }
 
-        # Verify the new wind observation was broadcasted
-        message = websocket.receive_json()
-        assert message["type"] == "wind"
-        data = message["data"]
-        assert data["timestamp"] == new_wind_obs_update_time.timestamp()
-        assert data["direction"] == notification_data["direction"]
-        assert data["speed_kts"] == notification_data["speed_kts"]
-        assert data["gust_kts"] == notification_data["gust_kts"]
+            # Trigger a notification to test the ConnectionManager._handle_notification method
+            # This simulates what would happen when PostgreSQL sends a NOTIFY wind_obs_insert
+            await mock_listener_conn.trigger_notification(
+                "wind_obs_insert", notification_data
+            )
+
+            # Verify the new wind observation was broadcasted
+            message = websocket.receive_json()
+            assert message["type"] == "wind"
+            data = message["data"]
+            assert data["timestamp"] == new_wind_obs_update_time.timestamp()
+            assert data["direction"] == notification_data["direction"]
+            assert data["speed_kts"] == notification_data["speed_kts"]
+            assert data["gust_kts"] == notification_data["gust_kts"]
 
 
 @pytest.mark.timeout(1)
@@ -117,7 +123,7 @@ def test_websocket_ping_pong(test_client):
         assert ping_response["type"] == "pong"
 
 
-@pytest.mark.parametrize("test_client", [{"websocket_timeout": 0.1}], indirect=True)
+@pytest.mark.parametrize("test_client", [{"websocket_ping_timeout": 0.1}], indirect=True)
 def test_websocket_ping(test_client):
     """Test websocket ping"""
     # Check for ping

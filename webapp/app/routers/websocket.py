@@ -7,13 +7,11 @@ from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from websockets.exceptions import ConnectionClosedError
 
 from ..dependencies import (
-    get_pg_manager,
     get_watchdog_service,
-    get_websocket_config,
     get_websocket_manager,
+    get_websocket_ping_timeout,
     get_wind_service,
 )
-from ..services.notifications import PostgresNotificationManager
 from ..services.watchdog import WatchdogService
 from ..services.websocket import WebSocketManager
 from ..services.wind_data import WindDataService
@@ -30,8 +28,7 @@ async def websocket_endpoint(
     ws_manager: Annotated[WebSocketManager, Depends(get_websocket_manager)],
     wind_service: Annotated[WindDataService, Depends(get_wind_service)],
     watchdog_service: Annotated[WatchdogService, Depends(get_watchdog_service)],
-    ws_config: Annotated[dict[str, float], Depends(get_websocket_config)],
-    pg_manager: Annotated[PostgresNotificationManager, Depends(get_pg_manager)],
+    ping_timeout: Annotated[float, Depends(get_websocket_ping_timeout)],
 ):
     """WebSocket endpoint for real-time wind data updates."""
     await ws_manager.connect(websocket, station)
@@ -58,9 +55,7 @@ async def websocket_endpoint(
         while True:
             try:
                 # Wait for any message from client (ping/pong)
-                await asyncio.wait_for(
-                    websocket.receive_text(), timeout=ws_config["ping_timeout"]
-                )
+                await asyncio.wait_for(websocket.receive_text(), timeout=ping_timeout)
                 await websocket.send_text(json.dumps({"type": "pong"}))
             except TimeoutError:
                 # Send ping to keep connection alive

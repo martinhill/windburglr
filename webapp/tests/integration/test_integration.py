@@ -155,9 +155,10 @@ class TestIntegration:
         "app_with_bulk_data", [{"postgres_monitor_interval": 1.0}], indirect=True
     )
     async def test_listener_reconnection(
-        self, ws_integration_client, test_db_with_bulk_data, persistent_connection
+        self, ws_integration_client, test_db_with_bulk_data, app_with_bulk_data
     ):
-        """Test listener reconnection."""
+        """The listener reconnects after the server drops its connection."""
+        pg_manager = app_with_bulk_data.state.pg_manager
         check_latest_wind_obs = test_db_with_bulk_data.latest_wind_obs
         async with aconnect_ws("/ws/CYTZ", ws_integration_client) as websocket:
             # First message might be status update, then wind observation
@@ -178,11 +179,23 @@ class TestIntegration:
             assert latest_wind_obs["speed_kts"] == check_latest_wind_obs["speed_kts"]
             assert latest_wind_obs["gust_kts"] == check_latest_wind_obs["gust_kts"]
 
-            # Close the listener Connection
-            await persistent_connection.close()
+            # Drop the listener's connection from the server side
+            old_listener = pg_manager.pg_listener
+            async with test_db_with_bulk_data.pool.acquire() as conn:
+                assert await conn.fetchval(
+                    "SELECT pg_terminate_backend($1)", old_listener.get_server_pid()
+                )
 
-            # Ensure enough time has passed for the listener to reconnect
-            await sleep(2)
+            # Wait for the listener to reconnect
+            for _ in range(50):
+                await sleep(0.1)
+                if (
+                    pg_manager.pg_listener not in (None, old_listener)
+                    and pg_manager.is_pg_listener_healthy
+                ):
+                    break
+            else:
+                pytest.fail("Postgres listener did not reconnect")
 
             # Test live updates continue
             new_obs_time = datetime.now(UTC)
@@ -202,3 +215,37 @@ class TestIntegration:
             assert updated_wind_obs["direction"] == 180
             assert updated_wind_obs["speed_kts"] == 10
             assert updated_wind_obs["gust_kts"] is None
+
+
+@pytest.mark.anyio
+async def test_cache_hydration(test_db_with_bulk_data):
+    """Startup hydrates the default station and recently scraped ones from the database,
+    so the first live view request is a cache hit."""
+    from httpx import ASGITransport
+
+    from tests.conftest import running_app
+
+    db = test_db_with_bulk_data
+    await db.create_scraper_status("CYYZ", status="healthy", last_success_minutes_ago=5)
+    await db.create_scraper_status(
+        "CYVR", status="error", last_success_minutes_ago=3 * 24 * 60
+    )
+
+    async with running_app(db, cache_hydration_hours=24) as app:
+        hydrator = app.state.cache_hydrator
+        await hydrator.task
+        assert hydrator.last_run["state"] == "done"
+        stations = hydrator.last_run["stations"]
+        assert stations[0] == "CYTZ"
+        assert "CYYZ" in stations
+        assert "CYVR" not in stations
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            for hours in (3, 24):
+                response = await client.get(f"/api/wind?hours={hours}")
+                assert response.status_code == 200
+                data = response.json()
+                assert data["cache_hit"]
+                assert len(data["winddata"]) >= hours * 60 - 1
