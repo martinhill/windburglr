@@ -50,4 +50,3 @@ uv run pytest -v
 - **ALL database timestamps are UTC** - never convert in backend
 - Use Pydantic for database models, FastAPI for endpoints
 - Log timezone operations at DEBUG level
-- Do not commit changes without review
