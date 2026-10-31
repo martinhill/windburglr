@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import functools
 import logging
 import os
 import sys
@@ -152,28 +153,31 @@ async def async_main(config, output_handler_cls):
         Scraper.set_output_handler(create_output_handler(config, output_ctx))
         Scraper.set_status_handler(create_status_handler(config, output_ctx))
 
+        # Parsers are created on each scraper's first run, inside its Sentry scope, so a
+        # failure (such as a decryption key that can't be found) is reported with the
+        # station's config and doesn't stop the other stations
         scrapers = [
             Scraper.create(
                 station_config,
                 requester_builder.create_requester(station_config),
-                await create_parser(station_config, requester_builder.session),
+                parser_factory=functools.partial(
+                    create_parser, station_config, requester_builder.session
+                ),
             )
             for station_config in config.stations
         ]
 
         logger.info("Starting main loop")
         while True:
-            tasks = [scraper.fetch_and_process() for scraper in scrapers]
+            tasks = [scraper.run_once() for scraper in scrapers]
             # Run the scrapers in parallel
             logger.debug("Running all %s scrapers", len(scrapers))
             results = await asyncio.gather(
                 *tasks, asyncio.sleep(config.refresh_rate), return_exceptions=True
             )
-            # Check for errors
+            # Failures were logged by run_once; unexpected ones still stop the scraper
             for result in results:
-                if isinstance(result, WindburglrError):
-                    logger.warning("Handled exception: %s", result)
-                elif isinstance(result, Exception):
-                    # Unexpected exception
-                    logger.error("Oh crap! Unexpected exception: %s", result)
+                if isinstance(result, Exception) and not isinstance(
+                    result, WindburglrError
+                ):
                     raise result

@@ -1042,13 +1042,16 @@ class TestScraper:
         )
 
     @pytest.mark.asyncio
-    async def test_fetch_and_process_unexpected_error(self, sample_station_config):
-        """Test fetch_and_process with unexpected error."""
+    async def test_fetch_and_process_unexpected_error(
+        self, sample_station_config, sample_wind_obs
+    ):
+        """Test fetch_and_process with unexpected error (outside parsing)."""
         mock_data_requester = AsyncMock(return_value='{"test": "data"}')
-        mock_parser = MagicMock(side_effect=Exception("Unexpected error"))
-        mock_output_handler = AsyncMock()
+        mock_parser = MagicMock(return_value=sample_wind_obs)
+        mock_output_handler = AsyncMock(side_effect=Exception("Unexpected error"))
         mock_status_handler = AsyncMock()
         mock_tracker = MagicMock()
+        mock_tracker.is_new_obs.return_value = True
         mock_retry_handler = MagicMock()
         mock_retry_handler.execute_with_retry = AsyncMock(
             return_value='{"test": "data"}'
@@ -1067,7 +1070,6 @@ class TestScraper:
         with pytest.raises(Exception, match="Unexpected error"):
             await scraper.fetch_and_process()
 
-        mock_output_handler.assert_not_called()
         mock_status_handler.assert_called_once_with(
             sample_station_config.name, "error", "Unexpected error: Unexpected error"
         )
