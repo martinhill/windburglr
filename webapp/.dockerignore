@@ -8,6 +8,7 @@
 !app/
 !templates/
 !static/
+!db/migrations/
 !package.json
 !package-lock.json
 !vite.config.js

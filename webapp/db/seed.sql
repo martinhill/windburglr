@@ -1,5 +1,6 @@
+-- Development seed data, loaded into windburglr_dev by scripts/db.sh (not a migration)
+
 -- Insert default station
---
 INSERT INTO station (name, timezone) VALUES ('CYTZ', 'America/Toronto');
 
 -- Initialize scraper status for default station

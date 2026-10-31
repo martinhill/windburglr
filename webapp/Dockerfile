@@ -47,6 +47,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 FROM ${PYTHON_IMAGE}
 
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PATH="/app/.venv/bin:$PATH"
+# Migrations run from fly.toml's release_command. The binary is static, so the Alpine-based
+# image's copy runs here; keep the version in step with dbmate in flake.nix.
+COPY --from=ghcr.io/amacneil/dbmate:2.37.0 /usr/local/bin/dbmate /usr/local/bin/dbmate
+ENV DBMATE_MIGRATIONS_DIR=/app/db/migrations DBMATE_NO_DUMP_SCHEMA=true
 RUN useradd --system --uid 1000 --no-create-home app
 WORKDIR /app
 
@@ -56,6 +60,7 @@ COPY main.py ./
 COPY app/ ./app/
 COPY templates/ ./templates/
 COPY static/ ./static/
+COPY db/migrations/ ./db/migrations/
 
 ARG SENTRY_RELEASE
 ARG SENTRY_ENVIRONMENT=production
@@ -63,4 +68,6 @@ RUN test -n "$SENTRY_RELEASE" || { echo "ERROR: SENTRY_RELEASE not set"; exit 1;
 ENV SENTRY_RELEASE=$SENTRY_RELEASE SENTRY_ENVIRONMENT=$SENTRY_ENVIRONMENT
 
 USER app
-CMD ["fastapi", "run"]
+# Fly gives every machine of the app all its secrets. Only the release command needs the
+# schema owner's credentials, so the web server never sees them.
+CMD ["env", "-u", "MIGRATION_DATABASE_URL", "fastapi", "run"]

@@ -20,6 +20,10 @@ export PGDATABASE=windburglr_dev
 # Test sessions clone their own database from this template (see scripts/db.sh test-create).
 export WINDBURGLR_TEMPLATE_DB=windburglr_template
 
+# So `dbmate new <name>` works from any directory of this checkout. No schema.sql is kept.
+export DBMATE_MIGRATIONS_DIR="$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")/webapp/db/migrations"
+export DBMATE_NO_DUMP_SCHEMA=true
+
 # Activate the project virtualenv if it exists; `uv sync` creates it.
 if [ -d "$PWD/.venv" ]; then
   export VIRTUAL_ENV="$PWD/.venv"

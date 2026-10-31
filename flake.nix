@@ -19,6 +19,7 @@
           pkgs.python313
           postgresql
           pkgs.uv
+          pkgs.dbmate
           pkgs.git
           pkgs.curl
         ];
