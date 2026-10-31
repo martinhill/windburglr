@@ -4,6 +4,10 @@ ARG PYTHON_IMAGE=python:3.13.18-slim-bookworm
 
 # Frontend
 FROM node:22.23.4-bookworm-slim AS frontend
+# sentry-cli, which uploads the source maps, verifies TLS against the system CA store; Node
+# bundles its own, so the slim image doesn't ship one
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
 COPY package.json package-lock.json ./
@@ -11,10 +15,13 @@ RUN --mount=type=cache,target=/root/.npm npm ci
 
 COPY vite.config.js ./
 COPY src/ ./src/
+# The source maps are uploaded under this release, the one the app reports to Sentry
+ARG SENTRY_RELEASE
 # The Sentry plugin uploads source maps when the token is set; they're deleted afterwards
 # so they aren't served publicly
 RUN --mount=type=secret,id=SENTRY_AUTH_TOKEN \
-    SENTRY_AUTH_TOKEN="$(cat /run/secrets/SENTRY_AUTH_TOKEN 2>/dev/null)" npm run build \
+    SENTRY_AUTH_TOKEN="$(cat /run/secrets/SENTRY_AUTH_TOKEN 2>/dev/null)" \
+    SENTRY_RELEASE="$SENTRY_RELEASE" npm run build \
     && find dist -name '*.map' -delete
 
 # Python dependencies
