@@ -48,8 +48,8 @@
 {% block extra_scripts %}
 <script>
     // Global configuration for the app
-    window.STATION = '{{ station }}';
-    window.IS_LIVE = {{ is_live|lower }};
-    window.HOURS = {{ hours }};
+    window.STATION = {{ station|tojson }};
+    window.IS_LIVE = {{ is_live|tojson }};
+    window.HOURS = {{ hours|tojson }};
 </script>
 {% endblock %}

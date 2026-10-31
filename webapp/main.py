@@ -41,8 +41,8 @@ if sentry_config["dsn"]:
         ],
         environment=sentry_config["environment"],
         release=sentry_config["release"],
-        traces_sample_rate=1.0,
-        profiles_sample_rate=1.0,
+        traces_sample_rate=sentry_config["traces_sample_rate"],
+        profiles_sample_rate=sentry_config["profiles_sample_rate"],
     )
     logger = logging.getLogger("windburglr")
     logger.info("Sentry initialized with DSN: %s", sentry_config["dsn"][:50] + "...")

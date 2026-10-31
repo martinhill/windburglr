@@ -84,6 +84,8 @@ The scraper also uses Sentry for error reporting. To enable Sentry, create a `.e
 -   `SENTRY_DSN`: Your Sentry DSN.
 -   `SENTRY_ENVIRONMENT`: The Sentry environment (e.g., `production`, `development`).
 -   `SENTRY_RELEASE`: The Sentry release.
+-   `SENTRY_TRACES_SAMPLE_RATE`: Fraction of transactions to trace, 0.0-1.0 (default `0.1`).
+-   `SENTRY_PROFILES_SAMPLE_RATE`: Fraction of traced transactions to profile, 0.0-1.0 (default `0.0`, off).
 
 ## Development Environment
 

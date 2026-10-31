@@ -26,11 +26,11 @@
         ></script>
         <script>
             Sentry.init({
-                dsn: "{{ sentry_dsn }}",
-                environment: "{{ sentry_environment }}",
-                release: "{{ sentry_release }}",
+                dsn: {{ sentry_dsn|tojson }},
+                environment: {{ sentry_environment|tojson }},
+                release: {{ sentry_release|tojson }},
                 integrations: [Sentry.browserTracingIntegration()],
-                tracesSampleRate: 1.0,
+                tracesSampleRate: {{ sentry_traces_sample_rate|tojson }},
             });
         </script>
 
@@ -70,7 +70,7 @@
                 dataLayer.push(arguments);
             }
             gtag("js", new Date());
-            gtag("config", "{{ gtag_id }}");
+            gtag("config", {{ gtag_id|tojson }});
         </script>
         {% endif %}
     </head>

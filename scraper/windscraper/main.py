@@ -79,7 +79,7 @@ def setup_sentry():
         from sentry_sdk.integrations.asyncpg import AsyncPGIntegration
 
         # Initialize Sentry
-        sentry_config: dict[str, str] = get_sentry_config()
+        sentry_config = get_sentry_config()
         if sentry_config.get("dsn"):
             sentry_sdk.init(
                 dsn=sentry_config["dsn"],
@@ -88,8 +88,8 @@ def setup_sentry():
                 ],
                 environment=sentry_config["environment"],
                 release=sentry_config["release"],
-                traces_sample_rate=1.0,
-                profiles_sample_rate=1.0,
+                traces_sample_rate=sentry_config["traces_sample_rate"],
+                profiles_sample_rate=sentry_config["profiles_sample_rate"],
             )
     except ImportError:
         logger.warning("Sentry SDK not found. Skipping Sentry setup.")

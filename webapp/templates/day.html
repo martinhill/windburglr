@@ -51,10 +51,10 @@
 {% block extra_scripts %}
 <script>
     // Global configuration for the app
-    window.STATION = '{{ station }}';
-    window.IS_LIVE = {{ is_live|lower }};
-    window.DATE_START = '{{ date_start }}';
-    window.DATE_END = '{{ date_end }}';
-    window.STATION_TIMEZONE = '{{ station_timezone }}';
+    window.STATION = {{ station|tojson }};
+    window.IS_LIVE = {{ is_live|tojson }};
+    window.DATE_START = {{ date_start|tojson }};
+    window.DATE_END = {{ date_end|tojson }};
+    window.STATION_TIMEZONE = {{ station_timezone|tojson }};
 </script>
 {% endblock %}

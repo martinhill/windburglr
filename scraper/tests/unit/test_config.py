@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from windscraper.config import (
     Config,
     StationConfig,
+    get_sentry_config,
     load_config_from_base64,
     load_config_from_toml,
 )
@@ -375,3 +376,25 @@ class TestLoadConfigFromBase64:
         assert load_config_from_base64(encoded) == load_config_from_toml(
             temp_config_file
         )
+
+
+@pytest.mark.parametrize(
+    ("traces", "profiles", "expected"),
+    [
+        (None, None, (0.1, 0.0)),
+        ("0.5", "0.25", (0.5, 0.25)),
+        ("5", "-1", (1.0, 0.0)),
+        ("nope", "", (0.1, 0.0)),
+    ],
+)
+def test_sentry_sample_rates_from_env(monkeypatch, traces, profiles, expected):
+    for name, value in (
+        ("SENTRY_TRACES_SAMPLE_RATE", traces),
+        ("SENTRY_PROFILES_SAMPLE_RATE", profiles),
+    ):
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+    config = get_sentry_config()
+    assert (config["traces_sample_rate"], config["profiles_sample_rate"]) == expected

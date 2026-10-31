@@ -12,6 +12,12 @@ logger = logging.getLogger(__name__)
 DEFAULT_STATION = "CYTZ"
 ISO_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
+# Longest window /api/wind will serve, either as ?hours= or as from_time..to_time.
+# The UI asks for at most 24 hours (live view) or one local day (day view, up to
+# 25 hours across a DST change); a week leaves room for gap-filling after the
+# browser has been asleep for a few days.
+MAX_QUERY_HOURS = 7 * 24
+
 GTAG_ID = os.environ.get("GOOGLE_TAG_MANAGER_ID", "")
 
 # Cache configuration
@@ -78,4 +84,19 @@ def get_sentry_config() -> dict[str, Any]:
         "dsn": os.environ.get("SENTRY_DSN", ""),
         "environment": environment,
         "release": release,
+        "traces_sample_rate": _sample_rate("SENTRY_TRACES_SAMPLE_RATE", 0.1),
+        "profiles_sample_rate": _sample_rate("SENTRY_PROFILES_SAMPLE_RATE", 0.0),
     }
+
+
+def _sample_rate(name: str, default: float) -> float:
+    """Read a Sentry sample rate (0.0-1.0) from the environment."""
+    value = os.environ.get(name)
+    if value is None or value == "":
+        return default
+    try:
+        rate = float(value)
+    except ValueError:
+        logger.warning("Ignoring invalid %s=%r, using %s", name, value, default)
+        return default
+    return min(max(rate, 0.0), 1.0)
