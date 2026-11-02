@@ -48,6 +48,7 @@ class TestDatabaseIntegration:
 
         async with DatabaseHandler(db_config) as handler:
             async with handler.pool.acquire() as conn:
+                real_pool = handler.pool
                 handler.pool = MockPool(conn)
                 transaction = conn.transaction()
                 try:
@@ -60,6 +61,7 @@ class TestDatabaseIntegration:
                     yield handler
                 finally:
                     await transaction.rollback()
+                    handler.pool = real_pool
 
     @pytest_asyncio.fixture
     async def concurrent_db_handler(self, db_config: Config):
