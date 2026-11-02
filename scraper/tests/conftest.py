@@ -14,6 +14,11 @@ from windscraper.config import Config, StationConfig
 from windscraper.database import DatabaseHandler
 from windscraper.models import WindObs
 
+# Importing windscraper.config loads .env.sentry into os.environ, and
+# sentry_sdk.init() without a dsn falls back to SENTRY_DSN. Drop it so no test
+# can report to the real Sentry project and burn error quota.
+os.environ.pop("SENTRY_DSN", None)
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _session_database: str | None = None

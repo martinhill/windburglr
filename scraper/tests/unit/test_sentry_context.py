@@ -26,7 +26,8 @@ def sentry_events():
     sentry_sdk.init(dsn="https://public@sentry.invalid/1", before_send=collect)
     yield events
     sentry_sdk.get_client().close()
-    sentry_sdk.init()
+    # Explicit empty dsn: init() with none would read SENTRY_DSN from the env
+    sentry_sdk.init(dsn="")
 
 
 def make_scraper(

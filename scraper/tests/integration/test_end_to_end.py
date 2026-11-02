@@ -1,6 +1,7 @@
 import asyncio
 import os
 import tempfile
+import asyncpg
 import pytest
 import pytest_asyncio
 from datetime import datetime, UTC
@@ -75,24 +76,26 @@ local_timezone = "America/Vancouver"
     @pytest_asyncio.fixture
     async def setup_e2e_db(self, db_config):
         """Set up database schema for end-to-end tests."""
-        async with DatabaseHandler(db_config) as db_handler:
-            async with db_handler.pool.acquire() as conn:
-                try:
-                    # Insert test stations
+        try:
+            async with DatabaseHandler(db_config) as db_handler:
+                async with db_handler.pool.acquire() as conn:
                     await conn.execute("""
                         INSERT INTO station (name) VALUES ('E2E_STN_1'), ('E2E_STN_2')
                         ON CONFLICT (name) DO NOTHING
                     """)
-
-                    yield db_handler
-                finally:
-                    # Special case for end-to-end tests, needs manual cleanup
-                    await conn.execute("""
-                        DELETE from wind_obs;
-                        DELETE from scraper_status;
-                        DELETE FROM station WHERE name IN ('E2E_STN_1', 'E2E_STN_2');
-                        """)
-
+                yield db_handler
+        finally:
+            # Clean up only after the handler has exited: its __aexit__ marks
+            # each station "stopped", which logs an error if they're gone.
+            conn = await asyncpg.connect(db_config.db_url)
+            try:
+                await conn.execute("""
+                    DELETE from wind_obs;
+                    DELETE from scraper_status;
+                    DELETE FROM station WHERE name IN ('E2E_STN_1', 'E2E_STN_2');
+                    """)
+            finally:
+                await conn.close()
 
     @pytest.mark.asyncio
     async def test_full_config_loading_and_validation(self, temp_config_file):
