@@ -8,7 +8,8 @@ class TestFrontend:
     """End-to-end tests for the frontend."""
 
     @pytest.fixture(scope="class")
-    def browser(self):
+    @classmethod
+    def browser(cls):
         """Create browser instance."""
         with sync_playwright() as p:
             browser = p.chromium.launch(
