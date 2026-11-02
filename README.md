@@ -157,3 +157,12 @@ changes anyway. Extra arguments go to `flyctl deploy`.
     a different file. Locally, the scraper reads `--config-file` (default `windburglr.toml`) when `SCRAPER_CONFIG` is unset.
 
 Runtime settings such as `DATABASE_URL` and `SENTRY_DSN` are Fly secrets (`flyctl secrets list`).
+
+### Sentry auto-fix PRs
+
+New production issues in Sentry can start an automated fix run that opens a pull request as
+`windburglr-autofix[bot]`. The bot can only push branches and open PRs on this repository; it never
+merges. The auto-fix agents have no Fly.io access: they never deploy, read or change Fly secrets, and
+never touch `SCRAPER_CONFIG`. Updating the scraper's station config stays a manual step, run from a
+machine with Fly access via `scraper/fly-deploy.sh` (see above). A bot PR is deployed only after a
+human merges it to `master`, which triggers CI as usual.
