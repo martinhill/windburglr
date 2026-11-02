@@ -11,7 +11,6 @@ import pytest
 from asgi_lifespan import LifespanManager
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
-from httpx_ws.transport import ASGIWebSocketTransport
 
 from app.lifespan import StartupOptions
 
@@ -1010,6 +1009,23 @@ def make_test_client(make_mock_app, mock_listener_connection):
 
 
 @pytest.fixture
+def start_mock_app(make_mock_app):
+    """Run an app on the mock database through its lifespan, on the test's event loop.
+
+    Use as `async with start_mock_app(**overrides) as app:`, so live streams opened
+    with tests.sse.open_sse and notifications triggered by the test share one loop.
+    """
+
+    @asynccontextmanager
+    async def start(**overrides):
+        app = make_mock_app(**overrides)
+        async with LifespanManager(app):
+            yield app
+
+    return start
+
+
+@pytest.fixture
 def test_client(request, make_test_client):
     """A running app on the mock database; parametrize indirectly to override StartupOptions."""
     with make_test_client(**getattr(request, "param", {})) as client:
@@ -1078,16 +1094,6 @@ async def integration_client_with_bulk_data(app_with_bulk_data):
     """Create a test client with pre-loaded bulk data (avoids notification spam)."""
     async with AsyncClient(
         transport=ASGITransport(app=app_with_bulk_data), base_url="http://testserver"
-    ) as client:
-        yield client
-
-
-@pytest.fixture
-async def ws_integration_client(app_with_bulk_data):
-    """Create a test client with real database for integration tests."""
-    async with AsyncClient(
-        transport=ASGIWebSocketTransport(app=app_with_bulk_data),
-        base_url="http://testserver",
     ) as client:
         yield client
 

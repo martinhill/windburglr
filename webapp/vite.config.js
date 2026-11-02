@@ -34,13 +34,17 @@ export default defineConfig({
     sourcemap: 'hidden'
   },
 
+  // In development the browser talks only to Vite (make dev), which serves the frontend
+  // modules and passes everything else (pages, /api, /static) to the backend. One origin
+  // works the same on localhost, over Tailscale or through a tunnel.
   server: {
+    allowedHosts: ['.ts.net'],
     proxy: {
-      '/api': 'http://localhost:8000',
-      '/ws': {
-        target: 'ws://localhost:8000',
-        ws: true
-      }
+      '^/(?!@vite/|@id/|@fs/|src/|node_modules/)': {
+        // 127.0.0.1, not localhost: Node may resolve localhost to ::1, where the
+        // backend doesn't listen
+        target: `http://127.0.0.1:${process.env.BACKEND_PORT ?? 8000}`,
+      },
     }
   },
 

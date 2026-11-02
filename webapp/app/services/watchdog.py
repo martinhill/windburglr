@@ -1,13 +1,11 @@
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
 
 import asyncpg
 
 from app.models import ScraperStatus
 
-if TYPE_CHECKING:
-    from .websocket import WebSocketManager
+from .live_updates import LiveUpdateBroadcaster, status_event
 
 logger = logging.getLogger("windburglr.watchdog")
 
@@ -17,7 +15,7 @@ class WatchdogService:
 
     def __init__(self, scraper_status_timeout_minutes: int = 5):
         self.scraper_status: dict[str, ScraperStatus] = {}
-        self.websocket_manager: WebSocketManager | None = None
+        self.broadcaster: LiveUpdateBroadcaster | None = None
         self.staleness_threshold = timedelta(minutes=scraper_status_timeout_minutes)
 
     async def initialize(self, pg_connection: asyncpg.Connection):
@@ -90,9 +88,9 @@ class WatchdogService:
             status.error_message = "No recent status update"
             await self.handle_scraper_status_update(status)
 
-    def set_websocket_manager(self, websocket_manager: "WebSocketManager"):
-        """Set the websocket manager for sending status updates."""
-        self.websocket_manager = websocket_manager
+    def set_broadcaster(self, broadcaster: LiveUpdateBroadcaster):
+        """Set the broadcaster that sends status changes to live streams."""
+        self.broadcaster = broadcaster
 
     async def handle_scraper_status_update(self, current_status: ScraperStatus):
         """Handle scraper status update notifications."""
@@ -104,7 +102,7 @@ class WatchdogService:
                 current_status.station_name
             )
 
-            # Check if status field changed or is new, and notify via websocket
+            # Check if status field changed or is new, and notify live streams
             should_send_update = False
 
             if previous_status is None:
@@ -131,10 +129,9 @@ class WatchdogService:
             # Update the internal status directly with the ScraperStatus object
             await self._update_station_status_with_model(current_status)
 
-            # Send websocket update if needed
-            if should_send_update and self.websocket_manager:
-                await self.websocket_manager.send_station_status_update(
-                    current_status.station_name, self
+            if should_send_update and self.broadcaster:
+                self.broadcaster.publish(
+                    current_status.station_name, status_event(current_status)
                 )
 
             logger.info(

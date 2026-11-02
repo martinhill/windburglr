@@ -63,7 +63,7 @@ def test_health(test_client):
     health_data = response.json()
     assert health_data["status"] == "unhealthy"
     assert health_data["database"] == "failed"
-    assert health_data["websocket"] == "no_connections"
+    assert health_data["live_streams"] == 0
     assert health_data["postgresql_listener"] == "healthy"
 
 
@@ -571,7 +571,7 @@ async def test_wind_data_caching_new_wind_obs(test_client, mock_test_db_manager)
     # Verify that the notification was processed (notification count should increase)
     # assert manager.notification_count == 1
 
-    # The notification system broadcasts to WebSocket connections, but doesn't update the mock database
+    # The notification system publishes to live streams, but doesn't update the mock database
     # So we just verify the notification was processed successfully
     hours = 6
     start_time = datetime.now(UTC) - timedelta(hours=hours)

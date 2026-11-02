@@ -9,8 +9,8 @@ import asyncpg
 
 from ..cache.abc import CacheBackend
 from ..models import ScraperStatus, WindDataPoint
+from .live_updates import LiveUpdateBroadcaster, wind_event
 from .watchdog import WatchdogService
-from .websocket import WebSocketManager
 
 logger = logging.getLogger("windburglr.notifications")
 
@@ -30,7 +30,7 @@ class PostgresNotificationManager:
     def __init__(
         self,
         cache_backend: CacheBackend,
-        websocket_manager: WebSocketManager,
+        broadcaster: LiveUpdateBroadcaster,
         connect: ListenerConnector,
         watchdog_service: WatchdogService | None = None,
         postgres_monitor_interval: float = 30.0,
@@ -39,7 +39,7 @@ class PostgresNotificationManager:
         max_retry_delay: float = 60.0,
     ):
         self.cache_backend = cache_backend
-        self.websocket_manager = websocket_manager
+        self.broadcaster = broadcaster
         self.watchdog_service = watchdog_service
         self.postgres_monitor_interval = postgres_monitor_interval
         self.initial_retry_delay = initial_retry_delay
@@ -231,18 +231,7 @@ class PostgresNotificationManager:
                     station_name,
                     wind_data,
                 )
-                logger.debug(
-                    "Active connections for %s: %s",
-                    station_name,
-                    len(
-                        self.websocket_manager.active_connections.get(station_name, [])
-                    ),
-                )
-
-                await self.websocket_manager.broadcast_to_station(
-                    json.dumps({"type": "wind", "data": wind_data}),
-                    station_name,
-                )
+                self.broadcaster.publish(station_name, wind_event(wind_data))
 
                 # Add new observation to cache
                 data_tuple = (

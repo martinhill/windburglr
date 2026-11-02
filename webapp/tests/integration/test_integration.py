@@ -1,9 +1,17 @@
 from asyncio import sleep
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
-from httpx_ws import aconnect_ws
+
+from tests.sse import open_sse
+
+
+def assert_matches_obs(point: dict, obs: dict) -> None:
+    assert datetime.fromtimestamp(point["timestamp"], tz=UTC) == obs["update_time"]
+    assert point["direction"] == obs["direction"]
+    assert point["speed_kts"] == obs["speed_kts"]
+    assert point["gust_kts"] == obs["gust_kts"]
 
 
 class TestIntegration:
@@ -17,7 +25,7 @@ class TestIntegration:
         health_data = response.json()
         assert health_data["status"] == "healthy"
         assert health_data["database"] == "connected"
-        assert health_data["websocket"] == "no_connections"
+        assert health_data["live_streams"] == 0
         assert health_data["postgresql_listener"] == "healthy"
 
     @pytest.mark.anyio
@@ -65,58 +73,23 @@ class TestIntegration:
         assert response.status_code == 422  # Validation error
 
     @pytest.mark.anyio
-    async def test_websocket_initial_data(
-        self, ws_integration_client: AsyncClient, test_db_with_bulk_data
+    async def test_live_stream_initial_data(
+        self, app_with_bulk_data, test_db_with_bulk_data
     ):
-        """Test WebSocket integration."""
-
-        check_latest_wind_obs = test_db_with_bulk_data.latest_wind_obs
-        async with aconnect_ws("/ws/CYTZ", ws_integration_client) as websocket:
-            # First message might be status update, then wind observation
-            message = await websocket.receive_json()
-            assert isinstance(message, dict)
-
-            if message["type"] == "status_update":
-                # If we got status update first, get the next message for wind observation
-                message = await websocket.receive_json()
-                assert isinstance(message, dict)
-
-            assert message["type"] == "wind"
-            latest_wind_obs = message["data"]
-            # Should receive some JSON data structure
-            update_time = datetime.fromtimestamp(latest_wind_obs["timestamp"], tz=UTC)
-            assert update_time == check_latest_wind_obs["update_time"]
-            assert latest_wind_obs["direction"] == check_latest_wind_obs["direction"]
-            assert latest_wind_obs["speed_kts"] == check_latest_wind_obs["speed_kts"]
-            assert latest_wind_obs["gust_kts"] == check_latest_wind_obs["gust_kts"]
+        """A new live stream starts with the latest observation."""
+        async with open_sse(app_with_bulk_data, "/api/live/CYTZ") as stream:
+            event = await stream.next_event_of("wind")
+            assert_matches_obs(event.data, test_db_with_bulk_data.latest_wind_obs)
 
     @pytest.mark.anyio
-    async def test_websocket_live_update(
-        self, ws_integration_client: AsyncClient, test_db_with_bulk_data
+    async def test_live_stream_live_update(
+        self, app_with_bulk_data, test_db_with_bulk_data
     ):
-        """Test WebSocket integration."""
+        """An inserted observation reaches open streams via LISTEN/NOTIFY."""
+        async with open_sse(app_with_bulk_data, "/api/live/CYTZ") as stream:
+            event = await stream.next_event_of("wind")
+            assert_matches_obs(event.data, test_db_with_bulk_data.latest_wind_obs)
 
-        check_latest_wind_obs = test_db_with_bulk_data.latest_wind_obs
-        async with aconnect_ws("/ws/CYTZ", ws_integration_client) as websocket:
-            # First message might be status update, then wind observation
-            message = await websocket.receive_json()
-            assert isinstance(message, dict)
-
-            if message["type"] == "status_update":
-                # If we got status update first, get the next message for wind observation
-                message = await websocket.receive_json()
-                assert isinstance(message, dict)
-
-            assert message["type"] == "wind"
-            latest_wind_obs = message["data"]
-            # Should receive some JSON data structure
-            update_time = datetime.fromtimestamp(latest_wind_obs["timestamp"], tz=UTC)
-            assert update_time == check_latest_wind_obs["update_time"]
-            assert latest_wind_obs["direction"] == check_latest_wind_obs["direction"]
-            assert latest_wind_obs["speed_kts"] == check_latest_wind_obs["speed_kts"]
-            assert latest_wind_obs["gust_kts"] == check_latest_wind_obs["gust_kts"]
-
-            # Test live update
             await sleep(1)
             new_obs_time = datetime.now(UTC)
             await test_db_with_bulk_data.insert_new_wind_obs(
@@ -126,14 +99,32 @@ class TestIntegration:
                 gust_kts=None,
                 obs_time=new_obs_time,
             )
-            updated_message = await websocket.receive_json()
-            assert isinstance(updated_message, dict)
-            assert updated_message["type"] == "wind"
-            updated_wind_obs = updated_message["data"]
-            assert updated_wind_obs["timestamp"] == new_obs_time.timestamp()
-            assert updated_wind_obs["direction"] == 180
-            assert updated_wind_obs["speed_kts"] == 10
-            assert updated_wind_obs["gust_kts"] is None
+            event = await stream.next_event_of("wind", timeout=2)
+            assert event.data == {
+                "timestamp": new_obs_time.timestamp(),
+                "direction": 180,
+                "speed_kts": 10,
+                "gust_kts": None,
+            }
+            assert event.id == str(new_obs_time.timestamp())
+
+    @pytest.mark.anyio
+    async def test_live_stream_resume_replays_from_database(
+        self, app_with_bulk_data, test_db_with_bulk_data
+    ):
+        """A client resuming after a gap gets the observations it missed."""
+        latest = test_db_with_bulk_data.latest_wind_obs["update_time"]
+        since = (latest - timedelta(hours=2)).timestamp()
+        async with open_sse(
+            app_with_bulk_data, "/api/live/CYTZ", {"Last-Event-ID": str(since)}
+        ) as stream:
+            event = await stream.next_event_of("backfill", "wind")
+            assert event.event == "backfill"
+            points = event.data
+            assert points
+            assert all(point[0] > since for point in points)
+            assert points[-1][0] == latest.timestamp()
+            assert event.id == str(latest.timestamp())
 
     @pytest.mark.anyio
     async def test_performance_basic(self, integration_client_with_bulk_data):
@@ -155,29 +146,13 @@ class TestIntegration:
         "app_with_bulk_data", [{"postgres_monitor_interval": 1.0}], indirect=True
     )
     async def test_listener_reconnection(
-        self, ws_integration_client, test_db_with_bulk_data, app_with_bulk_data
+        self, test_db_with_bulk_data, app_with_bulk_data
     ):
         """The listener reconnects after the server drops its connection."""
         pg_manager = app_with_bulk_data.state.pg_manager
-        check_latest_wind_obs = test_db_with_bulk_data.latest_wind_obs
-        async with aconnect_ws("/ws/CYTZ", ws_integration_client) as websocket:
-            # First message might be status update, then wind observation
-            message = await websocket.receive_json()
-            assert isinstance(message, dict)
-
-            if message["type"] == "status_update":
-                # If we got status update first, get the next message for wind observation
-                message = await websocket.receive_json()
-                assert isinstance(message, dict)
-
-            assert message["type"] == "wind"
-            latest_wind_obs = message["data"]
-            # Should receive some JSON data structure
-            update_time = datetime.fromtimestamp(latest_wind_obs["timestamp"], tz=UTC)
-            assert update_time == check_latest_wind_obs["update_time"]
-            assert latest_wind_obs["direction"] == check_latest_wind_obs["direction"]
-            assert latest_wind_obs["speed_kts"] == check_latest_wind_obs["speed_kts"]
-            assert latest_wind_obs["gust_kts"] == check_latest_wind_obs["gust_kts"]
+        async with open_sse(app_with_bulk_data, "/api/live/CYTZ") as stream:
+            event = await stream.next_event_of("wind")
+            assert_matches_obs(event.data, test_db_with_bulk_data.latest_wind_obs)
 
             # Drop the listener's connection from the server side
             old_listener = pg_manager.pg_listener
@@ -207,14 +182,11 @@ class TestIntegration:
                 obs_time=new_obs_time,
             )
 
-            updated_message = await websocket.receive_json(timeout=1)
-            assert isinstance(updated_message, dict)
-            assert updated_message["type"] == "wind"
-            updated_wind_obs = updated_message["data"]
-            assert updated_wind_obs["timestamp"] == new_obs_time.timestamp()
-            assert updated_wind_obs["direction"] == 180
-            assert updated_wind_obs["speed_kts"] == 10
-            assert updated_wind_obs["gust_kts"] is None
+            event = await stream.next_event_of("wind", timeout=2)
+            assert event.data["timestamp"] == new_obs_time.timestamp()
+            assert event.data["direction"] == 180
+            assert event.data["speed_kts"] == 10
+            assert event.data["gust_kts"] is None
 
 
 @pytest.mark.anyio

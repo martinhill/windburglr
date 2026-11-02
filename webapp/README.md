@@ -1,13 +1,14 @@
 # WindBurglr webapp
 
-The web interface for WindBurglr: a FastAPI backend serving pages, a JSON API and WebSocket
-updates, with a Vite-built vanilla JavaScript frontend that charts wind speed, gusts and
+The web interface for WindBurglr: a FastAPI backend serving pages, a JSON API and live
+updates over Server-Sent Events, with a Vite-built vanilla JavaScript frontend that charts wind speed, gusts and
 direction with Chart.js.
 
 ## Features
 
-- **Live view** (`/`): current conditions and a chart that updates over a WebSocket as the
-  scraper stores new observations. Choose a 1 to 24 hour window.
+- **Live view** (`/`): current conditions and a chart that updates live as the scraper
+  stores new observations. Choose a 1 to 24 hour window. After a dropped connection or a
+  sleeping device, the stream replays what was missed (see [Live updates](#live-updates)).
 - **Historical view** (`/day/YYYY-MM-DD`): a day of observations in the station's local time,
   with previous/next day navigation.
 - **Zoom**: click or touch and drag to zoom in; double click/tap to zoom out.
@@ -23,8 +24,8 @@ app/
   config.py        settings from environment variables
   lifespan.py      builds the DB pool, cache and services at startup, onto app.state; shuts them down
   dependencies.py  route dependencies reading the services from app.state; built-asset lookup
-  routers/         web pages, /api, /ws, /health
-  services/        wind data, stations, Postgres LISTEN/NOTIFY, WebSocket fan-out, scraper watchdog,
+  routers/         web pages, /api (including the /api/live stream), /health
+  services/        wind data, stations, Postgres LISTEN/NOTIFY, live-update fan-out, scraper watchdog,
                    cache hydration
   cache/           in-memory wind data cache
 templates/         Jinja2 pages (base, index, day)
@@ -34,7 +35,7 @@ src/               frontend source, bundled by Vite into dist/
   main.js          entry point
   store/           central state store; components subscribe to changes
   chart/           Chart.js setup and zoom
-  websocket/       live connection and reconnection gap filling
+  live/            live-update stream: reconnection and catching up
   ui/              conditions display, scraper status, mobile handling
   utils/           data fetching and time formatting
   styles/          CSS, imported from main.js
@@ -53,11 +54,16 @@ The root Nix flake provides Python 3.13, uv, Node.js 24, pyright and PostgreSQL.
 ```bash
 make db-up        # start the shared PostgreSQL cluster
 make install      # uv sync && npm install
-make dev          # backend on :8000 with Vite hot reloading; Ctrl-C stops both
+make dev          # backend and Vite with hot reloading; Ctrl-C stops both
 ```
 
-Open http://localhost:8000. `make dev` sets `DEV_MODE=true`, so pages load scripts and styles
-from the Vite dev server on port 5173 instead of `dist/`.
+Open http://localhost:5173. The browser talks only to Vite, which serves the frontend modules
+and passes pages, `/api` and `/static` to the backend on 127.0.0.1:8000. `make dev` sets
+`DEV_MODE=true`, so pages load scripts from Vite instead of `dist/`.
+
+Both servers listen on localhost only. To open the app from another machine, either forward
+the port (`ssh -L 5173:localhost:5173 <host>`) or have Vite listen on a reachable name, e.g.
+`make dev DEV_HOST=<host>.<tailnet>.ts.net` (Vite accepts `*.ts.net` host names).
 
 To run the backend against a production build instead: `make build`, then `make backend`. The
 app mounts `dist/` at startup, so it needs a build (or `make dev`'s `DEV_MODE`) to render pages
@@ -82,7 +88,6 @@ Environment variables, read in `app/config.py` and `main.py`:
 | `DATA_CACHE_HOURS` | `48` | Hours of observations kept in the in-memory cache |
 | `CACHE_HYDRATION_HOURS` | `24` | Hours loaded into the cache at startup and after a resume or listener reconnect (at most `DATA_CACHE_HOURS`; `0` disables) |
 | `SCRAPER_STATUS_TIMEOUT_MINUTES` | `5` | When the watchdog considers scraper status stale |
-| `WEBSOCKET_PING_TIMEOUT` | `60` | Seconds |
 | `POSTGRES_MONITOR_INTERVAL` | `30` | Seconds between LISTEN connection health checks |
 | `GOOGLE_TAG_MANAGER_ID` | | Adds Google Tag Manager to pages when set |
 | `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_RELEASE` | | Error reporting; also read from `.env.sentry` |
@@ -96,9 +101,35 @@ Environment variables, read in `app/config.py` and `main.py`:
 - `GET /day/{YYYY-MM-DD}?stn=CYTZ`: historical page
 - `GET /api/wind?stn=CYTZ`: observations as JSON. Either `from_time` and `to_time`
   (`YYYY-MM-DDTHH:MM:SS`, UTC) or `hours`; defaults to the last 24 hours
-- `WS /ws/{station}`: live observations and scraper status
-- `GET /health/live`: liveness (the Fly.io check); `GET /health`: database, WebSocket,
+- `GET /api/live/{station}`: live updates as Server-Sent Events (below)
+- `GET /health/live`: liveness (the Fly.io check); `GET /health`: database, open live streams,
   LISTEN connection, cache and cache hydration status; `GET /health/scraper`, `GET /health/scraper-details`: scraper status
+
+## Live updates
+
+`GET /api/live/{station}` is a `text/event-stream` with these events:
+
+| Event | Data | `id` |
+|---|---|---|
+| `status` | the station's scraper status; first, then on every change | |
+| `backfill` | observations the client missed, as `/api/wind` rows, oldest first | newest timestamp |
+| `wind` | one new observation | its timestamp |
+| `heartbeat` | `{}`, every 15 s on an idle stream | |
+
+A client opening the stream passes `since`, the timestamp of its newest observation. When the
+browser reconnects a dropped stream it sends `Last-Event-ID` instead. Either way the stream starts
+by replaying newer observations (up to 24 hours of them) as one `backfill` event, so a client
+never has to fill gaps itself. A client with nothing to resume from gets the latest observation
+as a `wind` event.
+
+The client (`src/live/stream.js`) relies on the browser to reconnect, and opens a fresh stream
+itself only when the browser can't: the stream has been silent for 45 s (3 missed heartbeats,
+e.g. after the device slept), the page becomes visible or comes back online with a dead stream,
+or the browser has given up (with backoff).
+
+Streams never end on their own, and uvicorn waits for open responses before shutting the app
+down. So the app ends them as soon as the server gets SIGINT/SIGTERM (`app/utils/shutdown.py`);
+browsers then reconnect, to the new release during a deploy.
 
 ## Testing
 

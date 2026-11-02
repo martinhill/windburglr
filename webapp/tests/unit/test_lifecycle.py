@@ -12,10 +12,10 @@ from app.cache.abc import CacheBackend
 from app.config import describe_database_url
 from app.database import create_db_pool
 from app.services.cache_hydration import CacheHydrator
+from app.services.live_updates import LiveUpdateBroadcaster
 from app.services.notifications import PostgresNotificationManager
 from app.services.station import StationService
 from app.services.watchdog import WatchdogService
-from app.services.websocket import WebSocketManager
 from app.services.wind_data import WindDataService
 from app.utils.suspension_detector import SuspensionDetector
 from tests.conftest import MockConnection, MockListenerConnection, MockPool
@@ -81,7 +81,7 @@ async def test_services_on_app_state_after_startup(make_mock_app, mock_test_db_m
         assert isinstance(state.station_service, StationService)
         assert isinstance(state.wind_service, WindDataService)
         assert isinstance(state.watchdog_service, WatchdogService)
-        assert isinstance(state.websocket_manager, WebSocketManager)
+        assert isinstance(state.live_broadcaster, LiveUpdateBroadcaster)
         assert isinstance(state.pg_manager, PostgresNotificationManager)
         assert isinstance(state.cache_hydrator, CacheHydrator)
         assert isinstance(state.suspension_detector, SuspensionDetector)
@@ -90,7 +90,8 @@ async def test_services_on_app_state_after_startup(make_mock_app, mock_test_db_m
         assert state.wind_service.cache is state.cache_backend
         assert state.wind_service.pool is state.db_pool
         assert state.pg_manager.cache_backend is state.cache_backend
-        assert state.watchdog_service.websocket_manager is state.websocket_manager
+        assert state.watchdog_service.broadcaster is state.live_broadcaster
+        assert state.pg_manager.broadcaster is state.live_broadcaster
 
         # The listener connected at startup, not on a first request
         assert mock_test_db_manager.query_count > 0  # watchdog loaded scraper status
@@ -374,7 +375,7 @@ async def test_clean_shutdown(make_mock_app, mock_test_db_manager):
     assert not pg_manager.is_pg_listener_healthy
     assert not state.suspension_detector.is_monitoring
     assert state.suspension_detector.monitor_task.done()
-    assert state.websocket_manager.active_connections == {}
+    assert state.live_broadcaster.connection_count == 0
 
 
 @pytest.mark.asyncio
