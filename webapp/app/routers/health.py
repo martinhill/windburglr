@@ -1,6 +1,6 @@
 import logging
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 import asyncpg
 from fastapi import APIRouter, Depends
@@ -10,15 +10,15 @@ from ..dependencies import (
     get_cache_backend,
     get_cache_hydrator,
     get_db_pool,
+    get_live_broadcaster,
     get_pg_manager,
     get_watchdog_service,
-    get_websocket_manager,
 )
 from ..models import ScraperHealth, ScraperStatus
 from ..services.cache_hydration import CacheHydrator
+from ..services.live_updates import LiveUpdateBroadcaster
 from ..services.notifications import PostgresNotificationManager
 from ..services.watchdog import WatchdogService
-from ..services.websocket import WebSocketManager
 
 logger = logging.getLogger("windburglr.health")
 
@@ -38,17 +38,17 @@ async def liveness_check():
 @router.get("")
 async def health_check(
     pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
-    ws_manager: Annotated[WebSocketManager, Depends(get_websocket_manager)],
+    broadcaster: Annotated[LiveUpdateBroadcaster, Depends(get_live_broadcaster)],
     pg_manager: Annotated[PostgresNotificationManager, Depends(get_pg_manager)],
     cache_backend: Annotated[CacheBackend, Depends(get_cache_backend)],
     cache_hydrator: Annotated[CacheHydrator, Depends(get_cache_hydrator)],
 ):
     """Health check endpoint for monitoring and load balancers."""
-    health_status = {
+    health_status: dict[str, Any] = {
         "status": "healthy",
         "timestamp": datetime.now(UTC).isoformat(),
         "database": "unknown",
-        "websocket": "unknown",
+        "live_streams": broadcaster.connection_count,
         "postgresql_listener": "unknown",
         "connection_monitor": {},
     }
@@ -61,11 +61,6 @@ async def health_check(
         except Exception as e:
             health_status["database"] = f"error: {str(e)}"
             logger.error("Database health check failed: %s", e)
-
-        # Check WebSocket manager
-        health_status["websocket"] = (
-            "active" if ws_manager.active_connections else "no_connections"
-        )
 
         # Check PostgreSQL listener
         health_status["postgresql_listener"] = (

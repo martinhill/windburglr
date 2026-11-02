@@ -7,9 +7,9 @@
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
         {% block title %}{% endblock %}
         {% if dev_mode %}
-        <!-- Development mode - use Vite dev server -->
-        <script type="module" src="http://localhost:5173/@vite/client"></script>
-        <script type="module" src="http://localhost:5173/src/main.js"></script>
+        <!-- Development mode: the page is served through the Vite dev server (make dev) -->
+        <script type="module" src="/@vite/client"></script>
+        <script type="module" src="/src/main.js"></script>
         {% else %}
         <!-- Production mode - use built assets -->
         {% for css_file in dist_css_files %}

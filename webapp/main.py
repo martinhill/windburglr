@@ -11,7 +11,7 @@ from sentry_sdk.integrations.starlette import StarletteIntegration
 
 from app.config import LOG_LEVEL, get_sentry_config
 from app.lifespan import StartupOptions, build_lifespan
-from app.routers import api, health, web, websocket
+from app.routers import api, health, live, web
 
 # Configure logging
 logging.basicConfig(
@@ -53,7 +53,7 @@ def create_app(options: StartupOptions | None = None) -> FastAPI:
 
     app.include_router(web.router)
     app.include_router(api.router)
-    app.include_router(websocket.router)
+    app.include_router(live.router)
     app.include_router(health.router)
 
     app.mount("/static", StaticFiles(directory="static"), name="static")

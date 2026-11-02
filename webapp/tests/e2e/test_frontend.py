@@ -86,15 +86,15 @@ class TestFrontend:
         # Check basic page elements load
         page.wait_for_selector("#windChart", timeout=10000)
 
-    def test_websocket_connection(self, page: Page, test_server_url):
-        """Test WebSocket connection for live updates."""
-        page.goto(f"{test_server_url}/")
+    def test_live_stream_connection(self, page: Page, test_server_url):
+        """The live view opens its live-update stream."""
+        with page.expect_response(lambda r: "/api/live/" in r.url) as response_info:
+            page.goto(f"{test_server_url}/")
+        response = response_info.value
+        assert response.status == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
 
-        # Wait for page to load
-        page.wait_for_selector("#windChart", timeout=10000)
-
-        # Just check that the page loads without errors
-        # WebSocket connection test is skipped due to mock database
+        page.wait_for_selector("#connection-status.connected", timeout=10000)
 
     def test_chart_interaction(self, page: Page, test_server_url):
         """Test chart interactions."""

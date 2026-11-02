@@ -169,7 +169,7 @@ class Store {
     /**
      * Add new wind data point
      */
-    addWindData(newPoint, source = 'websocket') {
+    addWindData(newPoint, source = 'live') {
         const existingData = [...this.state.windData];
         
         // Check for duplicates
@@ -191,9 +191,9 @@ class Store {
     }
     
     /**
-     * Add multiple wind data points (for gap filling)
+     * Add multiple wind data points (e.g. observations replayed after a reconnect)
      */
-    addWindDataBatch(newData, source = 'gap-fill') {
+    addWindDataBatch(newData, source = 'backfill') {
         const existingData = [...this.state.windData];
         
         // Filter out duplicates
@@ -238,7 +238,7 @@ class Store {
     /**
      * Update connection status
      */
-    setConnectionStatus(status, text, source = 'websocket') {
+    setConnectionStatus(status, text, source = 'live') {
         this.setState({
             connectionStatus: status,
             connectionText: text
@@ -282,7 +282,7 @@ class Store {
     /**
      * Update current conditions display
      */
-    setCurrentConditions(conditions, source = 'websocket') {
+    setCurrentConditions(conditions, source = 'live') {
         this.setState({
             currentConditions: { ...conditions }
         }, source);

@@ -100,7 +100,7 @@ describe('Store', () => {
       store.setWindData(testData, 'initial')
       const newPoint = [1640995380, 285, 17, 20]
       
-      store.addWindData(newPoint, 'websocket')
+      store.addWindData(newPoint, 'live')
       const state = store.getState()
 
       expect(state.windData).toHaveLength(4)
@@ -112,7 +112,7 @@ describe('Store', () => {
       store.setWindData(testData, 'initial')
       const duplicatePoint = [1640995320, 285, 17, 20] // Same timestamp as existing
       
-      store.addWindData(duplicatePoint, 'websocket')
+      store.addWindData(duplicatePoint, 'live')
       const state = store.getState()
 
       expect(state.windData).toHaveLength(3) // Should not add duplicate
@@ -126,7 +126,7 @@ describe('Store', () => {
       ]
       
       store.setWindData(unsortedData, 'test')
-      store.addWindData([1640995380, 285, 17, 20], 'websocket')
+      store.addWindData([1640995380, 285, 17, 20], 'live')
       
       const state = store.getState()
       const timestamps = state.windData.map(point => point[0])
@@ -207,7 +207,7 @@ describe('Store', () => {
 
   describe('Connection Management', () => {
     it('should update connection status', () => {
-      store.setConnectionStatus('connected', 'Connected to server', 'websocket')
+      store.setConnectionStatus('connected', 'Connected to server', 'live')
       const state = store.getState()
 
       expect(state.connectionStatus).toBe('connected')
@@ -217,7 +217,7 @@ describe('Store', () => {
     it('should check connection status', () => {
       expect(store.isConnected()).toBe(false)
       
-      store.setConnectionStatus('connected', 'Connected', 'websocket')
+      store.setConnectionStatus('connected', 'Connected', 'live')
       expect(store.isConnected()).toBe(true)
     })
   })
@@ -255,7 +255,7 @@ describe('Store', () => {
         timestamp: 1640995200
       }
 
-      store.setCurrentConditions(conditions, 'websocket')
+      store.setCurrentConditions(conditions, 'live')
       const state = store.getState()
 
       expect(state.currentConditions).toEqual(conditions)
@@ -439,7 +439,7 @@ describe('Store', () => {
       const result1 = store.getFilteredWindData()
 
       // Add more data - should clear cache
-      store.addWindData([1640995320, 280, 14, 17], 'websocket')
+      store.addWindData([1640995320, 280, 14, 17], 'live')
       const result2 = store.getFilteredWindData()
 
       expect(result1).not.toBe(result2)

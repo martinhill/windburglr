@@ -3,334 +3,197 @@ from datetime import datetime, UTC, timedelta
 
 import pytest
 
+from tests.sse import open_sse
 
-@pytest.mark.timeout(1)
-def test_scraper_status_initial_connection(make_test_client, mock_test_db_manager):
-    """Test that status_update message is sent on initial WebSocket connection."""
-    # Create a station with scraper status
+STATUS_FIELDS = [
+    "station_name",
+    "status",
+    "last_success",
+    "last_attempt",
+    "error_message",
+    "retry_count",
+]
+
+
+def status_update(station="CYTZ", status="error", error_message="Connection timeout", retry_count=3):
+    return {
+        "station_name": station,
+        "status": status,
+        "last_success": (datetime.now(UTC) - timedelta(minutes=30)).isoformat(),
+        "last_attempt": datetime.now(UTC).isoformat(),
+        "error_message": error_message,
+        "retry_count": retry_count,
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(2)
+async def test_scraper_status_initial_connection(start_mock_app, mock_test_db_manager):
+    """The scraper status is the first event on a new live stream."""
     mock_test_db_manager.create_test_data("CYTZ")
 
-    with make_test_client() as test_client:
-        with test_client.websocket_connect("/ws/CYTZ") as websocket:
-            message = websocket.receive_json()
-            assert message["type"] == "status_update"
+    async with start_mock_app() as app, open_sse(app, "/api/live/CYTZ") as stream:
+        event = await stream.next_event()
+        assert event.event == "status"
 
 
-@pytest.mark.timeout(1)
-def test_scraper_status_no_wind_data(make_test_client, mock_test_db_manager):
-    """Test WebSocket behavior when no wind data exists for a station."""
-    # Create a station without wind data
+@pytest.mark.asyncio
+@pytest.mark.timeout(2)
+async def test_scraper_status_no_wind_data(start_mock_app, mock_test_db_manager):
+    """A station without observations gets its status, then only heartbeats."""
     mock_test_db_manager.create_test_stations(
         [{"name": "CYYZ", "timezone": "America/Toronto"}]
     )
 
-    with make_test_client() as test_client:
-        with test_client.websocket_connect("/ws/CYYZ") as websocket:
-            # When no wind data exists and scraper status isn't loaded during startup,
-            # the WebSocket connection is established but no initial messages are sent.
-            # This is expected behavior.
-            response = websocket.receive_json()
-            assert response["type"] == "status_update"
-
-            # Send a ping to verify the connection works
-            import json
-
-            websocket.send_text(json.dumps({"type": "ping"}))
-            response = websocket.receive_json()
-            assert response["type"] == "pong"
+    async with (
+        start_mock_app(live_heartbeat_interval=0.05) as app,
+        open_sse(app, "/api/live/CYYZ") as stream,
+    ):
+        assert (await stream.next_event()).event == "status"
+        assert (await stream.next_event()).event == "heartbeat"
 
 
 @pytest.mark.asyncio
-@pytest.mark.timeout(1)
-async def test_scraper_status_update_notification(test_client, mock_test_db_manager):
-    """Test that status update notifications are sent to WebSocket clients."""
-    # Get the mock listener connection from the test client
-    mock_listener_conn = test_client.mock_listener_connection
+@pytest.mark.timeout(2)
+async def test_scraper_status_update_notification(
+    start_mock_app, mock_test_db_manager, mock_listener_connection
+):
+    """Status changes are pushed to open streams."""
     mock_test_db_manager.create_test_data("CYTZ")
 
-
-    # Simulate a scraper status update notification
-    status_update_data = {
-        "station_name": "CYTZ",
-        "status": "error",
-        "last_success": (datetime.now(UTC) - timedelta(minutes=30)).isoformat(),
-        "last_attempt": datetime.now(UTC).isoformat(),
-        "error_message": "Connection timeout",
-        "retry_count": 3,
-    }
-
-    # Trigger the notification
-    await mock_listener_conn.trigger_notification(
-        "scraper_status_update", json.dumps(status_update_data)
-    )
-
-    with test_client.websocket_connect("/ws/CYTZ") as websocket:
-        # Receive initial messages
-        status_msg = websocket.receive_json()
-        assert status_msg["type"] == "status_update"
-        status_data = status_msg["data"]
-        assert status_data["station_name"] == "CYTZ"
-        assert status_data["status"] == "error"
-        assert status_data["error_message"] == "Connection timeout"
-        assert status_data["retry_count"] == 3
-
-        wind_msg = websocket.receive_json()
-        assert wind_msg["type"] == "wind"
-
-        # Trigger the notification
-        status_update_data["status"] = "healthy"
-        status_update_data["error_message"] = None
-        status_update_data["retry_count"] = 0
-        await mock_listener_conn.trigger_notification(
-            "scraper_status_update", json.dumps(status_update_data)
+    async with start_mock_app() as app:
+        update = status_update()
+        await mock_listener_connection.trigger_notification(
+            "scraper_status_update", json.dumps(update)
         )
 
-        # Should receive the status update
-        message = websocket.receive_json()
-        assert message["type"] == "status_update"
+        async with open_sse(app, "/api/live/CYTZ") as stream:
+            status = (await stream.next_event()).data
+            assert status["station_name"] == "CYTZ"
+            assert status["status"] == "error"
+            assert status["error_message"] == "Connection timeout"
+            assert status["retry_count"] == 3
+            assert (await stream.next_event()).event == "wind"
 
-        status_data = message["data"]
-        assert status_data["station_name"] == "CYTZ"
-        assert status_data["status"] == "healthy"
-        assert status_data["error_message"] == None
-        assert status_data["retry_count"] == 0
+            update = status_update(status="healthy", error_message=None, retry_count=0)
+            await mock_listener_connection.trigger_notification(
+                "scraper_status_update", json.dumps(update)
+            )
+
+            event = await stream.next_event_of("status")
+            assert event.data["station_name"] == "CYTZ"
+            assert event.data["status"] == "healthy"
+            assert event.data["error_message"] is None
+            assert event.data["retry_count"] == 0
 
 
 @pytest.mark.asyncio
-@pytest.mark.timeout(1)
-async def test_scraper_status_multiple_stations(test_client, mock_test_db_manager):
-    """Test status updates for multiple stations."""
-    # Create test data for multiple stations
+@pytest.mark.timeout(2)
+async def test_scraper_status_multiple_stations(
+    start_mock_app, mock_test_db_manager, mock_listener_connection
+):
+    """Each station's stream starts with that station's status."""
     mock_test_db_manager.create_test_data("CYTZ")
     mock_test_db_manager.create_test_data("CYYZ")
-    mock_listener_conn = test_client.mock_listener_connection
 
+    async with start_mock_app() as app:
+        for station in ("CYTZ", "CYYZ"):
+            await mock_listener_connection.trigger_notification(
+                "scraper_status_update", json.dumps(status_update(station))
+            )
 
-    # Simulate a scraper status update notification
-    status_update_data = {
-        "station_name": "CYTZ",
-        "status": "error",
-        "last_success": (datetime.now(UTC) - timedelta(minutes=30)).isoformat(),
-        "last_attempt": datetime.now(UTC).isoformat(),
-        "error_message": "Connection timeout",
-        "retry_count": 3,
-    }
-
-    # Trigger the notification
-    await mock_listener_conn.trigger_notification(
-        "scraper_status_update", json.dumps(status_update_data)
-    )
-
-    status_update_data["station_name"] = "CYYZ"
-    # Trigger the notification
-    await mock_listener_conn.trigger_notification(
-        "scraper_status_update", json.dumps(status_update_data)
-    )
-
-    # Test CYTZ connection receives only CYTZ status
-    with test_client.websocket_connect("/ws/CYTZ") as ws_cytz:
-        status_msg = ws_cytz.receive_json()
-        assert status_msg["type"] == "status_update"
-        status_data = status_msg["data"]
-        assert status_data["station_name"] == "CYTZ"
-        assert status_data["status"] == "error"
-        assert status_data["error_message"] == "Connection timeout"
-        assert status_data["retry_count"] == 3
-
-        # Should receive wind_observation for CYTZ
-        message = ws_cytz.receive_json()
-        assert message["type"] == "wind"
-
-    # Test CYYZ connection receives only CYYZ status
-    with test_client.websocket_connect("/ws/CYYZ") as ws_cyyz:
-        status_msg = ws_cyyz.receive_json()
-        assert status_msg["type"] == "status_update"
-        status_data = status_msg["data"]
-        assert status_data["station_name"] == "CYYZ"
-        assert status_data["status"] == "error"
-        assert status_data["error_message"] == "Connection timeout"
-        assert status_data["retry_count"] == 3
-
-        # Should receive wind_observation for CYYZ
-        message = ws_cyyz.receive_json()
-        assert message["type"] == "wind"
+        for station in ("CYTZ", "CYYZ"):
+            async with open_sse(app, f"/api/live/{station}") as stream:
+                status = await stream.next_event()
+                assert status.event == "status"
+                assert status.data["station_name"] == station
+                assert status.data["status"] == "error"
+                assert status.data["retry_count"] == 3
+                assert (await stream.next_event()).event == "wind"
 
 
 @pytest.mark.asyncio
 @pytest.mark.timeout(5)
-async def test_scraper_status_broadcast_to_all_stations(
-    make_test_client, mock_listener_connection, mock_test_db_manager
+async def test_scraper_status_update_only_reaches_its_station(
+    start_mock_app, mock_listener_connection, mock_test_db_manager
 ):
-    """Test that status updates are broadcast to all connected WebSocket clients."""
-    mock_listener_conn = mock_listener_connection
+    """A station's status change goes to that station's streams only."""
     mock_test_db_manager.create_test_data("CYTZ")
     mock_test_db_manager.create_test_data("CYYZ")
 
-    with make_test_client() as test_client:
+    async with (
+        start_mock_app() as app,
+        open_sse(app, "/api/live/CYTZ") as cytz,
+        open_sse(app, "/api/live/CYYZ") as cyyz,
+    ):
+        await cytz.next_event_of("wind")
+        await cyyz.next_event_of("wind")
 
-        with (
-            test_client.websocket_connect("/ws/CYTZ") as ws_cytz,
-            test_client.websocket_connect("/ws/CYYZ") as ws_cyyz,
-        ):
-            cytz_msg = ws_cytz.receive_json()  # status_update
-            assert cytz_msg["type"] == "status_update"
+        update = status_update(status="maintenance", error_message=None, retry_count=0)
+        await mock_listener_connection.trigger_notification(
+            "scraper_status_update", json.dumps(update)
+        )
 
-            cyyz_msg = ws_cyyz.receive_json()  # status_update
-            assert cyyz_msg["type"] == "status_update"
-
-            # Clear initial messages
-            cytz_msg = ws_cytz.receive_json()  # wind_observation
-            assert cytz_msg["type"] == "wind"
-
-            cyyz_msg = ws_cyyz.receive_json()  # wind_observation
-            assert cyyz_msg["type"] == "wind"
-
-            # Simulate status update for CYTZ station
-            status_update_data = {
-                "station_name": "CYTZ",
-                "status": "maintenance",
-                "last_success": datetime.now(UTC).isoformat(),
-                "last_attempt": datetime.now(UTC).isoformat(),
-                "error_message": None,
-                "retry_count": 0,
-            }
-
-            await mock_listener_conn.trigger_notification(
-                "scraper_status_update", json.dumps(status_update_data)
-            )
-
-            # Only CYTZ connection should receive the update (station-specific)
-            cytz_msg = ws_cytz.receive_json()
-            assert cytz_msg["type"] == "status_update"
-            assert cytz_msg["data"]["station_name"] == "CYTZ"
-            assert cytz_msg["data"]["status"] == "maintenance"
-
-            # CYYZ connection should not receive the CYTZ update
-            # (This tests that updates are station-specific)
+        event = await cytz.next_event_of("status")
+        assert event.data["station_name"] == "CYTZ"
+        assert event.data["status"] == "maintenance"
+        with pytest.raises(TimeoutError):
+            await cyyz.next_event_of("status", timeout=0.2)
 
 
 @pytest.mark.asyncio
-@pytest.mark.timeout(1)
-async def test_scraper_status_data_structure(test_client, mock_test_db_manager):
-    """Test the structure of scraper status data by triggering a notification."""
-    mock_test_db_manager.create_test_data("CYTZ")
-    mock_listener_conn = test_client.mock_listener_connection
-
-
-    # Create status update data with all required fields
-    status_update_data = {
-        "station_name": "CYTZ",
-        "status": "healthy",
-        "last_success": datetime.now(UTC).isoformat(),
-        "last_attempt": datetime.now(UTC).isoformat(),
-        "error_message": None,
-        "retry_count": 0,
-    }
-
-    # Trigger notification first
-    await mock_listener_conn.trigger_notification(
-        "scraper_status_update", json.dumps(status_update_data)
-    )
-
-    with test_client.websocket_connect("/ws/CYTZ") as websocket:
-        # Should receive status_update first since we triggered it before connecting
-        message = websocket.receive_json()
-        assert message["type"] == "status_update"
-
-        status_data = message["data"]
-
-        # Verify required fields
-        required_fields = [
-            "station_name",
-            "status",
-            "last_success",
-            "last_attempt",
-            "error_message",
-            "retry_count",
-        ]
-        for field in required_fields:
-            assert field in status_data, f"Missing field: {field}"
-
-        # Verify data types
-        assert isinstance(status_data["status"], str)
-        assert isinstance(status_data["retry_count"], int)
-        assert status_data["station_name"] == "CYTZ"
-        # last_success and last_attempt can be None or ISO timestamp strings
-        # error_message can be None or string
-
-
-@pytest.mark.asyncio
-@pytest.mark.timeout(1)
-async def test_scraper_status_update_with_invalid_data(
-    make_test_client, mock_listener_connection, mock_test_db_manager
+@pytest.mark.timeout(2)
+async def test_scraper_status_data_structure(
+    start_mock_app, mock_test_db_manager, mock_listener_connection
 ):
-    """Test handling of invalid scraper status update data."""
-    mock_listener_conn = mock_listener_connection
+    """Status events carry every ScraperStatus field, with timestamps in ISO format."""
     mock_test_db_manager.create_test_data("CYTZ")
 
-    with make_test_client() as test_client:
-        with test_client.websocket_connect("/ws/CYTZ") as websocket:
-            initial_msg = websocket.receive_json()
-            assert initial_msg["type"] == "status_update"
-            # Clear initial messages - just wind_observation
-            initial_msg = websocket.receive_json()
-            assert initial_msg["type"] == "wind"
+    async with start_mock_app() as app:
+        update = status_update(status="healthy", error_message=None, retry_count=0)
+        await mock_listener_connection.trigger_notification(
+            "scraper_status_update", json.dumps(update)
+        )
 
-            # Send invalid JSON
-            await mock_listener_conn.trigger_notification(
-                "scraper_status_update", "invalid json data"
-            )
+        async with open_sse(app, "/api/live/CYTZ") as stream:
+            event = await stream.next_event()
+            assert event.event == "status"
+            status = event.data
 
-            # Should not crash, and no additional message should be received
-            # (implementation should handle JSON parsing errors gracefully)
-
-            # Send valid JSON but invalid structure
-            await mock_listener_conn.trigger_notification(
-                "scraper_status_update", json.dumps({"invalid": "structure"})
-            )
-
-            # Should not crash and handle gracefully
+    for field in STATUS_FIELDS:
+        assert field in status, f"Missing field: {field}"
+    assert status["station_name"] == "CYTZ"
+    assert isinstance(status["status"], str)
+    assert isinstance(status["retry_count"], int)
+    for field in ["last_success", "last_attempt"]:
+        if status[field] is not None:
+            datetime.fromisoformat(status[field].replace("Z", "+00:00"))
 
 
 @pytest.mark.asyncio
-@pytest.mark.timeout(1)
-async def test_scraper_status_timing_fields(test_client, mock_test_db_manager):
-    """Test that timing fields in status data are properly formatted."""
+@pytest.mark.timeout(2)
+async def test_scraper_status_update_with_invalid_data(
+    start_mock_app, mock_listener_connection, mock_test_db_manager
+):
+    """Malformed status notifications are dropped without disturbing open streams."""
     mock_test_db_manager.create_test_data("CYTZ")
-    mock_listener_conn = test_client.mock_listener_connection
 
+    async with (
+        start_mock_app(live_heartbeat_interval=0.1) as app,
+        open_sse(app, "/api/live/CYTZ") as stream,
+    ):
+        assert (await stream.next_event()).event == "status"
+        assert (await stream.next_event()).event == "wind"
 
-    # Create valid status update with timing fields
-    status_update_data = {
-        "station_name": "CYTZ",
-        "status": "healthy",
-        "last_success": datetime.now(UTC).isoformat(),
-        "last_attempt": datetime.now(UTC).isoformat(),
-        "error_message": None,
-        "retry_count": 0,
-    }
+        await mock_listener_connection.trigger_notification(
+            "scraper_status_update", "invalid json data"
+        )
+        await mock_listener_connection.trigger_notification(
+            "scraper_status_update", json.dumps({"invalid": "structure"})
+        )
 
-    # Trigger notification first
-    await mock_listener_conn.trigger_notification(
-        "scraper_status_update", json.dumps(status_update_data)
-    )
-
-    with test_client.websocket_connect("/ws/CYTZ") as websocket:
-        # Should receive status_update first since we triggered it before connecting
-        message = websocket.receive_json()
-        assert message["type"] == "status_update"
-
-        status_data = message["data"]
-
-        # Check timestamp fields (if not None, should be valid ISO format)
-        for field in ["last_success", "last_attempt"]:
-            timestamp = status_data.get(field)
-            if timestamp is not None:
-                # Should be parseable as ISO timestamp
-                try:
-                    datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-                except ValueError:
-                    pytest.fail(f"Invalid timestamp format for {field}: {timestamp}")
+        # No status event results, and the stream is still alive
+        assert (await stream.next_event()).event == "heartbeat"
 
 
 @pytest.mark.asyncio
@@ -445,14 +308,15 @@ async def test_watchdog_no_broadcast_when_no_changes():
     from app.services.watchdog import WatchdogService
     from app.models import ScraperStatus
     from datetime import datetime, UTC, timedelta
-    from unittest.mock import AsyncMock
+    from unittest.mock import MagicMock
+
+    from app.services.live_updates import status_event
 
     # Create watchdog service
     watchdog = WatchdogService()
 
-    # Mock websocket manager
-    mock_ws_manager = AsyncMock()
-    watchdog.set_websocket_manager(mock_ws_manager)
+    broadcaster = MagicMock()
+    watchdog.set_broadcaster(broadcaster)
 
     # Create initial status
     initial_status = ScraperStatus(
@@ -484,8 +348,7 @@ async def test_watchdog_no_broadcast_when_no_changes():
     # Handle the update
     await watchdog.handle_scraper_status_update(updated_status)
 
-    # Assert that websocket manager was NOT called (no broadcast)
-    mock_ws_manager.send_station_status_update.assert_not_called()
+    broadcaster.publish.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -494,14 +357,15 @@ async def test_watchdog_broadcast_when_status_changes():
     from app.services.watchdog import WatchdogService
     from app.models import ScraperStatus
     from datetime import datetime, UTC, timedelta
-    from unittest.mock import AsyncMock
+    from unittest.mock import MagicMock
+
+    from app.services.live_updates import status_event
 
     # Create watchdog service
     watchdog = WatchdogService()
 
-    # Mock websocket manager
-    mock_ws_manager = AsyncMock()
-    watchdog.set_websocket_manager(mock_ws_manager)
+    broadcaster = MagicMock()
+    watchdog.set_broadcaster(broadcaster)
 
     # Create initial status
     initial_status = ScraperStatus(
@@ -533,8 +397,7 @@ async def test_watchdog_broadcast_when_status_changes():
     # Handle the update
     await watchdog.handle_scraper_status_update(updated_status)
 
-    # Assert that websocket manager WAS called (broadcast happened)
-    mock_ws_manager.send_station_status_update.assert_called_once_with("CYTZ", watchdog)
+    broadcaster.publish.assert_called_once_with("CYTZ", status_event(updated_status))
 
 
 @pytest.mark.asyncio
@@ -543,14 +406,15 @@ async def test_watchdog_broadcast_when_retry_count_changes():
     from app.services.watchdog import WatchdogService
     from app.models import ScraperStatus
     from datetime import datetime, UTC, timedelta
-    from unittest.mock import AsyncMock
+    from unittest.mock import MagicMock
+
+    from app.services.live_updates import status_event
 
     # Create watchdog service
     watchdog = WatchdogService()
 
-    # Mock websocket manager
-    mock_ws_manager = AsyncMock()
-    watchdog.set_websocket_manager(mock_ws_manager)
+    broadcaster = MagicMock()
+    watchdog.set_broadcaster(broadcaster)
 
     # Create initial status
     initial_status = ScraperStatus(
@@ -582,5 +446,4 @@ async def test_watchdog_broadcast_when_retry_count_changes():
     # Handle the update
     await watchdog.handle_scraper_status_update(updated_status)
 
-    # Assert that websocket manager WAS called (broadcast happened)
-    mock_ws_manager.send_station_status_update.assert_called_once_with("CYTZ", watchdog)
+    broadcaster.publish.assert_called_once_with("CYTZ", status_event(updated_status))

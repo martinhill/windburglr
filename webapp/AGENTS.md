@@ -30,7 +30,7 @@ npm run test:run                             # frontend tests (Vitest)
 ### Python (main.py, app/)
 - Use async/await for all database operations
 - Import order: stdlib, third-party, local (enforced by ruff)
-- Type hints required, in modern syntax: `int | None`, `list[WebSocket]`
+- Type hints required, in modern syntax: `int | None`, `list[str]`
 - Error handling: Use HTTPException for API errors, log with logger.error()
 - Naming: snake_case for functions/variables, PascalCase for classes
 - Use `datetime.UTC` for all UTC operations, never naive datetimes
@@ -44,12 +44,17 @@ npm run test:run                             # frontend tests (Vitest)
 
 ## Application wiring
 
-- `app/lifespan.py` creates every service once at startup (pool, cache, services, WebSocket
-  manager, Postgres listener, cache hydration) and stores it on `app.state`; it shuts them down
+- `app/lifespan.py` creates every service once at startup (pool, cache, services, live-update
+  broadcaster, Postgres listener, cache hydration) and stores it on `app.state`; it shuts them down
   in reverse. Routes get them through `app/dependencies.py`, which reads `app.state`; don't add
   module-level singletons.
 - Tests build apps with `main.create_app(StartupOptions(...))` rather than overriding
   dependencies. `make_test_client` starts the app after the test has seeded mock data.
+- Test live streams with `tests/sse.open_sse(app, url)`, on an app started with the
+  `start_mock_app` fixture (or `app_with_bulk_data` for a real database), so the stream and
+  the notifications a test triggers share one event loop. httpx's ASGITransport and
+  `TestClient` aren't suitable: one waits for the never-ending body, the other runs the app on
+  another thread.
 
 ## Critical Rules
 - **ALL database timestamps are UTC** - never convert in backend

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { filterOldObservations, loadHistoricalData, fillDataGap } from './data.js'
+import { filterOldObservations, loadHistoricalData } from './data.js'
 
 describe('Data Utilities', () => {
   
@@ -135,107 +135,6 @@ describe('Data Utilities', () => {
       global.Sentry = { captureException: vi.fn() }
 
       await expect(loadHistoricalData('CYYZ', 6, true)).rejects.toThrow('Invalid JSON')
-    })
-  })
-
-  describe('fillDataGap', () => {
-    const mockResponse = {
-      winddata: [
-        [1640995500, 270, 15, 18],
-        [1640995560, 275, 16, 19]
-      ]
-    }
-
-    beforeEach(() => {
-      global.fetch = vi.fn()
-      vi.spyOn(Date.prototype, 'toISOString').mockImplementation(function() {
-        return '2022-01-01T12:00:00.000Z'
-      })
-    })
-
-    afterEach(() => {
-      vi.restoreAllMocks()
-    })
-
-    it('should return empty array when not in live mode', async () => {
-      const result = await fillDataGap('CYYZ', 1640995200, 6, false)
-      expect(result).toEqual([])
-      expect(global.fetch).not.toHaveBeenCalled()
-    })
-
-    it('should load data when no last observation time', async () => {
-      global.fetch.mockResolvedValueOnce({
-        json: () => Promise.resolve(mockResponse)
-      })
-
-      const result = await fillDataGap('CYYZ', null, 6, true)
-
-      expect(global.fetch).toHaveBeenCalledWith('/api/wind?stn=CYYZ&hours=6')
-      expect(result).toEqual(mockResponse.winddata)
-    })
-
-    it('should fetch data gap successfully', async () => {
-      global.fetch.mockResolvedValueOnce({
-        json: () => Promise.resolve(mockResponse)
-      })
-
-      const result = await fillDataGap('CYYZ', 1640995200, 6, true)
-
-      expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/api/wind?stn=CYYZ&from_time=')
-      )
-      expect(result).toEqual(mockResponse.winddata)
-    })
-
-    it('should handle empty response data', async () => {
-      global.fetch.mockResolvedValueOnce({
-        json: () => Promise.resolve({ winddata: [] })
-      })
-
-      const result = await fillDataGap('CYYZ', 1640995200, 6, true)
-      expect(result).toEqual([])
-    })
-
-    it('should handle fetch errors gracefully', async () => {
-      const error = new Error('Network error')
-      global.fetch.mockRejectedValueOnce(error)
-      global.Sentry = { captureException: vi.fn() }
-
-      const result = await fillDataGap('CYYZ', 1640995200, 6, true)
-
-      expect(result).toEqual([])
-      expect(global.Sentry.captureException).toHaveBeenCalledWith(error)
-    })
-
-    it('should construct correct time range URLs', async () => {
-      global.fetch.mockResolvedValueOnce({
-        json: () => Promise.resolve(mockResponse)
-      })
-
-      // Mock specific ISO string behavior
-      const mockToISOString = vi.fn()
-        .mockReturnValueOnce('2022-01-01T11:00:00.000Z') // from_time
-        .mockReturnValueOnce('2022-01-01T12:00:00.000Z') // to_time
-      
-      const originalDate = Date
-      global.Date = class extends originalDate {
-        constructor(...args) {
-          super(...args)
-          this.toISOString = mockToISOString
-        }
-        
-        static now() {
-          return originalDate.now()
-        }
-      }
-
-      await fillDataGap('CYYZ', 1640995200, 6, true)
-
-      expect(global.fetch).toHaveBeenCalledWith(
-        '/api/wind?stn=CYYZ&from_time=2022-01-01T11:00:00&to_time=2022-01-01T12:00:00'
-      )
-
-      global.Date = originalDate
     })
   })
 })

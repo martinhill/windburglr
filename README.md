@@ -6,7 +6,7 @@ Windburglr
 This project is a monorepo containing two sub-projects:
 
 -   **`scraper`**: A Python application responsible for scraping wind data from various sources and storing it in a database. For more details, see the [`scraper/README.md`](scraper/README.md).
--   **`webapp`**: A FastAPI web application that provides a web interface for viewing the collected wind data. It features real-time updates via WebSockets and interactive charts. For more details, see the [`webapp/README.md`](webapp/README.md).
+-   **`webapp`**: A FastAPI web application that provides a web interface for viewing the collected wind data. It features real-time updates via Server-Sent Events and interactive charts. For more details, see the [`webapp/README.md`](webapp/README.md).
 
 ## Development environment
 

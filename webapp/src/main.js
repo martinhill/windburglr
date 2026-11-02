@@ -6,7 +6,7 @@ const windburglrLogo = '/static/windburglr.svg';
 
 import { store } from './store/store.js';
 import { ChartManager } from './chart/config.js';
-import { WebSocketManager } from './websocket/connection.js';
+import { LiveStream } from './live/stream.js';
 import { loadHistoricalData } from './utils/data.js';
 import { getYesterdayDate, navigateToDate } from './utils/time.js';
 import { ConditionsManager } from './ui/conditions.js';
@@ -70,7 +70,7 @@ setupGlobalFunctions();
 class WindBurglrApp {
     constructor() {
         this.chartManager = null;
-        this.wsManager = null;
+        this.liveStream = null;
         this.conditionsManager = null;
         this.memorialPopupManager = null;
         this.scraperStatusManager = null;
@@ -109,7 +109,7 @@ class WindBurglrApp {
 
             // Initialize scraper status manager
             this.scraperStatusManager = new ScraperStatusManager();
-            // Make it globally available for WebSocket manager
+            // Make it globally available for the live stream
             window.scraperStatusManager = this.scraperStatusManager;
 
             // Setup mobile orientation handling
@@ -119,9 +119,10 @@ class WindBurglrApp {
             // Load initial data
             await this.loadInitialData();
 
-            // Setup WebSocket for live data
+            // Live updates
             if (config.isLive) {
-                this.setupWebSocket();
+                this.liveStream = new LiveStream();
+                this.liveStream.start();
             }
 
             // Setup event listeners
@@ -180,11 +181,6 @@ class WindBurglrApp {
             console.error('Error loading initial data:', error);
             store.setLoading(false, 'data-load');
         }
-    }
-
-    setupWebSocket() {
-        this.wsManager = new WebSocketManager();
-        this.wsManager.connect();
     }
 
     setupEventListeners() {
@@ -249,8 +245,8 @@ class WindBurglrApp {
         if (this.scraperStatusManager) {
             this.scraperStatusManager.destroy();
         }
-        if (this.wsManager) {
-            this.wsManager.disconnect();
+        if (this.liveStream) {
+            this.liveStream.stop();
         }
     }
 }

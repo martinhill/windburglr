@@ -39,8 +39,15 @@ SCRAPER_STATUS_TIMEOUT_MINUTES = int(
     os.environ.get("SCRAPER_STATUS_TIMEOUT_MINUTES", "5")
 )
 
-# WebSocket configuration
-WEBSOCKET_PING_TIMEOUT = float(os.environ.get("WEBSOCKET_PING_TIMEOUT", "60.0"))
+# Live updates (Server-Sent Events, /api/live/{station})
+# Seconds between heartbeats on an idle stream. Clients treat a stream that has been
+# silent for 3 intervals as dead (src/live/stream.js), so keep the two in step.
+LIVE_HEARTBEAT_INTERVAL = 15.0
+# Reconnection delay the browser uses after a stream drops, in milliseconds
+LIVE_RETRY_MS = 3000
+# Longest stretch of missed observations replayed to a reconnecting client: the
+# widest live-view window
+LIVE_REPLAY_MAX_HOURS = 24
 
 # Postgres listener monitoring configuration
 POSTGRES_MONITOR_INTERVAL = float(os.environ.get("POSTGRES_MONITOR_INTERVAL", "30.0"))

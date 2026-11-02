@@ -15,11 +15,11 @@ install: ## Install Python and Node.js dependencies
 	uv sync
 	npm install
 
-dev: ## Start the backend with Vite hot reloading (Ctrl-C stops both)
-	@$(LOAD_ENV); export DEV_MODE=true; \
-	uv run fastapi dev --host 0.0.0.0 --port $(PORT) & backend=$$!; \
+dev: ## Start the backend and Vite, open http://localhost:5173 (DEV_HOST=<name> to listen beyond localhost)
+	@$(LOAD_ENV); export DEV_MODE=true BACKEND_PORT=$(PORT); \
+	uv run fastapi dev --host 127.0.0.1 --port $(PORT) & backend=$$!; \
 	trap 'kill $$backend 2>/dev/null; wait $$backend 2>/dev/null' EXIT INT TERM; \
-	npm run dev
+	npm run dev -- $(if $(DEV_HOST),--host $(DEV_HOST))
 
 backend: ## Start the backend, serving the built frontend from dist/ (run `make build` first)
 	@$(LOAD_ENV); uv run fastapi dev --host 0.0.0.0 --port $(PORT)

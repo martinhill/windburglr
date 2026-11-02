@@ -2,8 +2,7 @@
 Dependency providers for FastAPI routes.
 
 The services are created once at startup by the lifespan (`app/lifespan.py`) and kept on
-`app.state`; these providers hand them to routes. `HTTPConnection` covers both HTTP
-requests and WebSockets.
+`app.state`; these providers hand them to routes.
 """
 
 import glob
@@ -14,10 +13,10 @@ from starlette.requests import HTTPConnection
 
 from .cache.abc import CacheBackend
 from .services.cache_hydration import CacheHydrator
+from .services.live_updates import LiveUpdateBroadcaster
 from .services.notifications import PostgresNotificationManager
 from .services.station import StationService
 from .services.watchdog import WatchdogService
-from .services.websocket import WebSocketManager
 from .services.wind_data import WindDataService
 
 
@@ -29,12 +28,12 @@ async def get_cache_backend(conn: HTTPConnection) -> CacheBackend:
     return conn.app.state.cache_backend
 
 
-async def get_websocket_ping_timeout(conn: HTTPConnection) -> float:
-    return conn.app.state.websocket_ping_timeout
+async def get_live_heartbeat_interval(conn: HTTPConnection) -> float:
+    return conn.app.state.live_heartbeat_interval
 
 
-async def get_websocket_manager(conn: HTTPConnection) -> WebSocketManager:
-    return conn.app.state.websocket_manager
+async def get_live_broadcaster(conn: HTTPConnection) -> LiveUpdateBroadcaster:
+    return conn.app.state.live_broadcaster
 
 
 async def get_watchdog_service(conn: HTTPConnection) -> WatchdogService:
