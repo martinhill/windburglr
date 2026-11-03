@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from windscraper.config import (
     Config,
+    config_from_dict,
     StationConfig,
     get_sentry_config,
     load_config_from_base64,
@@ -139,6 +140,8 @@ class TestConfig:
         assert config.db_url is None  # default value
         assert config.output_mode == "postgres"  # default value
         assert config.stations == []  # default value
+        assert config.parser_refresh_interval == 3600
+        assert config.heartbeat_monitor is True
 
     def test_config_with_multiple_stations(self):
         """Test Config with multiple stations."""
@@ -209,6 +212,8 @@ url = "https://minimal.example.com"
             assert config.refresh_rate == 60
             assert config.db_url is None
             assert config.output_mode == "postgres"
+            assert config.parser_refresh_interval == 3600
+            assert config.heartbeat_monitor is True
             assert len(config.stations) == 1
 
             station = config.stations[0]
@@ -398,3 +403,16 @@ def test_sentry_sample_rates_from_env(monkeypatch, traces, profiles, expected):
             monkeypatch.setenv(name, value)
     config = get_sentry_config()
     assert (config["traces_sample_rate"], config["profiles_sample_rate"]) == expected
+
+
+def test_monitoring_options_from_toml():
+    """parser_refresh_interval and heartbeat_monitor are read from [general]."""
+    config = config_from_dict(
+        {
+            "general": {"parser_refresh_interval": 0, "heartbeat_monitor": False},
+            "stations": [],
+        }
+    )
+
+    assert config.parser_refresh_interval == 0
+    assert config.heartbeat_monitor is False

@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import sys
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import fields
 from datetime import UTC, datetime, tzinfo
@@ -14,11 +15,13 @@ import aiohttp
 import sentry_sdk
 from Crypto.Cipher import AES  # pyright: ignore[reportMissingModuleSource]
 from Crypto.Util.Padding import unpad  # pyright: ignore[reportMissingModuleSource]
+from sentry_sdk.crons import MonitorStatus, capture_checkin
 
 from .config import Config, StationConfig
 from .models import (
     ConfigurationError,
     MaxRetriesExceededError,
+    ParserRefreshError,
     StaleWindObservationError,
     WindburglrError,
     WindObs,
@@ -47,6 +50,55 @@ def station_config_context(station_config: StationConfig) -> dict[str, Any]:
         value = getattr(station_config, f.name)
         context[f.name] = str(value) if isinstance(value, tzinfo) else value
     return context
+
+
+# The scraper's Sentry Cron monitor. Sentry's Developer plan includes one monitor, so
+# there's one for the whole scraper, not one per station
+HEARTBEAT_MONITOR_SLUG = "windburglr-scraper"
+# Expected check-in interval and margin, in minutes. A cycle can take a few minutes
+# when a station times out and its requests are retried, so Sentry reports a missed
+# check-in only after 10 minutes without one
+HEARTBEAT_INTERVAL_MINUTES = 5
+HEARTBEAT_CHECKIN_MARGIN_MINUTES = 5
+
+
+class Heartbeat:
+    """Checks in to the scraper's Sentry Cron heartbeat monitor.
+
+    Called after each scraping cycle, whatever the stations' results, so it shows the
+    scraper is running: Sentry reports a missed check-in when the scraper is down,
+    crash-looping or hung, not when a station is down or its data is stale (the webapp
+    shows those). The monitor is created or updated from ``monitor_config`` on each
+    check-in. Check-ins are at most one per ``min_interval`` seconds, well within
+    Sentry's rate limit. A no-op when Sentry isn't enabled.
+    """
+
+    def __init__(self, min_interval: float = 60.0):
+        self.min_interval = min_interval
+        self._last_checkin: float | None = None
+
+    def beat(self) -> None:
+        now = time.monotonic()
+        if (
+            self._last_checkin is not None
+            and now - self._last_checkin < self.min_interval
+        ):
+            return
+        self._last_checkin = now
+        capture_checkin(
+            monitor_slug=HEARTBEAT_MONITOR_SLUG,
+            status=MonitorStatus.OK,
+            monitor_config={
+                "schedule": {
+                    "type": "interval",
+                    "value": HEARTBEAT_INTERVAL_MINUTES,
+                    "unit": "minute",
+                },
+                "checkin_margin": HEARTBEAT_CHECKIN_MARGIN_MINUTES,
+                "failure_issue_threshold": 1,
+                "recovery_threshold": 1,
+            },
+        )
 
 
 class ObservationTracker:
@@ -273,10 +325,16 @@ class Scraper:
         tracker: ObservationTracker,
         retry_handler: RetryHandler,
         parser_factory: ParserFactory | None = None,
+        parser_refresh_interval: float | None = None,
     ):
         """Either ``parser`` or ``parser_factory`` is required. With a factory, the parser
         is created on first use, and created again after a parse failure, so a decryption
-        key that changed is fetched again."""
+        key that changed is fetched again.
+
+        With a factory and ``parser_refresh_interval`` (seconds), the parser is also made
+        again on that interval while it still works, which exercises key discovery: a
+        failure is reported as a ``ParserRefreshError`` and the current parser is kept.
+        """
         self.station_config = station_config
         self.data_requester = data_requester
         self.parser = parser
@@ -285,6 +343,9 @@ class Scraper:
         self.status_handler = status_handler
         self.tracker = tracker
         self.retry_handler = retry_handler
+        self.parser_refresh_interval = parser_refresh_interval
+        # time.monotonic() when the factory last made, or tried to make, the parser
+        self._parser_made_at: float | None = None
 
     @classmethod
     def set_output_handler(cls, output_handler: OutputHandler):
@@ -301,6 +362,7 @@ class Scraper:
         data_requester: DataRequester,
         parser: Parser | None = None,
         parser_factory: ParserFactory | None = None,
+        parser_refresh_interval: float | None = None,
     ):
         """Factory method to create a Scraper instance."""
         if cls.output_handler is None:
@@ -316,6 +378,7 @@ class Scraper:
             cls.tracker,
             RetryHandler(),
             parser_factory,
+            parser_refresh_interval,
         )
 
     async def _get_parser(self) -> Parser:
@@ -327,7 +390,64 @@ class Scraper:
             except ValueError as e:
                 # Key not found, or invalid config; network errors propagate as they are
                 raise ConfigurationError(f"Parser setup failed: {e}") from e
+            self._parser_made_at = time.monotonic()
         return self.parser
+
+    async def _refresh_parser_if_due(self, parser: Parser, raw_data: str) -> Parser:
+        """Make the parser again if it's due, and use the new one if it parses
+        ``raw_data``. Otherwise keep ``parser``, reporting why. Never raises.
+
+        The parser in use (with its decryption key) can keep working long after the way
+        it was made stopped working, such as when the site moves the key; this finds out
+        while the scraper is still running, not at its next restart.
+        """
+        if (
+            self.parser_factory is None
+            or not self.parser_refresh_interval
+            or self._parser_made_at is None
+            or time.monotonic() - self._parser_made_at < self.parser_refresh_interval
+        ):
+            return parser
+        # Due again a full interval from now, whether this attempt works or not
+        self._parser_made_at = time.monotonic()
+        station = self.station_config.name
+        try:
+            candidate = await self.parser_factory()
+        except (aiohttp.ClientError, TimeoutError) as e:
+            logger.warning(
+                "Parser refresh for station %s failed on the network, keeping the "
+                "current parser: %r",
+                station,
+                e,
+            )
+            return parser
+        except Exception as e:
+            self._report_refresh_failure("Making the parser again failed", e)
+            return parser
+        try:
+            candidate(raw_data)
+        except Exception as e:
+            self._report_refresh_failure("The new parser can't parse current data", e)
+            return parser
+        logger.info("Refreshed parser for station %s", station)
+        self.parser = candidate
+        return candidate
+
+    def _report_refresh_failure(self, message: str, cause: Exception) -> None:
+        error = ParserRefreshError(f"{message}: {cause}")
+        error.__cause__ = cause
+        logger.error(
+            "%s for station %s; still using the current parser",
+            message,
+            self.station_config.name,
+            exc_info=error,
+        )
+
+    async def _record_new_obs(self, obs: WindObs) -> None:
+        station = self.station_config.name
+        self.tracker.set_obs_last_timestamp(obs)
+        await self.output_handler(obs)
+        await self.status_handler(station, "healthy", "")
 
     async def run_once(self):
         """Fetch and process once, logging any failure for this station.
@@ -364,8 +484,11 @@ class Scraper:
         station = self.station_config.name
         try:
             logger.debug("Fetching data for station %s", station)
-            raw_data = await self.retry_handler.execute_with_retry(self.data_requester)
+            raw_data: str = await self.retry_handler.execute_with_retry(
+                self.data_requester
+            )
             parser = await self._get_parser()
+            parser = await self._refresh_parser_if_due(parser, raw_data)
             logger.debug("Parsing data for station %s", station)
             try:
                 obs = parser(raw_data)
@@ -375,10 +498,8 @@ class Scraper:
                     self.parser = None
                 raise ConfigurationError(f"Parse error: {e}") from e
             if self.tracker.is_new_obs(obs):
-                self.tracker.set_obs_last_timestamp(obs)
                 logger.debug("Emitting new observation for station %s", station)
-                await self.output_handler(obs)
-                await self.status_handler(station, "healthy", "")
+                await self._record_new_obs(obs)
             else:
                 # Check if we should mark as stale based on elapsed time
                 last_successful_time = self.tracker.get_last_obs_time(station)
@@ -413,10 +534,8 @@ class Scraper:
                         return
                 else:
                     # First observation, set as successful
-                    self.tracker.set_obs_last_timestamp(obs)
                     logger.debug("First observation for station %s", station)
-                    await self.output_handler(obs)
-                    await self.status_handler(station, "healthy", "")
+                    await self._record_new_obs(obs)
         except ConfigurationError as e:
             await self.status_handler(station, "parse_error", str(e))
             raise

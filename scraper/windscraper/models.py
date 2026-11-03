@@ -29,6 +29,15 @@ class ConfigurationError(WindburglrError):
     """
 
 
+class ParserRefreshError(WindburglrError):
+    """Making the station's parser again failed while the current one still works.
+
+    For example, the decryption key can no longer be found on the site, though the key
+    found at startup still decrypts the data. Nothing is lost yet, but the next restart
+    would fail, so it's reported to Sentry as an error.
+    """
+
+
 class WindObs(BaseModel):
     station: str
     direction: int | None
