@@ -27,6 +27,11 @@ repository; see [Deployment](../README.md#deployment).
 -   `refresh_rate`: seconds between scraping cycles (default `60`).
 -   `db_url`: PostgreSQL URL. `--database-url` and then `DATABASE_URL` take precedence.
 -   `output_mode`: `postgres` (default) or `stdout`.
+-   `parser_refresh_interval`: seconds between making each station's parser again, which
+    fetches its decryption key again (default `3600`; `0` disables). See
+    [Error handling](#error-handling).
+-   `heartbeat_monitor`: check in to the scraper's Sentry Cron monitor after each cycle
+    (default `true`). See [Error handling](#error-handling).
 
 ### `[[stations]]`
 
@@ -87,6 +92,19 @@ A failing station doesn't stop the others. Errors are recorded in `scraper_statu
 -   Configuration errors (the payload no longer matches the config, or the decryption key
     can't be found or no longer works) need a code or config change, so they're reported to
     Sentry as errors with the station's config attached.
+-   Key discovery is checked while the scraper runs. The decryption key is found once, at
+    startup, and can keep working long after the site has moved it, so the scraper would
+    only find out at its next restart. Every `parser_refresh_interval` each station's
+    parser is made again, finding the key again, and used from then on if it parses the
+    current response. If it can't be made, or can't parse the response, a
+    `ParserRefreshError` is reported to Sentry and the current parser is kept, so data
+    keeps flowing while the config is fixed. Network failures are only logged.
+-   The scraper checks in to a Sentry Cron heartbeat monitor, `windburglr-scraper`, after
+    each cycle (at most once a minute), whatever the stations' results. Sentry creates the
+    monitor on the first check-in and reports a missed check-in after 10 minutes without
+    one: the scraper is down, crash-looping or hung. A station that is down or returns
+    stale data doesn't affect it; the webapp shows those. There's one monitor, not one per
+    station, as Sentry's Developer plan includes only one.
 
 Sentry is enabled when `SENTRY_DSN` is set, from the environment or a `.env.sentry` file,
 along with `SENTRY_ENVIRONMENT` and `SENTRY_RELEASE`. `SENTRY_TRACES_SAMPLE_RATE` (default

@@ -19,6 +19,7 @@ from .database import (
 )
 from .models import WindburglrError, WindObs
 from .scraper import (
+    Heartbeat,
     OutputHandler,
     Scraper,
     StatusHandler,
@@ -145,7 +146,9 @@ def main():
         logger.info("KeyboardInterrupt received - pulling QR!")
 
 
-async def async_main(config, output_handler_cls):
+async def async_main(
+    config: Config, output_handler_cls: type[DatabaseHandler | StdoutHandler]
+):
     async with (
         WebRequesterContext(config) as requester_builder,
         output_handler_cls(config) as output_ctx,
@@ -163,9 +166,12 @@ async def async_main(config, output_handler_cls):
                 parser_factory=functools.partial(
                     create_parser, station_config, requester_builder.session
                 ),
+                parser_refresh_interval=config.parser_refresh_interval or None,
             )
             for station_config in config.stations
         ]
+
+        heartbeat = Heartbeat() if config.heartbeat_monitor else None
 
         logger.info("Starting main loop")
         while True:
@@ -181,3 +187,6 @@ async def async_main(config, output_handler_cls):
                     result, WindburglrError
                 ):
                     raise result
+            # The scraper is running, whatever the stations' results
+            if heartbeat:
+                heartbeat.beat()

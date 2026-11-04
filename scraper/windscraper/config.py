@@ -82,6 +82,11 @@ class Config:
     refresh_rate: int = 60
     db_url: str | None = None
     output_mode: str = "postgres"  # or "stdout"
+    # Seconds between making each station's parser again (fetching its decryption key
+    # again), to find a broken key discovery before a restart does; 0 disables
+    parser_refresh_interval: int = 3600
+    # Check in to the scraper's Sentry Cron heartbeat monitor after each cycle
+    heartbeat_monitor: bool = True
 
 
 def load_config_from_toml(file_path: str) -> Config:
@@ -129,6 +134,8 @@ def config_from_dict(data: dict[str, Any]) -> Config:
         refresh_rate=general.get("refresh_rate", 60),
         db_url=general.get("db_url"),
         output_mode=general.get("output_mode", "postgres"),
+        parser_refresh_interval=general.get("parser_refresh_interval", 3600),
+        heartbeat_monitor=general.get("heartbeat_monitor", True),
     )
 
 
