@@ -154,7 +154,9 @@ changes anyway. Extra arguments go to `flyctl deploy`.
     the `SCRAPER_CONFIG` secret (base64-encoded TOML). When `scraper/windburglr.prod.toml` exists, the
     deploy script stages it as that secret first. CI has no copy of the file, so it deploys with the
     secret already set; to change the config, run the script by hand. Use `SCRAPER_CONFIG_FILE` to name
-    a different file. Locally, the scraper reads `--config-file` (default `windburglr.toml`) when `SCRAPER_CONFIG` is unset.
+    a different file. `fly-deploy.sh --config-only` only stages the secret: it takes effect with the
+    next deploy, or right away with `flyctl secrets deploy` (run in `scraper/`). Locally, the scraper
+    reads `--config-file` (default `windburglr.toml`) when `SCRAPER_CONFIG` is unset.
 
 Runtime settings such as `DATABASE_URL` and `SENTRY_DSN` are Fly secrets (`flyctl secrets list`).
 
@@ -162,7 +164,20 @@ Runtime settings such as `DATABASE_URL` and `SENTRY_DSN` are Fly secrets (`flyct
 
 New production issues in Sentry can start an automated fix run that opens a pull request as
 `windburglr-autofix[bot]`. The bot can only push branches and open PRs on this repository; it never
-merges. The auto-fix agents have no Fly.io access: they never deploy, read or change Fly secrets, and
-never touch `SCRAPER_CONFIG`. Updating the scraper's station config stays a manual step, run from a
-machine with Fly access via `scraper/fly-deploy.sh` (see above). A bot PR is deployed only after a
-human merges it to `master`, which triggers CI as usual.
+merges. A bot PR is deployed only after a human merges it to `master`, which triggers CI as usual.
+
+The one exception is the scraper's station config, so that a station site change can be fixed
+quickly. When a `ParserRefreshError` or another scraper failure comes from a change to a station's
+site, the agent may update `SCRAPER_CONFIG` with `scraper/fly-deploy.sh --config-only`, using a Fly
+deploy token scoped to the `windburglr-scraper` app. It never deploys the webapp or touches its
+secrets.
+
+-   **Config-only fix**: the agent checks the new config against the live site, stages it and applies
+    it with `flyctl secrets deploy`, which restarts the scraper. There's no PR (the config isn't in
+    the repository); the run's thread has the diff and the commands to adopt or revert it.
+-   **Code and config fix**: the agent stages the config and opens a PR. The config goes live with the
+    deploy when the PR is merged. **If the PR is rejected for any reason, revert the staged
+    `SCRAPER_CONFIG`**, or the next scraper deploy applies it anyway; the PR says how.
+
+Either way, copy an accepted config into your own `windburglr.prod.toml`, or the next manual
+`fly-deploy.sh` run reverts it.
