@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { filterOldObservations, loadHistoricalData } from './data.js'
+import { filterOldObservations, loadHistoricalData, HistoricalDataError } from './data.js'
 
 describe('Data Utilities', () => {
   
@@ -86,26 +86,35 @@ describe('Data Utilities', () => {
       vi.restoreAllMocks()
     })
 
+    const ok = (body) => ({ ok: true, status: 200, json: () => Promise.resolve(body) })
+
+    beforeEach(() => {
+      global.Sentry = { captureException: vi.fn() }
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+    })
+
+    afterEach(() => {
+      delete global.Sentry
+    })
+
     it('should load live historical data with correct URL', async () => {
-      global.fetch.mockResolvedValueOnce({
-        json: () => Promise.resolve(mockResponse)
-      })
+      global.fetch.mockResolvedValueOnce(ok(mockResponse))
 
       const result = await loadHistoricalData('CYYZ', 6, true)
 
       expect(global.fetch).toHaveBeenCalledWith('/api/wind?stn=CYYZ&hours=6')
       expect(result).toEqual(mockResponse.winddata)
+      expect(global.Sentry.captureException).not.toHaveBeenCalled()
     })
 
     it('should load historical data with date range', async () => {
-      global.fetch.mockResolvedValueOnce({
-        json: () => Promise.resolve(mockResponse)
-      })
+      global.fetch.mockResolvedValueOnce(ok(mockResponse))
 
       const result = await loadHistoricalData(
-        'CYYZ', 
-        null, 
-        false, 
+        'CYYZ',
+        null,
+        false,
         '2022-01-01T00:00:00',
         '2022-01-01T23:59:59'
       )
@@ -116,25 +125,83 @@ describe('Data Utilities', () => {
       expect(result).toEqual(mockResponse.winddata)
     })
 
-    it('should handle fetch errors gracefully', async () => {
-      const error = new Error('Network error')
+    it.each(['Load failed', 'Failed to fetch', 'NetworkError when attempting to fetch resource.'])(
+      'should report a network failure (%s) as a warning',
+      async (message) => {
+        const error = new TypeError(message)
+        global.fetch.mockRejectedValueOnce(error)
+
+        await expect(loadHistoricalData('CYYZ', 6, true)).rejects.toBe(error)
+        expect(global.Sentry.captureException).toHaveBeenCalledWith(
+          error,
+          expect.objectContaining({ level: 'warning', extra: { url: '/api/wind?stn=CYYZ&hours=6' } })
+        )
+      }
+    )
+
+    it('should not report an aborted request', async () => {
+      const error = new DOMException('The operation was aborted.', 'AbortError')
       global.fetch.mockRejectedValueOnce(error)
 
-      // Mock Sentry
-      global.Sentry = { captureException: vi.fn() }
-
-      await expect(loadHistoricalData('CYYZ', 6, true)).rejects.toThrow('Network error')
-      expect(global.Sentry.captureException).toHaveBeenCalledWith(error)
+      await expect(loadHistoricalData('CYYZ', 6, true)).rejects.toBe(error)
+      expect(global.Sentry.captureException).not.toHaveBeenCalled()
     })
 
-    it('should handle JSON parsing errors', async () => {
-      global.fetch.mockResolvedValueOnce({
-        json: () => Promise.reject(new Error('Invalid JSON'))
+    it('should report an unexpected fetch error as an error', async () => {
+      const error = new Error('Something else')
+      global.fetch.mockRejectedValueOnce(error)
+
+      await expect(loadHistoricalData('CYYZ', 6, true)).rejects.toBe(error)
+      expect(global.Sentry.captureException).toHaveBeenCalledWith(
+        error,
+        expect.objectContaining({ level: 'error' })
+      )
+    })
+
+    it('should report an HTTP error status as an error', async () => {
+      const json = vi.fn()
+      global.fetch.mockResolvedValueOnce({ ok: false, status: 502, json })
+
+      await expect(loadHistoricalData('CYYZ', 6, true)).rejects.toMatchObject({
+        name: 'HistoricalDataError',
+        status: 502,
+        message: 'Historical data request failed: HTTP 502',
       })
+      expect(json).not.toHaveBeenCalled()
+      expect(global.Sentry.captureException).toHaveBeenCalledWith(
+        expect.any(HistoricalDataError),
+        expect.objectContaining({ level: 'error' })
+      )
+    })
 
-      global.Sentry = { captureException: vi.fn() }
+    it('should reject a response without winddata', async () => {
+      global.fetch.mockResolvedValueOnce(ok({ detail: 'nope' }))
 
-      await expect(loadHistoricalData('CYYZ', 6, true)).rejects.toThrow('Invalid JSON')
+      await expect(loadHistoricalData('CYYZ', 6, true)).rejects.toThrow(
+        'Historical data response has no winddata array'
+      )
+      expect(global.Sentry.captureException).toHaveBeenCalledWith(
+        expect.any(HistoricalDataError),
+        expect.objectContaining({ level: 'error' })
+      )
+    })
+
+    it('should report JSON parsing errors as errors', async () => {
+      const error = new SyntaxError('Invalid JSON')
+      global.fetch.mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.reject(error) })
+
+      await expect(loadHistoricalData('CYYZ', 6, true)).rejects.toBe(error)
+      expect(global.Sentry.captureException).toHaveBeenCalledWith(
+        error,
+        expect.objectContaining({ level: 'error' })
+      )
+    })
+
+    it('should work without Sentry loaded', async () => {
+      delete global.Sentry
+      global.fetch.mockRejectedValueOnce(new TypeError('Load failed'))
+
+      await expect(loadHistoricalData('CYYZ', 6, true)).rejects.toThrow('Load failed')
     })
   })
 })
